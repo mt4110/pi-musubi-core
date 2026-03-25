@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="MUSUBI connects trustworthy encounters on Pi Network.">
+  <meta name="theme-color" content="#0A2F52">
+
+  <link rel="icon" type="image/png" href="favicon.png">
+
+  <title>MUSUBI</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(56, 125, 255, 0.32), transparent 40%),
+        radial-gradient(circle at 85% 10%, rgba(6, 174, 212, 0.3), transparent 45%),
+        linear-gradient(145deg, #07182a, #0d2f50 55%, #17436f);
+      font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    }
+
+    #musubi-splash {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #f4f8ff;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+      z-index: 9999;
+    }
+
+    body.loaded #musubi-splash {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .musubi-brand {
+      text-align: center;
+      width: min(80vw, 320px);
+    }
+
+    .musubi-logo {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
+      border-radius: 20px;
+      display: grid;
+      place-items: center;
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(9, 220, 255, 0.35));
+      box-shadow: 0 20px 60px rgba(4, 8, 20, 0.45);
+      backdrop-filter: blur(4px);
+    }
+
+    .musubi-title {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 0.16em;
+      font-weight: 600;
+    }
+
+    .musubi-tagline {
+      margin: 10px 0 20px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      opacity: 0.86;
+      text-transform: uppercase;
+    }
+
+    .musubi-progress {
+      width: 100%;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(233, 243, 255, 0.28);
+      overflow: hidden;
+    }
+
+    .musubi-bar {
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), #9ce9ff, rgba(255, 255, 255, 0.2));
+      animation: musubi-load 1.6s ease-in-out infinite;
+    }
+
+    @keyframes musubi-load {
+      0% {
+        transform: translateX(-100%);
+      }
+      100% {
+        transform: translateX(250%);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="musubi-splash" role="status" aria-live="polite">
+    <div class="musubi-brand">
+      <div class="musubi-logo">M</div>
+      <h1 class="musubi-title">MUSUBI</h1>
+      <p class="musubi-tagline">Trustworthy encounters on Pi Network</p>
+      <div class="musubi-progress">
+        <span class="musubi-bar"></span>
+      </div>
+    </div>
+  </div>
+  <script src="https://sdk.minepi.com/pi-sdk.js"></script>
+  <script>
+    (function () {
+      function hideSplash() {
+        document.body.classList.add('loaded');
+        window.setTimeout(function () {
+          var splash = document.getElementById('musubi-splash');
+          if (splash) {
+            splash.remove();
+          }
+        }, 450);
+      }
+
+      window.addEventListener('flutter-first-frame', hideSplash, { once: true });
+      window.setTimeout(hideSplash, 12000);
+    })();
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

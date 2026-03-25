@@ -1,0 +1,9 @@
+services:
+  backend:
+    build: .
+    container_name: musubi_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8088:8088"
