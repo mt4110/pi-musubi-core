@@ -1,0 +1,8 @@
+{
+  "@@locale": "en",
+  "appTitle": "Musubi",
+  "signInWithPi": "Sign in with Pi",
+  "signingInWithPi": "Signing in with Pi...",
+  "signInFailed": "Sign-in failed.",
+  "signInCancelled": "Sign-in was cancelled."
+}
