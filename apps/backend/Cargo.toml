@@ -3,6 +3,27 @@ name = "musubi_backend"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    ".",
+    "crates/core-domain",
+    "crates/realm-domain",
+    "crates/settlement-domain",
+    "crates/orchestration",
+]
+default-members = [
+    ".",
+    "crates/core-domain",
+    "crates/realm-domain",
+    "crates/settlement-domain",
+    "crates/orchestration",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -12,3 +33,4 @@ dotenvy = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 tower-http = { version = "0.6.8", features = ["cors"] }
+musubi_settlement_domain = { path = "crates/settlement-domain" }

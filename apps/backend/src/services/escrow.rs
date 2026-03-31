@@ -1,8 +1,14 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use musubi_settlement_domain::EscrowStatus;
+use serde::{Serialize, Serializer};
 
 use crate::SharedState;
 
+/// Temporary PoC escrow glue.
+///
+/// The storage shape and callback-oriented inputs stay in the app crate for now
+/// because they still reflect in-memory PoC behavior rather than lawful domain
+/// truth. Pure settlement concepts live in `musubi_settlement_domain`.
 #[derive(Debug, Clone, Serialize)]
 pub struct EscrowRecord {
     pub payment_id: String,
@@ -11,20 +17,8 @@ pub struct EscrowRecord {
     pub amount_pi: f64,
     pub txid: Option<String>,
     pub updated_at: DateTime<Utc>,
+    #[serde(serialize_with = "serialize_escrow_status")]
     pub status: EscrowStatus,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum EscrowStatus {
-    Funded,
-}
-
-impl EscrowStatus {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Funded => "Funded",
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -35,6 +29,13 @@ pub struct EscrowFundingInput {
     pub amount_pi: f64,
     pub txid: Option<String>,
     pub callback_status: String,
+}
+
+fn serialize_escrow_status<S>(status: &EscrowStatus, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(status.as_str())
 }
 
 pub async fn fund_escrow(state: &SharedState, input: EscrowFundingInput) -> EscrowRecord {
