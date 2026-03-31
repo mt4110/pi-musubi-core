@@ -1,0 +1,4 @@
+[package]
+name = "musubi_orchestration"
+version.workspace = true
+edition.workspace = true

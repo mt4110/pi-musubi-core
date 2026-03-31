@@ -1,0 +1,4 @@
+[package]
+name = "musubi_core_domain"
+version.workspace = true
+edition.workspace = true

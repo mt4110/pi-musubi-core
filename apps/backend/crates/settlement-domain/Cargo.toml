@@ -1,0 +1,7 @@
+[package]
+name = "musubi_settlement_domain"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+musubi_core_domain = { path = "../core-domain" }

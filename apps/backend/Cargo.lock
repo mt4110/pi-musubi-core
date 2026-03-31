@@ -384,11 +384,31 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "musubi_settlement_domain",
  "serde",
  "serde_json",
  "tokio",
  "tower-http",
  "uuid",
+]
+
+[[package]]
+name = "musubi_core_domain"
+version = "0.1.0"
+
+[[package]]
+name = "musubi_orchestration"
+version = "0.1.0"
+
+[[package]]
+name = "musubi_realm_domain"
+version = "0.1.0"
+
+[[package]]
+name = "musubi_settlement_domain"
+version = "0.1.0"
+dependencies = [
+ "musubi_core_domain",
 ]
 
 [[package]]
