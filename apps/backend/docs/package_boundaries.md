@@ -55,6 +55,7 @@ Must not own:
 Owns:
 - pure settlement-facing concepts
 - minimal identifiers for `Promise`, settlement cases, settlement intents, and payment receipts
+- settlement state vocabulary such as primary phase, resolution kind, and overlays
 - backend capability declarations and the pure `SettlementBackend` contract
 - pure `EscrowStatus`
 
@@ -67,6 +68,7 @@ Must not own:
 Note:
 the current PoC escrow record and callback input remain in the app crate on purpose.
 They still encode callback-oriented glue and `f64` PoC data that should not be promoted into long-term domain truth by boundary cleanup alone.
+Typed provider payloads in the domain crate must remain provider-agnostic and must not become arbitrary bytes or JSON convenience blobs.
 
 ### `musubi_orchestration`
 Owns:
