@@ -15,6 +15,21 @@ fn descriptor_supports_explicit_capabilities() {
 }
 
 #[test]
+fn backend_capabilities_are_canonicalized_as_a_set() {
+    let left = BackendCapabilities::new(vec![
+        SettlementCapability::HoldValue,
+        SettlementCapability::ReceiptVerify,
+        SettlementCapability::HoldValue,
+    ]);
+    let right = BackendCapabilities::new(vec![
+        SettlementCapability::ReceiptVerify,
+        SettlementCapability::HoldValue,
+    ]);
+
+    assert_eq!(left, right);
+}
+
+#[test]
 fn backend_pin_mismatch_fails_closed() {
     let backend = TestBackend::new();
     let requested = BackendPin::new(BackendKey::new("other"), BackendVersion::new("2026-04"));

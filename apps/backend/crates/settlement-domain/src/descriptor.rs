@@ -23,7 +23,9 @@ impl BackendDescriptor {
 pub struct BackendCapabilities(Vec<SettlementCapability>);
 
 impl BackendCapabilities {
-    pub fn new(capabilities: Vec<SettlementCapability>) -> Self {
+    pub fn new(mut capabilities: Vec<SettlementCapability>) -> Self {
+        capabilities.sort_unstable();
+        capabilities.dedup();
         Self(capabilities)
     }
 
@@ -48,7 +50,7 @@ pub enum ExecutionMode {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SettlementCapability {
     ReceiptVerify,
     HoldValue,

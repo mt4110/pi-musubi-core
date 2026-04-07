@@ -47,8 +47,8 @@ impl BackendPin {
     }
 
     pub fn matches_descriptor(&self, descriptor: &BackendDescriptor) -> bool {
-        self.backend_key == descriptor.backend_key
-            && self.backend_version == descriptor.backend_version
+        self.backend_key.as_str() == descriptor.backend_key.as_str()
+            && self.backend_version.as_str() == descriptor.backend_version.as_str()
     }
 }
 
