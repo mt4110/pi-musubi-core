@@ -49,6 +49,18 @@ The trait exposes provider-key derivation explicitly through `provider_idempoten
 This makes durable replay safer because orchestration can preserve which backend/version a case was pinned to when the command was created.
 
 `SettlementBackend::ensure_backend_pin(...)` fails closed if a command is routed to a backend descriptor that does not match the pinned backend.
+The async trait entrypoints enforce that guard in default wrapper methods so adapters cannot accidentally skip it.
+
+## Why receipt expectation is single-source
+
+Receipt verification no longer carries separate `expected_amount` and `expected_currency` fields.
+That shape could encode contradictory expectations.
+
+The command now uses a single `VerifyReceiptExpectation` value:
+- `Amount(Money)`
+- `Currency(CurrencyCode)`
+
+This keeps expectation data explicit without allowing mismatched currency state inside one command.
 
 ## Why provider payload is no longer bytes
 
@@ -94,7 +106,7 @@ It does not:
 
 ## Intentionally deferred to Issue #5
 
-This issue does not implement:
+This PR does not implement:
 - transactional outbox / durable inbox runtime
 - retry workers or pruning
 - provider-specific adapters

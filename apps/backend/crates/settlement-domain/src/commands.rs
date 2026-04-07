@@ -5,12 +5,17 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerifyReceiptExpectation {
+    Amount(Money),
+    Currency(CurrencyCode),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyReceiptCmd {
     pub backend: BackendPin,
     pub receipt_id: PaymentReceiptId,
     pub raw_callback_ref: ProviderCallbackId,
-    pub expected_amount: Option<Money>,
-    pub expected_currency: Option<CurrencyCode>,
+    pub expected: Option<VerifyReceiptExpectation>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

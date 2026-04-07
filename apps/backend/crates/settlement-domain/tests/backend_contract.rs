@@ -70,28 +70,28 @@ impl SettlementBackend for TestBackend {
         ))
     }
 
-    async fn verify_receipt(
+    async fn verify_receipt_impl(
         &self,
         _cmd: VerifyReceiptCmd,
     ) -> Result<ReceiptVerification, BackendError> {
         unreachable!("test backend does not execute async paths")
     }
 
-    async fn submit_action(
+    async fn submit_action_impl(
         &self,
         _cmd: SubmitActionCmd,
     ) -> Result<musubi_settlement_domain::SubmissionResult, BackendError> {
         unreachable!("test backend does not execute async paths")
     }
 
-    async fn reconcile_submission(
+    async fn reconcile_submission_impl(
         &self,
         _cmd: ReconcileSubmissionCmd,
     ) -> Result<ReconcileResult, BackendError> {
         unreachable!("test backend does not execute async paths")
     }
 
-    async fn normalize_callback(
+    async fn normalize_callback_impl(
         &self,
         _cmd: NormalizeCallbackCmd,
     ) -> Result<Vec<musubi_settlement_domain::NormalizedObservation>, BackendError> {

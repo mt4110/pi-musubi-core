@@ -17,6 +17,7 @@ mod state;
 pub use backend::{BackendKey, BackendPin, BackendVersion, SettlementBackend};
 pub use commands::{
     NormalizeCallbackCmd, ReconcileSubmissionCmd, SubmitActionCmd, VerifyReceiptCmd,
+    VerifyReceiptExpectation,
 };
 pub use descriptor::{
     BackendCapabilities, BackendDescriptor, ExecutionMode, ProviderFamily, SettlementCapability,

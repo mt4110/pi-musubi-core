@@ -81,19 +81,51 @@ pub trait SettlementBackend: Send + Sync {
     async fn verify_receipt(
         &self,
         cmd: VerifyReceiptCmd,
-    ) -> Result<ReceiptVerification, BackendError>;
+    ) -> Result<ReceiptVerification, BackendError> {
+        self.ensure_backend_pin(&cmd.backend)?;
+        self.verify_receipt_impl(cmd).await
+    }
 
     async fn submit_action(
         &self,
         cmd: SubmitActionCmd,
-    ) -> Result<crate::SubmissionResult, BackendError>;
+    ) -> Result<crate::SubmissionResult, BackendError> {
+        self.ensure_backend_pin(&cmd.backend)?;
+        self.submit_action_impl(cmd).await
+    }
 
     async fn reconcile_submission(
         &self,
         cmd: ReconcileSubmissionCmd,
-    ) -> Result<ReconcileResult, BackendError>;
+    ) -> Result<ReconcileResult, BackendError> {
+        self.ensure_backend_pin(&cmd.backend)?;
+        self.reconcile_submission_impl(cmd).await
+    }
 
     async fn normalize_callback(
+        &self,
+        cmd: NormalizeCallbackCmd,
+    ) -> Result<Vec<crate::NormalizedObservation>, BackendError> {
+        self.ensure_backend_pin(&cmd.backend)?;
+        self.normalize_callback_impl(cmd).await
+    }
+
+    async fn verify_receipt_impl(
+        &self,
+        cmd: VerifyReceiptCmd,
+    ) -> Result<ReceiptVerification, BackendError>;
+
+    async fn submit_action_impl(
+        &self,
+        cmd: SubmitActionCmd,
+    ) -> Result<crate::SubmissionResult, BackendError>;
+
+    async fn reconcile_submission_impl(
+        &self,
+        cmd: ReconcileSubmissionCmd,
+    ) -> Result<ReconcileResult, BackendError>;
+
+    async fn normalize_callback_impl(
         &self,
         cmd: NormalizeCallbackCmd,
     ) -> Result<Vec<crate::NormalizedObservation>, BackendError>;
