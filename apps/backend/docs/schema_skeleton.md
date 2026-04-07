@@ -1,0 +1,105 @@
+# Backend Schema Skeleton
+
+This note records the Day 1 schema skeleton introduced for M1 Issue #3.
+
+The migration strategy is intentionally small:
+- plain PostgreSQL DDL files under `apps/backend/migrations/`
+- ordered, deterministic filenames
+- no ORM layer
+- no runtime migration runner yet
+
+The purpose is to make MUSUBI's physical truth boundaries explicit before Issue #4 and Issue #5 add domain and orchestration behavior.
+
+## Ownership
+
+### `core`
+Owns:
+- mutable account envelopes
+- mutable person-facing profile records
+- future raw PII governed by deletion and compliance workflows
+
+Must not own:
+- ledger postings
+- balances
+- Social Trust truth
+- outbox delivery state
+
+### `dao`
+Owns:
+- Promise coordination facts
+- settlement coordination facts
+- realm-scoped, pseudonymous references used to coordinate state progression
+
+Must not own:
+- immutable financial postings
+- provider callbacks
+- outbox delivery state
+- profile data
+
+### `ledger`
+Owns:
+- append-only journal entries
+- append-only account postings
+- money values stored as integer minor units
+- pseudonymous account references that can point to either Ordinary Account or Controlled Exceptional Account records
+
+Must not own:
+- raw PII
+- mutable profile fields
+- delivery retry state
+- projection-only convenience data
+
+### `outbox`
+Owns:
+- coordination logs for producer delivery
+- consumer inbox dedupe records
+- retry and quarantine placeholders
+- durable message contracts with explicit schema versioning and writer-owned replay ordering
+
+Must not own:
+- authoritative business truth
+- profile data by convenience
+- immutable ledger postings
+
+### `projection`
+Owns:
+- rebuildable Promise read models
+- rebuildable settlement read models
+
+Must not own:
+- authoritative write decisions
+- raw PII
+- append-only ledger truth
+
+## Foundation alignment
+
+This skeleton matches the pinned foundation law in three important ways:
+- PostgreSQL remains the business truth boundary, even before runtime wiring exists.
+- mutable PII-bearing records are physically separated from immutable ledger truth.
+- outbox and projection data are explicitly non-authoritative.
+
+Cross-boundary joins use pseudonymous UUIDs rather than raw profile fields.
+The ledger and outbox schemas intentionally avoid names, bios, birth dates, and other mutable person-facing fields.
+The ledger schema uses neutral `account_id` references so append-only truth does not assume only Ordinary Account participants.
+The outbox schema requires both `schema_version` and `causal_order` so later workers do not drift into timestamp-only replay semantics.
+
+Money safety is also explicit:
+- no `float`
+- no `real`
+- no `double precision`
+- money columns use `BIGINT` fields named `*_minor_units`
+
+`BIGINT` minor units were chosen over `NUMERIC(p,s)` here because the Day 1 skeleton only needs a deterministic, scale-safe storage contract without introducing currency-specific decimal semantics yet.
+
+## Intentionally incomplete
+
+This issue does not implement:
+- PostgreSQL runtime wiring in the Axum app
+- a migration runner or ORM
+- `SettlementBackend` trait work from Issue #4
+- provider adapters or callbacks beyond the current PoC app glue
+- outbox/inbox workers, pruning jobs, or retry executors
+- happy-route feature expansion
+
+That incompleteness is deliberate.
+Issue #3 only establishes the physical ownership boundaries so later issues can build without collapsing core, dao, ledger, outbox, and projection into convenience tables.
