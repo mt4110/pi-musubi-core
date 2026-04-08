@@ -30,31 +30,34 @@ pub struct NewOutboxMessage {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewOutboxMessageSpec {
+    pub event_id: Uuid,
+    pub idempotency_key: Uuid,
+    pub stream_key: String,
+    pub aggregate_type: String,
+    pub aggregate_id: Uuid,
+    pub event_type: String,
+    pub schema_version: i32,
+    pub payload_json: Value,
+    pub available_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 impl NewOutboxMessage {
-    pub fn new(
-        event_id: Uuid,
-        idempotency_key: Uuid,
-        stream_key: impl Into<String>,
-        aggregate_type: impl Into<String>,
-        aggregate_id: Uuid,
-        event_type: impl Into<String>,
-        schema_version: i32,
-        payload_json: Value,
-        available_at: DateTime<Utc>,
-        created_at: DateTime<Utc>,
-    ) -> Result<Self, OrchestrationError> {
+    pub fn new(spec: NewOutboxMessageSpec) -> Result<Self, OrchestrationError> {
         Ok(Self {
-            event_id,
-            idempotency_key,
-            stream_key: stream_key.into(),
-            aggregate_type: aggregate_type.into(),
-            aggregate_id,
-            event_type: event_type.into(),
-            schema_version,
-            payload_hash: payload_hash(&payload_json)?,
-            payload_json,
-            available_at,
-            created_at,
+            event_id: spec.event_id,
+            idempotency_key: spec.idempotency_key,
+            stream_key: spec.stream_key,
+            aggregate_type: spec.aggregate_type,
+            aggregate_id: spec.aggregate_id,
+            event_type: spec.event_type,
+            schema_version: spec.schema_version,
+            payload_hash: payload_hash(&spec.payload_json)?,
+            payload_json: spec.payload_json,
+            available_at: spec.available_at,
+            created_at: spec.created_at,
         })
     }
 }
@@ -310,6 +313,14 @@ pub enum CommandBeginOutcome {
 pub struct CommandCompletion {
     pub result_type: String,
     pub result_json: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandQuarantine {
+    pub quarantined_at: DateTime<Utc>,
+    pub retain_until: DateTime<Utc>,
+    pub reason: QuarantineReason,
+    pub failure: ProcessingFailure,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -5,6 +5,7 @@ pub enum OrchestrationError {
     ReplicaReadForbidden,
     PayloadHashEncodingFailed(String),
     EmptyExternalIdempotencyKey,
+    EmptyAuthoritativeWriteBatch,
     Database(String),
     EventAlreadyExists {
         event_id: Uuid,
