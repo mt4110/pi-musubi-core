@@ -124,7 +124,36 @@ async fn postgres_helpers_keep_truth_and_outbox_in_same_transaction() {
     .expect("duplicate inbox write should be handled");
 
     assert!(matches!(first, CommandBeginOutcome::FirstSeen(_)));
-    assert!(matches!(second, CommandBeginOutcome::Duplicate(_)));
+    assert!(matches!(
+        second,
+        CommandBeginOutcome::Deferred(entry) if entry.available_at == ts(10 + 300)
+    ));
+
+    let conflicting = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": "different-payload" }),
+    )
+    .unwrap();
+
+    let conflict = PostgresOrchestrationStore::begin_command(
+        &tx,
+        "projection-builder",
+        &conflicting,
+        ts(12),
+        ts(12 + 300),
+    )
+    .await;
+
+    assert_eq!(
+        conflict,
+        Err(OrchestrationError::ConflictingCommandEnvelope {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        })
+    );
 
     tx.rollback()
         .await

@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use musubi_orchestration::{
     AuthoritativeChange, CommandCompletion, CommandEnvelope, ConsumeOutcome, DeliveryOutcome,
-    ExternalIdempotencyKey, InMemoryOrchestrationStore, NewOutboxMessage, OrchestrationRuntime,
-    OutboxDeliveryStatus, ProcessingFailure, QuarantineReason, RetentionPolicy, RetryPolicy,
-    SchemaCompatibilityPolicy,
+    ExternalIdempotencyKey, InMemoryOrchestrationStore, NewOutboxMessage, OrchestrationError,
+    OrchestrationRuntime, OrchestrationStore, OutboxDeliveryStatus, ProcessingFailure,
+    QuarantineReason, RetentionPolicy, RetryPolicy, SchemaCompatibilityPolicy, WriterReadSource,
 };
 
 fn runtime() -> OrchestrationRuntime<InMemoryOrchestrationStore> {
@@ -121,6 +121,93 @@ async fn duplicate_consumer_delivery_is_a_no_op() {
     assert_eq!(first, ConsumeOutcome::Completed { command_id });
     assert_eq!(second, ConsumeOutcome::Duplicate { command_id });
     assert_eq!(handled.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn active_processing_lease_is_deferred_until_claim_expiry() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let command_id = Uuid::from_u128(0x42);
+    let first_seen_at = ts(0);
+    let lease_until = ts(300);
+    let command = CommandEnvelope::new(
+        command_id,
+        Uuid::from_u128(0x43),
+        "projection.refresh",
+        1,
+        json!({ "case_id": "case-lease" }),
+    )
+    .unwrap();
+
+    let first = store.begin_command(
+        WriterReadSource::PrimaryWriter,
+        "projection-builder",
+        command.clone(),
+        first_seen_at,
+        lease_until,
+    );
+    let second = store.begin_command(
+        WriterReadSource::PrimaryWriter,
+        "projection-builder",
+        command,
+        ts(1),
+        ts(301),
+    );
+
+    assert!(matches!(
+        first,
+        Ok(musubi_orchestration::CommandBeginOutcome::FirstSeen(_))
+    ));
+    assert!(matches!(
+        second,
+        Ok(musubi_orchestration::CommandBeginOutcome::Deferred(entry))
+            if entry.available_at == lease_until
+    ));
+}
+
+#[test]
+fn conflicting_command_payload_is_rejected() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let command_id = Uuid::from_u128(0x44);
+
+    store
+        .begin_command(
+            WriterReadSource::PrimaryWriter,
+            "projection-builder",
+            CommandEnvelope::new(
+                command_id,
+                Uuid::from_u128(0x45),
+                "projection.refresh",
+                1,
+                json!({ "case_id": "case-1" }),
+            )
+            .unwrap(),
+            ts(0),
+            ts(300),
+        )
+        .unwrap();
+
+    let result = store.begin_command(
+        WriterReadSource::PrimaryWriter,
+        "projection-builder",
+        CommandEnvelope::new(
+            command_id,
+            Uuid::from_u128(0x45),
+            "projection.refresh",
+            1,
+            json!({ "case_id": "case-2" }),
+        )
+        .unwrap(),
+        ts(1),
+        ts(301),
+    );
+
+    assert_eq!(
+        result,
+        Err(OrchestrationError::ConflictingCommandEnvelope {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        })
+    );
 }
 
 #[tokio::test]
@@ -276,6 +363,96 @@ async fn unknown_schema_is_deferred_then_quarantined_after_window() {
             reason: QuarantineReason::PoisonPill,
         }
     );
+}
+
+#[tokio::test]
+async fn deferred_command_ignores_attempt_budget_until_window_expires() {
+    let mut runtime = runtime();
+    let command_id = Uuid::from_u128(0x64);
+    let command = CommandEnvelope::new(
+        command_id,
+        Uuid::from_u128(0x65),
+        "settlement.apply_observation",
+        99,
+        json!({ "schema": "future" }),
+    )
+    .unwrap();
+
+    for now in [ts(0), ts(90), ts(240), ts(500)] {
+        let outcome = runtime
+            .consume_command(
+                "settlement-consumer",
+                command.clone(),
+                now,
+                |_| async move {
+                    Ok(CommandCompletion {
+                        result_type: "should_not_run".to_owned(),
+                        result_json: json!({}),
+                    })
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            ConsumeOutcome::RetryScheduled {
+                command_id: returned_id,
+                ..
+            } if returned_id == command_id
+        ));
+    }
+}
+
+#[tokio::test]
+async fn deferred_outbox_ignores_attempt_budget_until_window_expires() {
+    let mut runtime = runtime();
+    let aggregate_id = Uuid::from_u128(0x66);
+    let event_id = Uuid::from_u128(0x67);
+
+    runtime
+        .record_authoritative_write(
+            AuthoritativeChange {
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                change_type: "submission_requested".to_owned(),
+                payload_json: json!({ "intent_id": "future-schema" }),
+            },
+            NewOutboxMessage::new(
+                event_id,
+                Uuid::from_u128(0x68),
+                "settlement_case:66",
+                "settlement_case",
+                aggregate_id,
+                "settlement.submit_action",
+                99,
+                json!({ "intent_id": "future-schema" }),
+                ts(0),
+                ts(0),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    for now in [ts(0), ts(90), ts(240), ts(500)] {
+        let outcome = runtime
+            .deliver_ready_outbox("settlement-relay", now, |_| async {
+                Ok(musubi_orchestration::DeliveryReceipt {
+                    external_idempotency_key: ExternalIdempotencyKey::new("provider-key-future")
+                        .unwrap(),
+                })
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            DeliveryOutcome::RetryScheduled {
+                event_id: returned_id,
+                ..
+            } if returned_id == event_id
+        ));
+    }
 }
 
 #[tokio::test]

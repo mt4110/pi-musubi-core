@@ -19,6 +19,37 @@ COMMENT ON COLUMN outbox.events.payload_hash IS
 COMMENT ON COLUMN outbox.events.retain_until IS
 'Terminal coordination rows may be archived or pruned after this timestamp. This is not business truth retention.';
 
+UPDATE outbox.events
+SET stream_key = aggregate_type || ':' || aggregate_id::text
+WHERE stream_key IS NULL;
+
+UPDATE outbox.events
+SET payload_hash = encode(sha256(convert_to(payload_json::text, 'UTF8')), 'hex')
+WHERE payload_hash IS NULL;
+
+ALTER TABLE outbox.events
+    ALTER COLUMN stream_key SET NOT NULL,
+    ALTER COLUMN payload_hash SET NOT NULL;
+
+ALTER TABLE outbox.events
+    DROP CONSTRAINT IF EXISTS outbox_events_last_error_class_check,
+    DROP CONSTRAINT IF EXISTS outbox_events_quarantine_reason_check;
+
+ALTER TABLE outbox.events
+    ADD CONSTRAINT outbox_events_last_error_class_check CHECK (
+        last_error_class IS NULL
+        OR last_error_class IN ('transient', 'permanent', 'deferred')
+    ),
+    ADD CONSTRAINT outbox_events_quarantine_reason_check CHECK (
+        quarantine_reason IS NULL
+        OR quarantine_reason IN (
+            'poison_pill',
+            'permanent_failure',
+            'attempt_budget_exceeded',
+            'compatibility_window_expired'
+        )
+    );
+
 CREATE TABLE IF NOT EXISTS outbox.outbox_attempts (
     event_id UUID NOT NULL REFERENCES outbox.events (event_id) ON DELETE CASCADE,
     attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
@@ -34,6 +65,15 @@ CREATE TABLE IF NOT EXISTS outbox.outbox_attempts (
 
 COMMENT ON TABLE outbox.outbox_attempts IS
 'Per-attempt delivery evidence for retries, quarantine, and reconciliation. This remains coordination data, not business truth.';
+
+ALTER TABLE outbox.outbox_attempts
+    DROP CONSTRAINT IF EXISTS outbox_attempts_failure_class_check;
+
+ALTER TABLE outbox.outbox_attempts
+    ADD CONSTRAINT outbox_attempts_failure_class_check CHECK (
+        failure_class IS NULL
+        OR failure_class IN ('transient', 'permanent', 'deferred')
+    );
 
 DO $$
 BEGIN
@@ -104,6 +144,25 @@ ALTER TABLE outbox.command_inbox
     ALTER COLUMN command_id SET NOT NULL;
 
 ALTER TABLE outbox.command_inbox
+    DROP CONSTRAINT IF EXISTS command_inbox_last_error_class_check,
+    DROP CONSTRAINT IF EXISTS command_inbox_quarantine_reason_check;
+
+ALTER TABLE outbox.command_inbox
+    ADD CONSTRAINT command_inbox_last_error_class_check CHECK (
+        last_error_class IS NULL
+        OR last_error_class IN ('transient', 'permanent', 'deferred')
+    ),
+    ADD CONSTRAINT command_inbox_quarantine_reason_check CHECK (
+        quarantine_reason IS NULL
+        OR quarantine_reason IN (
+            'poison_pill',
+            'permanent_failure',
+            'attempt_budget_exceeded',
+            'compatibility_window_expired'
+        )
+    );
+
+ALTER TABLE outbox.command_inbox
     DROP CONSTRAINT IF EXISTS consumer_inbox_consumer_name_source_message_id_key,
     DROP CONSTRAINT IF EXISTS command_inbox_consumer_name_source_message_id_key,
     DROP CONSTRAINT IF EXISTS command_inbox_consumer_name_source_event_id_key;
@@ -124,6 +183,16 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS command_inbox_status_available_idx
     ON outbox.command_inbox (status, available_at);
+
+CREATE INDEX IF NOT EXISTS outbox_events_prune_idx
+    ON outbox.events (retain_until)
+    WHERE delivery_status IN ('published', 'quarantined')
+      AND retain_until IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS command_inbox_prune_idx
+    ON outbox.command_inbox (retain_until)
+    WHERE status IN ('completed', 'quarantined')
+      AND retain_until IS NOT NULL;
 
 COMMENT ON TABLE outbox.command_inbox IS
 'Durable consumer inbox boundary keyed by consumer_name plus command_id. source_event_id remains correlation evidence, not the dedupe key.';

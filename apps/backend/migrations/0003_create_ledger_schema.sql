@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ledger.account_postings (
     account_id UUID,
     direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
     amount_minor_units BIGINT NOT NULL CHECK (amount_minor_units >= 0),
-    currency_code TEXT NOT NULL CHECK (char_length(currency_code) = 3),
+    currency_code TEXT NOT NULL CHECK (char_length(currency_code) >= 2),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (journal_entry_id, posting_order)
 );

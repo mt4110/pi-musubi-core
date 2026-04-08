@@ -29,3 +29,13 @@ fn checked_sub_rejects_scale_mismatch() {
 
     assert_eq!(result, Err(MoneyError::ScaleMismatch { left: 3, right: 6 }));
 }
+
+#[test]
+fn currency_code_requires_at_least_two_characters() {
+    let result = CurrencyCode::new("P");
+
+    assert_eq!(
+        result,
+        Err(musubi_settlement_domain::CurrencyCodeError::TooShort)
+    );
+}

@@ -12,6 +12,10 @@ pub enum OrchestrationError {
     IdempotencyKeyAlreadyExists {
         idempotency_key: Uuid,
     },
+    ConflictingCommandEnvelope {
+        consumer_name: String,
+        command_id: Uuid,
+    },
     OutboxMessageNotFound {
         event_id: Uuid,
     },

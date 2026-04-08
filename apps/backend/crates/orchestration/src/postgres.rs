@@ -134,6 +134,13 @@ impl PostgresOrchestrationStore {
             .map_err(database_error)?,
         )?;
 
+        if !command.matches_inbox_entry(&existing) {
+            return Err(OrchestrationError::ConflictingCommandEnvelope {
+                consumer_name: consumer_name.to_owned(),
+                command_id: command.command_id,
+            });
+        }
+
         match existing.status {
             CommandInboxStatus::Completed | CommandInboxStatus::Quarantined => {
                 Ok(CommandBeginOutcome::Duplicate(existing))
@@ -145,7 +152,9 @@ impl PostgresOrchestrationStore {
                 if matches!(existing.status, CommandInboxStatus::Processing)
                     && existing.claimed_until.is_some_and(|until| until > now)
                 {
-                    return Ok(CommandBeginOutcome::Duplicate(existing));
+                    let mut deferred = existing.clone();
+                    deferred.available_at = existing.claimed_until.unwrap_or(existing.available_at);
+                    return Ok(CommandBeginOutcome::Deferred(deferred));
                 }
 
                 let row = tx

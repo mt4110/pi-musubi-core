@@ -240,9 +240,13 @@ where
         failure: ProcessingFailure,
         attempt: OutboxAttempt,
     ) -> Result<DeliveryOutcome, OrchestrationError> {
-        if matches!(failure.class, RetryClass::Transient | RetryClass::Deferred)
-            && next_attempt_number < self.retry_policy.max_attempts
-        {
+        let should_retry = match failure.class {
+            RetryClass::Transient => next_attempt_number < self.retry_policy.max_attempts,
+            RetryClass::Deferred => true,
+            RetryClass::Permanent => false,
+        };
+
+        if should_retry {
             let retry_at = self
                 .retry_policy
                 .next_retry_at(now, event_id, next_attempt_number);
@@ -279,9 +283,13 @@ where
         next_attempt_number: u32,
         failure: ProcessingFailure,
     ) -> Result<ConsumeOutcome, OrchestrationError> {
-        if matches!(failure.class, RetryClass::Transient | RetryClass::Deferred)
-            && next_attempt_number < self.retry_policy.max_attempts
-        {
+        let should_retry = match failure.class {
+            RetryClass::Transient => next_attempt_number < self.retry_policy.max_attempts,
+            RetryClass::Deferred => true,
+            RetryClass::Permanent => false,
+        };
+
+        if should_retry {
             let retry_at = self
                 .retry_policy
                 .next_retry_at(now, command_id, next_attempt_number);

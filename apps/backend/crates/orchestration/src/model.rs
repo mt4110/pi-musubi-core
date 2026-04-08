@@ -236,6 +236,13 @@ impl CommandEnvelope {
             payload_json,
         })
     }
+
+    pub fn matches_inbox_entry(&self, entry: &CommandInboxEntry) -> bool {
+        self.source_event_id == entry.source_event_id
+            && self.command_type == entry.command_type
+            && self.schema_version == entry.schema_version
+            && self.payload_hash == entry.payload_hash
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

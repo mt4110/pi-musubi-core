@@ -159,6 +159,21 @@ impl InMemoryOrchestrationStore {
             command_id,
         }
     }
+
+    fn ensure_matching_command(
+        consumer_name: &str,
+        command: &CommandEnvelope,
+        entry: &CommandInboxEntry,
+    ) -> Result<(), OrchestrationError> {
+        if command.matches_inbox_entry(entry) {
+            return Ok(());
+        }
+
+        Err(OrchestrationError::ConflictingCommandEnvelope {
+            consumer_name: consumer_name.to_owned(),
+            command_id: command.command_id,
+        })
+    }
 }
 
 impl OrchestrationStore for InMemoryOrchestrationStore {
@@ -367,6 +382,8 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         let key = Self::command_key(consumer_name, command.command_id);
 
         if let Some(existing) = self.command_inbox.get_mut(&key) {
+            Self::ensure_matching_command(consumer_name, &command, existing)?;
+
             let outcome = match existing.status {
                 CommandInboxStatus::Completed | CommandInboxStatus::Quarantined => {
                     CommandBeginOutcome::Duplicate(existing.clone())
@@ -380,7 +397,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
                             .claimed_until
                             .is_some_and(|current_claim| current_claim > now)
                     {
-                        CommandBeginOutcome::Duplicate(existing.clone())
+                        let mut deferred = existing.clone();
+                        deferred.available_at =
+                            existing.claimed_until.unwrap_or(existing.available_at);
+                        CommandBeginOutcome::Deferred(deferred)
                     } else {
                         existing.status = CommandInboxStatus::Processing;
                         existing.claimed_by = Some(consumer_name.to_owned());
