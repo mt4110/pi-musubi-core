@@ -58,6 +58,9 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
         HappyRouteError::BadRequest(message) => bad_request(message),
         HappyRouteError::Unauthorized(message) => unauthorized(message),
         HappyRouteError::NotFound(message) => not_found(message),
-        HappyRouteError::Internal(_) => internal_server_error("internal server error"),
+        HappyRouteError::Internal(message) => {
+            eprintln!("internal happy route error: {message}");
+            internal_server_error("internal server error")
+        }
     }
 }

@@ -35,7 +35,7 @@ pub fn build_app(state: SharedState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
+    let app = Router::new()
         .route("/health", get(health))
         .route("/api/auth/pi", post(handlers::auth::authenticate_pi))
         .route(
@@ -47,15 +47,19 @@ pub fn build_app(state: SharedState) -> Router {
             post(handlers::payments::payment_callback),
         )
         .route(
+            "/api/projection/settlement-views/{settlement_case_id}",
+            get(handlers::projection::get_settlement_view),
+        );
+    let app = if internal_orchestration_drain_enabled() {
+        app.route(
             "/api/internal/orchestration/drain",
             post(handlers::orchestration::drain_outbox),
         )
-        .route(
-            "/api/projection/settlement-views/{settlement_case_id}",
-            get(handlers::projection::get_settlement_view),
-        )
-        .layer(cors)
-        .with_state(state)
+    } else {
+        app
+    };
+
+    app.layer(cors).with_state(state)
 }
 
 pub async fn run(state: SharedState) {
@@ -85,4 +89,18 @@ async fn health() -> Json<HealthResponse> {
         status: "ok",
         service: "musubi-backend",
     })
+}
+
+fn internal_orchestration_drain_enabled() -> bool {
+    cfg!(debug_assertions) || env_flag_enabled("MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN")
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        })
+        .unwrap_or(false)
 }

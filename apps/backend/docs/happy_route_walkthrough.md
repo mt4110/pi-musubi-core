@@ -45,6 +45,7 @@ Immediate response:
 
 This is the explicit demo relay for the local happy route.
 It makes the asynchronous boundary visible instead of hiding provider work inside the request that created truth.
+The route is mounted in debug builds by default, and in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`.
 
 For `OPEN_HOLD_INTENT` it:
 - claims the outbox row
@@ -70,7 +71,7 @@ Request:
 - `amount_minor_units`
 - `currency_code`
 - optional `txid`
-- optional `status`
+- explicit provider `status`
 
 Flow:
 - stores `core.raw_provider_callbacks` first

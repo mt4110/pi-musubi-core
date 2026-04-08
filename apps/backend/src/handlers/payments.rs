@@ -48,6 +48,13 @@ pub async fn payment_callback(
     if currency_code.is_empty() {
         return Err(bad_request("currency_code is required"));
     }
+    let callback_status = payload
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|status| !status.is_empty())
+        .ok_or_else(|| bad_request("status is required"))?
+        .to_owned();
 
     let outcome = ingest_payment_callback(
         &state,
@@ -57,7 +64,7 @@ pub async fn payment_callback(
             amount_minor_units: payload.amount_minor_units,
             currency_code,
             txid: payload.txid,
-            callback_status: payload.status.unwrap_or_else(|| "completed".to_owned()),
+            callback_status,
         },
     )
     .await

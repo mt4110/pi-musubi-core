@@ -138,6 +138,91 @@ async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection(
 }
 
 #[tokio::test]
+async fn payment_callback_requires_explicit_status() {
+    let app = build_app(new_state());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-missing-status"
+        }),
+    )
+    .await;
+
+    assert_eq!(callback.status, StatusCode::BAD_REQUEST);
+    assert_eq!(callback.body["error"], "status is required");
+}
+
+#[tokio::test]
+async fn later_verified_callback_can_fund_after_initial_rejection() {
+    let app = build_app(new_state());
+    let prepared = prepare_pending_case(&app).await;
+
+    let rejected_callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-rejected",
+            "status": "failed"
+        }),
+    )
+    .await;
+    assert_eq!(rejected_callback.status, StatusCode::OK);
+    assert_eq!(rejected_callback.body["receipt_status"], "rejected");
+    assert_eq!(rejected_callback.body["duplicate_receipt"], false);
+    assert_eq!(rejected_callback.body["case_status"], "pending_funding");
+
+    let verified_callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-verified",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(verified_callback.status, StatusCode::OK);
+    assert_eq!(verified_callback.body["receipt_status"], "verified");
+    assert_eq!(verified_callback.body["duplicate_receipt"], false);
+    assert_eq!(verified_callback.body["case_status"], "funded");
+    assert!(verified_callback.body["ledger_journal_id"].is_string());
+
+    let drain_projection =
+        post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_projection.status, StatusCode::OK);
+
+    let settlement_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(settlement_view.status, StatusCode::OK);
+    assert_eq!(settlement_view.body["current_settlement_status"], "funded");
+    assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
 async fn promise_intent_rejects_blank_internal_idempotency_key() {
     let app = build_app(new_state());
     let initiator = sign_in(&app, "pi-user-empty-key-a", "empty-key-a").await;
@@ -266,7 +351,7 @@ struct PreparedCase {
     initiator_pi_uid: String,
 }
 
-async fn prepare_funded_case(app: &Router) -> PreparedCase {
+async fn prepare_pending_case(app: &Router) -> PreparedCase {
     let initiator = sign_in(app, "pi-user-prepare-a", "prepare-a").await;
     let counterparty = sign_in(app, "pi-user-prepare-b", "prepare-b").await;
 
@@ -302,13 +387,23 @@ async fn prepare_funded_case(app: &Router) -> PreparedCase {
         .expect("OPEN_HOLD_INTENT should yield a provider_submission_id")
         .to_owned();
 
+    PreparedCase {
+        settlement_case_id,
+        payment_id,
+        initiator_pi_uid: initiator.pi_uid,
+    }
+}
+
+async fn prepare_funded_case(app: &Router) -> PreparedCase {
+    let prepared = prepare_pending_case(app).await;
+
     let callback = post_json(
         app,
         "/api/payment/callback",
         None,
         json!({
-            "payment_id": payment_id,
-            "payer_pi_uid": initiator.pi_uid,
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
             "amount_minor_units": 10000,
             "currency_code": "PI",
             "txid": "pi-tx-prepare",
@@ -322,11 +417,7 @@ async fn prepare_funded_case(app: &Router) -> PreparedCase {
         post_json(app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_projection.status, StatusCode::OK);
 
-    PreparedCase {
-        settlement_case_id,
-        payment_id,
-        initiator_pi_uid: initiator.pi_uid,
-    }
+    prepared
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
