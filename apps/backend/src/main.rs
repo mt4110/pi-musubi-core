@@ -1,3 +1,8 @@
+//! Backend app crate for the Day 1 PoC.
+//!
+//! This crate owns HTTP wiring, in-memory request state, and runtime bootstrap.
+//! MUSUBI domain concepts should move into workspace crates as they become pure.
+
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use axum::{
@@ -13,6 +18,10 @@ mod services;
 
 pub type SharedState = Arc<AppState>;
 
+/// Temporary app-state wiring for the PoC.
+///
+/// This remains in the app crate until Issue #3 and later introduce durable
+/// truth boundaries. It should not become long-term domain ownership.
 pub struct AppState {
     pub escrows: RwLock<HashMap<String, services::escrow::EscrowRecord>>,
 }

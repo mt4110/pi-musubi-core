@@ -1,0 +1,4 @@
+[package]
+name = "musubi_realm_domain"
+version.workspace = true
+edition.workspace = true

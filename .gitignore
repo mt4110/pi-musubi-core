@@ -27,3 +27,5 @@ npm-debug.log*
 .local/
 out/
 cache/
+
+.codex/
