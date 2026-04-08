@@ -452,7 +452,7 @@ async fn unknown_schema_is_deferred_then_quarantined_after_window() {
         second,
         ConsumeOutcome::Quarantined {
             command_id,
-            reason: QuarantineReason::PoisonPill,
+            reason: QuarantineReason::CompatibilityWindowExpired,
         }
     );
 }
@@ -739,7 +739,7 @@ fn stale_outbox_retry_cannot_reopen_published_message() {
         )
         .unwrap();
 
-    store
+    let stale_retry = store
         .schedule_outbox_retry(
             event_id,
             ts(900),
@@ -757,7 +757,12 @@ fn stale_outbox_retry_cannot_reopen_published_message() {
                 external_idempotency_key: None,
             },
         )
-        .unwrap();
+        .unwrap_err();
+
+    assert_eq!(
+        stale_retry,
+        OrchestrationError::StaleOutboxClaim { event_id }
+    );
 
     let message = store.outbox_message(event_id).unwrap();
     assert_eq!(message.delivery_status, OutboxDeliveryStatus::Published);
@@ -821,7 +826,7 @@ fn stale_command_retry_cannot_reopen_completed_command() {
         )
         .unwrap();
 
-    store
+    let stale_retry = store
         .schedule_command_retry(
             "projection-builder",
             command_id,
@@ -829,7 +834,15 @@ fn stale_command_retry_cannot_reopen_completed_command() {
             ts(900),
             ProcessingFailure::transient("projection_busy", "stale retry should be ignored"),
         )
-        .unwrap();
+        .unwrap_err();
+
+    assert_eq!(
+        stale_retry,
+        OrchestrationError::StaleCommandClaim {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        }
+    );
 
     let entry = store
         .command_inbox_entry("projection-builder", command_id)

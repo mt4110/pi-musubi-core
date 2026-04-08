@@ -12,6 +12,8 @@ pub enum RetryClass {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetryPolicy {
+    // Includes the first delivery/handler attempt. With max_attempts = 3,
+    // the runtime allows attempts #1, #2, and #3, then quarantines.
     pub max_attempts: u32,
     pub base_delay: TimeDelta,
     pub max_delay: TimeDelta,
@@ -36,7 +38,11 @@ impl RetryPolicy {
             (correlation_id.as_u128() % (jitter_window as u128 + 1)) as i64
         };
 
-        now + TimeDelta::seconds(capped_seconds.saturating_add(jitter_seconds))
+        let bounded_seconds = capped_seconds
+            .saturating_add(jitter_seconds)
+            .min(self.max_delay.num_seconds());
+
+        now + TimeDelta::seconds(bounded_seconds)
     }
 }
 
@@ -74,7 +80,7 @@ impl SchemaCompatibilityPolicy {
                 ),
             ))
         } else {
-            Err(ProcessingFailure::poison_pill(
+            Err(ProcessingFailure::compatibility_window_expired(
                 "unknown_schema_version",
                 format!(
                     "schema_version {} remained unsupported beyond the compatibility window",

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS outbox.outbox_attempts (
     attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
     relay_name TEXT NOT NULL,
     claimed_at TIMESTAMPTZ NOT NULL,
+    claimed_until TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ NOT NULL,
     failure_class TEXT,
     failure_code TEXT,
@@ -65,6 +66,16 @@ CREATE TABLE IF NOT EXISTS outbox.outbox_attempts (
 
 COMMENT ON TABLE outbox.outbox_attempts IS
 'Per-attempt delivery evidence for retries, quarantine, and reconciliation. This remains coordination data, not business truth.';
+
+ALTER TABLE outbox.outbox_attempts
+    ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMPTZ;
+
+UPDATE outbox.outbox_attempts
+SET claimed_until = COALESCE(claimed_until, finished_at)
+WHERE claimed_until IS NULL;
+
+ALTER TABLE outbox.outbox_attempts
+    ALTER COLUMN claimed_until SET NOT NULL;
 
 ALTER TABLE outbox.outbox_attempts
     DROP CONSTRAINT IF EXISTS outbox_attempts_failure_class_check;
@@ -138,6 +149,17 @@ WHERE source_event_id IS NULL;
 UPDATE outbox.command_inbox
 SET command_id = COALESCE(command_id, source_event_id)
 WHERE command_id IS NULL;
+
+UPDATE outbox.command_inbox
+SET status = CASE
+    WHEN quarantined_at IS NOT NULL THEN 'quarantined'
+    WHEN processed_at IS NOT NULL THEN 'completed'
+    ELSE status
+END;
+
+UPDATE outbox.command_inbox
+SET completed_at = COALESCE(completed_at, processed_at)
+WHERE processed_at IS NOT NULL;
 
 ALTER TABLE outbox.command_inbox
     ALTER COLUMN source_event_id SET NOT NULL,
@@ -232,6 +254,7 @@ CREATE TABLE IF NOT EXISTS outbox.outbox_attempt_archive (
     archived_at TIMESTAMPTZ NOT NULL,
     relay_name TEXT NOT NULL,
     claimed_at TIMESTAMPTZ NOT NULL,
+    claimed_until TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ NOT NULL,
     failure_class TEXT,
     failure_code TEXT,
@@ -242,6 +265,16 @@ CREATE TABLE IF NOT EXISTS outbox.outbox_attempt_archive (
 
 COMMENT ON TABLE outbox.outbox_attempt_archive IS
 'Archive landing zone for per-attempt delivery evidence. Retry and quarantine history survives pruning of the hot outbox tables.';
+
+ALTER TABLE outbox.outbox_attempt_archive
+    ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMPTZ;
+
+UPDATE outbox.outbox_attempt_archive
+SET claimed_until = COALESCE(claimed_until, finished_at)
+WHERE claimed_until IS NULL;
+
+ALTER TABLE outbox.outbox_attempt_archive
+    ALTER COLUMN claimed_until SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS outbox.command_inbox_archive (
     consumer_name TEXT NOT NULL,

@@ -12,7 +12,14 @@ pub enum OrchestrationError {
     IdempotencyKeyAlreadyExists {
         idempotency_key: Uuid,
     },
+    StaleOutboxClaim {
+        event_id: Uuid,
+    },
     ConflictingCommandEnvelope {
+        consumer_name: String,
+        command_id: Uuid,
+    },
+    StaleCommandClaim {
         consumer_name: String,
         command_id: Uuid,
     },

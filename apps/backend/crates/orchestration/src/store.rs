@@ -315,7 +315,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
 
         if !Self::outbox_attempt_matches(message, &attempt) {
-            return Ok(());
+            return Err(OrchestrationError::StaleOutboxClaim { event_id });
         }
 
         message.delivery_status = OutboxDeliveryStatus::Published;
@@ -348,7 +348,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
 
         if !Self::outbox_attempt_matches(message, &attempt) {
-            return Ok(());
+            return Err(OrchestrationError::StaleOutboxClaim { event_id });
         }
 
         message.delivery_status = OutboxDeliveryStatus::Pending;
@@ -381,7 +381,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
 
         if !Self::outbox_attempt_matches(message, &attempt) {
-            return Ok(());
+            return Err(OrchestrationError::StaleOutboxClaim { event_id });
         }
 
         message.delivery_status = OutboxDeliveryStatus::Quarantined;
@@ -490,7 +490,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         })?;
 
         if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
-            return Ok(());
+            return Err(OrchestrationError::StaleCommandClaim {
+                consumer_name: consumer_name.to_owned(),
+                command_id,
+            });
         }
 
         entry.status = CommandInboxStatus::Completed;
@@ -525,7 +528,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         })?;
 
         if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
-            return Ok(());
+            return Err(OrchestrationError::StaleCommandClaim {
+                consumer_name: consumer_name.to_owned(),
+                command_id,
+            });
         }
 
         entry.status = CommandInboxStatus::Pending;
@@ -560,7 +566,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         })?;
 
         if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
-            return Ok(());
+            return Err(OrchestrationError::StaleCommandClaim {
+                consumer_name: consumer_name.to_owned(),
+                command_id,
+            });
         }
 
         entry.status = CommandInboxStatus::Quarantined;

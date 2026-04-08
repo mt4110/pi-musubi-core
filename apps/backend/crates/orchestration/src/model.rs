@@ -186,6 +186,18 @@ impl ProcessingFailure {
         }
     }
 
+    pub fn compatibility_window_expired(
+        code: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            class: RetryClass::Permanent,
+            code: code.into(),
+            detail: detail.into(),
+            quarantine_reason: QuarantineReason::CompatibilityWindowExpired,
+        }
+    }
+
     pub fn poison_pill(code: impl Into<String>, detail: impl Into<String>) -> Self {
         Self {
             class: RetryClass::Permanent,

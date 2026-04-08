@@ -112,7 +112,7 @@ where
 
         match publish_result {
             Ok(receipt) => {
-                self.store.mark_outbox_published(
+                match self.store.mark_outbox_published(
                     claimed.message.event_id,
                     now + self.retention_policy.published_outbox_for,
                     receipt.clone(),
@@ -130,11 +130,13 @@ where
                             receipt.external_idempotency_key.as_str().to_owned(),
                         ),
                     },
-                )?;
-
-                Ok(DeliveryOutcome::Published {
-                    event_id: claimed.message.event_id,
-                })
+                ) {
+                    Ok(()) => Ok(DeliveryOutcome::Published {
+                        event_id: claimed.message.event_id,
+                    }),
+                    Err(OrchestrationError::StaleOutboxClaim { .. }) => Ok(DeliveryOutcome::Idle),
+                    Err(error) => Err(error),
+                }
             }
             Err(failure) => {
                 let attempt = OutboxAttempt {
@@ -211,18 +213,23 @@ where
                 let handle_result = handle(command).await;
 
                 match handle_result {
-                    Ok(completion) => {
-                        self.store.complete_command(
-                            consumer_name,
-                            command_id,
-                            claimed_until,
-                            now,
-                            now + self.retention_policy.completed_command_for,
-                            completion,
-                        )?;
-
-                        Ok(ConsumeOutcome::Completed { command_id })
-                    }
+                    Ok(completion) => match self.store.complete_command(
+                        consumer_name,
+                        command_id,
+                        claimed_until,
+                        now,
+                        now + self.retention_policy.completed_command_for,
+                        completion,
+                    ) {
+                        Ok(()) => Ok(ConsumeOutcome::Completed { command_id }),
+                        Err(OrchestrationError::StaleCommandClaim { .. }) => {
+                            Ok(ConsumeOutcome::Deferred {
+                                command_id,
+                                retry_at: claimed_until,
+                            })
+                        }
+                        Err(error) => Err(error),
+                    },
                     Err(failure) => self.finish_command_failure(
                         consumer_name,
                         command_id,
@@ -263,9 +270,12 @@ where
                 .next_retry_at(now, event_id, next_attempt_number);
 
             self.store
-                .schedule_outbox_retry(event_id, retry_at, failure, attempt)?;
-
-            Ok(DeliveryOutcome::RetryScheduled { event_id, retry_at })
+                .schedule_outbox_retry(event_id, retry_at, failure, attempt)
+                .map(|()| DeliveryOutcome::RetryScheduled { event_id, retry_at })
+                .or_else(|error| match error {
+                    OrchestrationError::StaleOutboxClaim { .. } => Ok(DeliveryOutcome::Idle),
+                    other => Err(other),
+                })
         } else {
             let reason = if matches!(failure.class, RetryClass::Transient) {
                 QuarantineReason::AttemptBudgetExceeded
@@ -273,16 +283,20 @@ where
                 failure.quarantine_reason
             };
 
-            self.store.quarantine_outbox(
-                event_id,
-                now,
-                now + self.retention_policy.quarantined_outbox_for,
-                reason,
-                failure,
-                attempt,
-            )?;
-
-            Ok(DeliveryOutcome::Quarantined { event_id, reason })
+            self.store
+                .quarantine_outbox(
+                    event_id,
+                    now,
+                    now + self.retention_policy.quarantined_outbox_for,
+                    reason,
+                    failure,
+                    attempt,
+                )
+                .map(|()| DeliveryOutcome::Quarantined { event_id, reason })
+                .or_else(|error| match error {
+                    OrchestrationError::StaleOutboxClaim { .. } => Ok(DeliveryOutcome::Idle),
+                    other => Err(other),
+                })
         }
     }
 
@@ -306,18 +320,25 @@ where
                 .retry_policy
                 .next_retry_at(now, command_id, next_attempt_number);
 
-            self.store.schedule_command_retry(
-                consumer_name,
-                command_id,
-                expected_claimed_until,
-                retry_at,
-                failure,
-            )?;
-
-            Ok(ConsumeOutcome::RetryScheduled {
-                command_id,
-                retry_at,
-            })
+            self.store
+                .schedule_command_retry(
+                    consumer_name,
+                    command_id,
+                    expected_claimed_until,
+                    retry_at,
+                    failure,
+                )
+                .map(|()| ConsumeOutcome::RetryScheduled {
+                    command_id,
+                    retry_at,
+                })
+                .or_else(|error| match error {
+                    OrchestrationError::StaleCommandClaim { .. } => Ok(ConsumeOutcome::Deferred {
+                        command_id,
+                        retry_at: expected_claimed_until,
+                    }),
+                    other => Err(other),
+                })
         } else {
             let reason = if matches!(failure.class, RetryClass::Transient) {
                 QuarantineReason::AttemptBudgetExceeded
@@ -325,17 +346,24 @@ where
                 failure.quarantine_reason
             };
 
-            self.store.quarantine_command(
-                consumer_name,
-                command_id,
-                expected_claimed_until,
-                now,
-                now + self.retention_policy.quarantined_command_for,
-                reason,
-                failure,
-            )?;
-
-            Ok(ConsumeOutcome::Quarantined { command_id, reason })
+            self.store
+                .quarantine_command(
+                    consumer_name,
+                    command_id,
+                    expected_claimed_until,
+                    now,
+                    now + self.retention_policy.quarantined_command_for,
+                    reason,
+                    failure,
+                )
+                .map(|()| ConsumeOutcome::Quarantined { command_id, reason })
+                .or_else(|error| match error {
+                    OrchestrationError::StaleCommandClaim { .. } => Ok(ConsumeOutcome::Deferred {
+                        command_id,
+                        retry_at: expected_claimed_until,
+                    }),
+                    other => Err(other),
+                })
         }
     }
 }
