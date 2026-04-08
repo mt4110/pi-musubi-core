@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS projection.settlement_views (
     latest_journal_entry_id UUID,
     current_settlement_status TEXT NOT NULL,
     total_funded_minor_units BIGINT NOT NULL DEFAULT 0 CHECK (total_funded_minor_units >= 0),
-    currency_code TEXT NOT NULL CHECK (char_length(currency_code) = 3),
+    currency_code TEXT NOT NULL CHECK (char_length(currency_code) >= 2),
     last_projected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

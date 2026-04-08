@@ -11,6 +11,10 @@ impl CurrencyCode {
             return Err(CurrencyCodeError::Empty);
         }
 
+        if value.len() < 2 {
+            return Err(CurrencyCodeError::TooShort);
+        }
+
         if !value
             .chars()
             .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_' || ch == '-')
@@ -104,6 +108,7 @@ impl Money {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CurrencyCodeError {
     Empty,
+    TooShort,
     InvalidCharacter,
 }
 
