@@ -4,9 +4,10 @@ use chrono::{DateTime, TimeDelta, Utc};
 
 use crate::{
     AuthoritativeChange, ClaimedOutboxMessage, CommandBeginOutcome, CommandCompletion,
-    CommandEnvelope, ConsumeOutcome, DeliveryOutcome, DeliveryReceipt, NewOutboxMessage,
-    OrchestrationError, OrchestrationStore, OutboxAttempt, ProcessingFailure, QuarantineReason,
-    RetentionPolicy, RetryClass, RetryPolicy, SchemaCompatibilityPolicy, WriterReadSource,
+    CommandEnvelope, CommandQuarantine, ConsumeOutcome, DeliveryOutcome, DeliveryReceipt,
+    NewOutboxMessage, OrchestrationError, OrchestrationStore, OutboxAttempt, ProcessingFailure,
+    QuarantineReason, RetentionPolicy, RetryClass, RetryPolicy, SchemaCompatibilityPolicy,
+    WriterReadSource,
 };
 
 pub struct OrchestrationRuntime<Store> {
@@ -351,10 +352,12 @@ where
                     consumer_name,
                     command_id,
                     expected_claimed_until,
-                    now,
-                    now + self.retention_policy.quarantined_command_for,
-                    reason,
-                    failure,
+                    CommandQuarantine {
+                        quarantined_at: now,
+                        retain_until: now + self.retention_policy.quarantined_command_for,
+                        reason,
+                        failure,
+                    },
                 )
                 .map(|()| ConsumeOutcome::Quarantined { command_id, reason })
                 .or_else(|error| match error {

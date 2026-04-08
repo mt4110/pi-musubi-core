@@ -1,16 +1,18 @@
 use chrono::{TimeDelta, TimeZone, Utc};
 use serde_json::json;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 use uuid::Uuid;
 
 use musubi_orchestration::{
-    AuthoritativeChange, CommandCompletion, CommandEnvelope, ConsumeOutcome, DeliveryOutcome,
-    DeliveryReceipt, ExternalIdempotencyKey, InMemoryOrchestrationStore, NewOutboxMessage,
-    OrchestrationError, OrchestrationRuntime, OrchestrationStore, OutboxAttempt,
-    OutboxDeliveryStatus, ProcessingFailure, QuarantineReason, RetentionPolicy, RetryPolicy,
+    AuthoritativeChange, ClaimedOutboxMessage, CommandBeginOutcome, CommandCompletion,
+    CommandEnvelope, CommandInboxEntry, CommandInboxStatus, CommandKey, CommandQuarantine,
+    ConsumeOutcome, DeliveryOutcome, DeliveryReceipt, ExternalIdempotencyKey,
+    InMemoryOrchestrationStore, NewOutboxMessage, NewOutboxMessageSpec, OrchestrationError,
+    OrchestrationRuntime, OrchestrationStore, OutboxAttempt, OutboxDeliveryStatus, OutboxMessage,
+    ProcessingFailure, PruneOutcome, QuarantineReason, RetentionPolicy, RetryPolicy,
     SchemaCompatibilityPolicy, WriterReadSource,
 };
 
@@ -41,6 +43,150 @@ fn ts(seconds: i64) -> chrono::DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + seconds, 0).unwrap()
 }
 
+struct PhaseTracingStore {
+    phases: Arc<Mutex<Vec<&'static str>>>,
+    claimed_outbox: Option<ClaimedOutboxMessage>,
+    command_begin_outcome: Option<CommandBeginOutcome>,
+}
+
+impl PhaseTracingStore {
+    fn for_outbox(
+        phases: Arc<Mutex<Vec<&'static str>>>,
+        claimed_outbox: ClaimedOutboxMessage,
+    ) -> Self {
+        Self {
+            phases,
+            claimed_outbox: Some(claimed_outbox),
+            command_begin_outcome: None,
+        }
+    }
+
+    fn for_command(
+        phases: Arc<Mutex<Vec<&'static str>>>,
+        command_begin_outcome: CommandBeginOutcome,
+    ) -> Self {
+        Self {
+            phases,
+            claimed_outbox: None,
+            command_begin_outcome: Some(command_begin_outcome),
+        }
+    }
+
+    fn record(&self, phase: &'static str) {
+        self.phases.lock().unwrap().push(phase);
+    }
+}
+
+impl OrchestrationStore for PhaseTracingStore {
+    fn commit_authoritative_write(
+        &mut self,
+        _source: WriterReadSource,
+        _change: AuthoritativeChange,
+        _message: NewOutboxMessage,
+    ) -> Result<(), OrchestrationError> {
+        unreachable!("phase tracing store is only used for async boundary tests")
+    }
+
+    fn claim_ready_outbox(
+        &mut self,
+        _source: WriterReadSource,
+        _relay_name: &str,
+        _now: chrono::DateTime<Utc>,
+        _claimed_until: chrono::DateTime<Utc>,
+    ) -> Result<Option<ClaimedOutboxMessage>, OrchestrationError> {
+        self.record("claim_ready_outbox");
+        Ok(self.claimed_outbox.take())
+    }
+
+    fn mark_outbox_published(
+        &mut self,
+        _event_id: Uuid,
+        _retain_until: chrono::DateTime<Utc>,
+        _receipt: DeliveryReceipt,
+        _attempt: OutboxAttempt,
+    ) -> Result<(), OrchestrationError> {
+        self.record("mark_outbox_published");
+        Ok(())
+    }
+
+    fn schedule_outbox_retry(
+        &mut self,
+        _event_id: Uuid,
+        _retry_at: chrono::DateTime<Utc>,
+        _failure: ProcessingFailure,
+        _attempt: OutboxAttempt,
+    ) -> Result<(), OrchestrationError> {
+        unreachable!("phase tracing store is only used for successful async boundary tests")
+    }
+
+    fn quarantine_outbox(
+        &mut self,
+        _event_id: Uuid,
+        _quarantined_at: chrono::DateTime<Utc>,
+        _retain_until: chrono::DateTime<Utc>,
+        _reason: QuarantineReason,
+        _failure: ProcessingFailure,
+        _attempt: OutboxAttempt,
+    ) -> Result<(), OrchestrationError> {
+        unreachable!("phase tracing store is only used for successful async boundary tests")
+    }
+
+    fn begin_command(
+        &mut self,
+        _source: WriterReadSource,
+        _consumer_name: &str,
+        _command: CommandEnvelope,
+        _now: chrono::DateTime<Utc>,
+        _claimed_until: chrono::DateTime<Utc>,
+    ) -> Result<CommandBeginOutcome, OrchestrationError> {
+        self.record("begin_command");
+        self.command_begin_outcome
+            .take()
+            .ok_or_else(|| OrchestrationError::Database("missing command begin outcome".to_owned()))
+    }
+
+    fn complete_command(
+        &mut self,
+        _consumer_name: &str,
+        _command_id: Uuid,
+        _expected_claimed_until: chrono::DateTime<Utc>,
+        _completed_at: chrono::DateTime<Utc>,
+        _retain_until: chrono::DateTime<Utc>,
+        _completion: CommandCompletion,
+    ) -> Result<(), OrchestrationError> {
+        self.record("complete_command");
+        Ok(())
+    }
+
+    fn schedule_command_retry(
+        &mut self,
+        _consumer_name: &str,
+        _command_id: Uuid,
+        _expected_claimed_until: chrono::DateTime<Utc>,
+        _retry_at: chrono::DateTime<Utc>,
+        _failure: ProcessingFailure,
+    ) -> Result<(), OrchestrationError> {
+        unreachable!("phase tracing store is only used for successful async boundary tests")
+    }
+
+    fn quarantine_command(
+        &mut self,
+        _consumer_name: &str,
+        _command_id: Uuid,
+        _expected_claimed_until: chrono::DateTime<Utc>,
+        _quarantine: CommandQuarantine,
+    ) -> Result<(), OrchestrationError> {
+        unreachable!("phase tracing store is only used for successful async boundary tests")
+    }
+
+    fn prune_coordination(
+        &mut self,
+        _now: chrono::DateTime<Utc>,
+    ) -> Result<PruneOutcome, OrchestrationError> {
+        unreachable!("phase tracing store is only used for async boundary tests")
+    }
+}
+
 #[tokio::test]
 async fn producer_truth_and_outbox_commit_together() {
     let mut runtime = runtime();
@@ -56,18 +202,18 @@ async fn producer_truth_and_outbox_commit_together() {
                 change_type: "receipt_recorded".to_owned(),
                 payload_json: json!({ "receipt_id": "receipt-1" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
                 idempotency_key,
-                "settlement_case:10",
-                "settlement_case",
+                stream_key: "settlement_case:10".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.receipt_recorded",
-                1,
-                json!({ "receipt_id": "receipt-1" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.receipt_recorded".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "receipt_id": "receipt-1" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();
@@ -78,26 +224,361 @@ async fn producer_truth_and_outbox_commit_together() {
     assert_eq!(message.aggregate_id, aggregate_id);
 }
 
+#[tokio::test]
+async fn outbox_publish_callback_runs_between_writer_phases() {
+    let phases = Arc::new(Mutex::new(Vec::new()));
+    let event_id = Uuid::from_u128(0x22);
+    let aggregate_id = Uuid::from_u128(0x23);
+    let store = PhaseTracingStore::for_outbox(
+        phases.clone(),
+        ClaimedOutboxMessage {
+            message: OutboxMessage {
+                event_id,
+                idempotency_key: Uuid::from_u128(0x24),
+                stream_key: "settlement_case:23".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "intent_id": "intent-phase" }),
+                payload_hash: "phase-hash".to_owned(),
+                delivery_status: OutboxDeliveryStatus::Processing,
+                attempt_count: 0,
+                available_at: ts(0),
+                created_at: ts(0),
+                published_at: None,
+                last_attempt_at: None,
+                last_error_class: None,
+                last_error_code: None,
+                last_error_detail: None,
+                claimed_by: Some("settlement-relay".to_owned()),
+                claimed_until: Some(ts(300)),
+                quarantined_at: None,
+                quarantine_reason: None,
+                retain_until: None,
+                causal_order: 1,
+                published_external_idempotency_key: None,
+            },
+            relay_name: "settlement-relay".to_owned(),
+            claimed_at: ts(0),
+            claimed_until: ts(300),
+        },
+    );
+    let mut runtime = OrchestrationRuntime::new(
+        store,
+        RetryPolicy {
+            max_attempts: 3,
+            base_delay: TimeDelta::seconds(30),
+            max_delay: TimeDelta::minutes(5),
+            max_jitter: TimeDelta::seconds(10),
+        },
+        RetentionPolicy {
+            published_outbox_for: TimeDelta::hours(1),
+            quarantined_outbox_for: TimeDelta::hours(12),
+            completed_command_for: TimeDelta::hours(1),
+            quarantined_command_for: TimeDelta::hours(12),
+        },
+        SchemaCompatibilityPolicy {
+            max_supported_schema_version: 1,
+            compatibility_window: TimeDelta::minutes(15),
+        },
+        TimeDelta::minutes(5),
+    );
+    let phases_for_publish = phases.clone();
+
+    let outcome = runtime
+        .deliver_ready_outbox("settlement-relay", ts(0), move |_| {
+            let phases = phases_for_publish.clone();
+            async move {
+                phases.lock().unwrap().push("publish_started");
+                tokio::task::yield_now().await;
+                phases.lock().unwrap().push("publish_finished");
+                Ok(DeliveryReceipt {
+                    external_idempotency_key: ExternalIdempotencyKey::new("provider-key-phase")
+                        .unwrap(),
+                })
+            }
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, DeliveryOutcome::Published { event_id });
+    assert_eq!(
+        phases.lock().unwrap().clone(),
+        vec![
+            "claim_ready_outbox",
+            "publish_started",
+            "publish_finished",
+            "mark_outbox_published",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn command_handler_runs_between_writer_phases() {
+    let phases = Arc::new(Mutex::new(Vec::new()));
+    let command_id = Uuid::from_u128(0x25);
+    let store = PhaseTracingStore::for_command(
+        phases.clone(),
+        CommandBeginOutcome::FirstSeen(CommandInboxEntry {
+            key: CommandKey {
+                consumer_name: "projection-builder".to_owned(),
+                command_id,
+            },
+            source_event_id: Uuid::from_u128(0x26),
+            command_type: "projection.refresh".to_owned(),
+            schema_version: 1,
+            payload_hash: "command-phase-hash".to_owned(),
+            status: CommandInboxStatus::Processing,
+            attempt_count: 0,
+            first_seen_at: ts(0),
+            available_at: ts(0),
+            completed_at: None,
+            claimed_by: Some("projection-builder".to_owned()),
+            claimed_until: Some(ts(300)),
+            last_error_class: None,
+            last_error_code: None,
+            last_error_detail: None,
+            quarantined_at: None,
+            quarantine_reason: None,
+            result_type: None,
+            result_json: None,
+            retain_until: None,
+        }),
+    );
+    let mut runtime = OrchestrationRuntime::new(
+        store,
+        RetryPolicy {
+            max_attempts: 3,
+            base_delay: TimeDelta::seconds(30),
+            max_delay: TimeDelta::minutes(5),
+            max_jitter: TimeDelta::seconds(10),
+        },
+        RetentionPolicy {
+            published_outbox_for: TimeDelta::hours(1),
+            quarantined_outbox_for: TimeDelta::hours(12),
+            completed_command_for: TimeDelta::hours(1),
+            quarantined_command_for: TimeDelta::hours(12),
+        },
+        SchemaCompatibilityPolicy {
+            max_supported_schema_version: 1,
+            compatibility_window: TimeDelta::minutes(15),
+        },
+        TimeDelta::minutes(5),
+    );
+    let phases_for_handler = phases.clone();
+
+    let outcome = runtime
+        .consume_command(
+            "projection-builder",
+            CommandEnvelope::new(
+                command_id,
+                Uuid::from_u128(0x26),
+                "projection.refresh",
+                1,
+                json!({ "case_id": "case-phase" }),
+            )
+            .unwrap(),
+            ts(0),
+            move |_| {
+                let phases = phases_for_handler.clone();
+                async move {
+                    phases.lock().unwrap().push("handle_started");
+                    tokio::task::yield_now().await;
+                    phases.lock().unwrap().push("handle_finished");
+                    Ok(CommandCompletion {
+                        result_type: "projected".to_owned(),
+                        result_json: json!({ "projection_id": "phase-read" }),
+                    })
+                }
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, ConsumeOutcome::Completed { command_id });
+    assert_eq!(
+        phases.lock().unwrap().clone(),
+        vec![
+            "begin_command",
+            "handle_started",
+            "handle_finished",
+            "complete_command",
+        ]
+    );
+}
+
 #[test]
 fn payload_hash_matches_postgres_jsonb_text_canonicalization() {
-    let message = NewOutboxMessage::new(
-        Uuid::from_u128(0x31),
-        Uuid::from_u128(0x32),
-        "settlement_case:canonical",
-        "settlement_case",
-        Uuid::from_u128(0x33),
-        "settlement.receipt_recorded",
-        1,
-        json!({ "b": 1, "a": 2 }),
-        ts(0),
-        ts(0),
-    )
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: Uuid::from_u128(0x31),
+        idempotency_key: Uuid::from_u128(0x32),
+        stream_key: "settlement_case:canonical".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: Uuid::from_u128(0x33),
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "b": 1, "a": 2 }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
     .unwrap();
 
     assert_eq!(
         message.payload_hash,
         "21501dbaf73f5223934d22283f01caff4132bc1de4a9550c1ed0dffeb397a323"
     );
+}
+
+#[test]
+fn authoritative_progression_rejects_read_replica_sources() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let aggregate_id = Uuid::from_u128(0x34);
+    let event_id = Uuid::from_u128(0x35);
+
+    let write_from_replica = store.commit_authoritative_write(
+        WriterReadSource::ReadReplica,
+        AuthoritativeChange {
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            change_type: "receipt_recorded".to_owned(),
+            payload_json: json!({ "receipt_id": "replica-write" }),
+        },
+        NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key: Uuid::from_u128(0x36),
+            stream_key: "settlement_case:34".to_owned(),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.receipt_recorded".to_owned(),
+            schema_version: 1,
+            payload_json: json!({ "receipt_id": "replica-write" }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap(),
+    );
+
+    assert_eq!(
+        write_from_replica,
+        Err(OrchestrationError::ReplicaReadForbidden)
+    );
+
+    store
+        .commit_authoritative_write(
+            WriterReadSource::PrimaryWriter,
+            AuthoritativeChange {
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                change_type: "receipt_recorded".to_owned(),
+                payload_json: json!({ "receipt_id": "writer-only" }),
+            },
+            NewOutboxMessage::new(NewOutboxMessageSpec {
+                event_id,
+                idempotency_key: Uuid::from_u128(0x37),
+                stream_key: "settlement_case:34".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                event_type: "settlement.receipt_recorded".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "receipt_id": "writer-only" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+    let claim_from_replica =
+        store.claim_ready_outbox(WriterReadSource::ReadReplica, "relay-a", ts(1), ts(301));
+    let begin_from_replica = store.begin_command(
+        WriterReadSource::ReadReplica,
+        "projection-builder",
+        CommandEnvelope::new(
+            Uuid::from_u128(0x38),
+            event_id,
+            "projection.refresh",
+            1,
+            json!({ "case_id": "replica-command" }),
+        )
+        .unwrap(),
+        ts(1),
+        ts(301),
+    );
+
+    assert_eq!(
+        claim_from_replica,
+        Err(OrchestrationError::ReplicaReadForbidden)
+    );
+    assert_eq!(
+        begin_from_replica,
+        Err(OrchestrationError::ReplicaReadForbidden)
+    );
+}
+
+#[test]
+fn duplicate_outbox_idempotency_key_does_not_duplicate_truth() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let aggregate_id = Uuid::from_u128(0x39);
+    let first_event_id = Uuid::from_u128(0x3A);
+    let duplicate_event_id = Uuid::from_u128(0x3B);
+    let idempotency_key = Uuid::from_u128(0x3C);
+
+    store
+        .commit_authoritative_write(
+            WriterReadSource::PrimaryWriter,
+            AuthoritativeChange {
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                change_type: "receipt_recorded".to_owned(),
+                payload_json: json!({ "receipt_id": "first" }),
+            },
+            NewOutboxMessage::new(NewOutboxMessageSpec {
+                event_id: first_event_id,
+                idempotency_key,
+                stream_key: "settlement_case:39".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                event_type: "settlement.receipt_recorded".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "receipt_id": "first" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+    let duplicate = store.commit_authoritative_write(
+        WriterReadSource::PrimaryWriter,
+        AuthoritativeChange {
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            change_type: "receipt_recorded".to_owned(),
+            payload_json: json!({ "receipt_id": "duplicate" }),
+        },
+        NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id: duplicate_event_id,
+            idempotency_key,
+            stream_key: "settlement_case:39".to_owned(),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.receipt_recorded".to_owned(),
+            schema_version: 1,
+            payload_json: json!({ "receipt_id": "duplicate" }),
+            available_at: ts(1),
+            created_at: ts(1),
+        })
+        .unwrap(),
+    );
+
+    assert_eq!(
+        duplicate,
+        Err(OrchestrationError::IdempotencyKeyAlreadyExists { idempotency_key })
+    );
+    assert_eq!(store.authoritative_changes().len(), 1);
+    assert!(store.outbox_message(first_event_id).is_some());
+    assert!(store.outbox_message(duplicate_event_id).is_none());
 }
 
 #[tokio::test]
@@ -247,18 +728,18 @@ async fn transient_outbox_failure_schedules_retry() {
                 change_type: "submission_requested".to_owned(),
                 payload_json: json!({ "intent_id": "intent-1" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
-                Uuid::from_u128(0x52),
-                "settlement_case:50",
-                "settlement_case",
+                idempotency_key: Uuid::from_u128(0x52),
+                stream_key: "settlement_case:50".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.submit_action",
-                1,
-                json!({ "intent_id": "intent-1" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "intent_id": "intent-1" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();
@@ -300,18 +781,18 @@ async fn transient_outbox_budget_counts_total_attempts() {
                 change_type: "submission_requested".to_owned(),
                 payload_json: json!({ "intent_id": "budgeted-outbox" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
-                Uuid::from_u128(0x55),
-                "settlement_case:53",
-                "settlement_case",
+                idempotency_key: Uuid::from_u128(0x55),
+                stream_key: "settlement_case:53".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.submit_action",
-                1,
-                json!({ "intent_id": "budgeted-outbox" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "intent_id": "budgeted-outbox" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();
@@ -562,18 +1043,18 @@ async fn deferred_outbox_ignores_attempt_budget_until_window_expires() {
                 change_type: "submission_requested".to_owned(),
                 payload_json: json!({ "intent_id": "future-schema" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
-                Uuid::from_u128(0x68),
-                "settlement_case:66",
-                "settlement_case",
+                idempotency_key: Uuid::from_u128(0x68),
+                stream_key: "settlement_case:66".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.submit_action",
-                99,
-                json!({ "intent_id": "future-schema" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 99,
+                payload_json: json!({ "intent_id": "future-schema" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();
@@ -614,18 +1095,18 @@ async fn pruning_archives_terminal_coordination_rows() {
                 change_type: "submission_requested".to_owned(),
                 payload_json: json!({ "intent_id": "intent-2" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
-                Uuid::from_u128(0x73),
-                "settlement_case:70",
-                "settlement_case",
+                idempotency_key: Uuid::from_u128(0x73),
+                stream_key: "settlement_case:70".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.submit_action",
-                1,
-                json!({ "intent_id": "intent-2" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "intent_id": "intent-2" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();
@@ -691,18 +1172,18 @@ fn stale_outbox_retry_cannot_reopen_published_message() {
                 change_type: "submission_requested".to_owned(),
                 payload_json: json!({ "intent_id": "stale-outbox" }),
             },
-            NewOutboxMessage::new(
+            NewOutboxMessage::new(NewOutboxMessageSpec {
                 event_id,
-                Uuid::from_u128(0x82),
-                "settlement_case:80",
-                "settlement_case",
+                idempotency_key: Uuid::from_u128(0x82),
+                stream_key: "settlement_case:80".to_owned(),
+                aggregate_type: "settlement_case".to_owned(),
                 aggregate_id,
-                "settlement.submit_action",
-                1,
-                json!({ "intent_id": "stale-outbox" }),
-                ts(0),
-                ts(0),
-            )
+                event_type: "settlement.submit_action".to_owned(),
+                schema_version: 1,
+                payload_json: json!({ "intent_id": "stale-outbox" }),
+                available_at: ts(0),
+                created_at: ts(0),
+            })
             .unwrap(),
         )
         .unwrap();

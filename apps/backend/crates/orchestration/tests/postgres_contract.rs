@@ -4,8 +4,8 @@ use tokio_postgres::NoTls;
 use uuid::Uuid;
 
 use musubi_orchestration::{
-    CommandBeginOutcome, CommandEnvelope, NewOutboxMessage, OrchestrationError,
-    PostgresOrchestrationStore,
+    AuthoritativeSqlCommand, CommandBeginOutcome, CommandEnvelope, NewOutboxMessage,
+    NewOutboxMessageSpec, OrchestrationError, PostgresOrchestrationStore, SqlParam,
 };
 
 fn ts(seconds: i64) -> chrono::DateTime<Utc> {
@@ -53,33 +53,31 @@ async fn postgres_helpers_keep_truth_and_outbox_in_same_transaction() {
     let fact_id = Uuid::from_u128(0x700);
     let event_id = Uuid::from_u128(0x701);
     let command_id = Uuid::from_u128(0x702);
-    let message = NewOutboxMessage::new(
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
         event_id,
-        Uuid::from_u128(0x703),
-        "settlement_case:700",
-        "settlement_case",
-        fact_id,
-        "settlement.receipt_recorded",
-        1,
-        json!({ "fact_id": fact_id }),
-        ts(0),
-        ts(0),
-    )
+        idempotency_key: Uuid::from_u128(0x703),
+        stream_key: "settlement_case:700".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: fact_id,
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "fact_id": fact_id }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
     .unwrap();
 
-    PostgresOrchestrationStore::record_authoritative_write(&tx, &message, |tx| {
-        Box::pin(async move {
-            tx.execute(
-                "INSERT INTO authoritative_facts (fact_id, fact_kind) VALUES ($1, $2)",
-                &[&fact_id, &"receipt_recorded"],
-            )
-            .await
-            .map_err(|error| OrchestrationError::Database(error.to_string()))?;
-            Ok(())
-        })
-    })
-    .await
-    .expect("same-tx authoritative write + outbox insert should succeed");
+    let authoritative_commands = [AuthoritativeSqlCommand {
+        statement: "INSERT INTO authoritative_facts (fact_id, fact_kind) VALUES ($1, $2)",
+        params: vec![
+            &fact_id as SqlParam<'_>,
+            &"receipt_recorded" as SqlParam<'_>,
+        ],
+    }];
+
+    PostgresOrchestrationStore::record_authoritative_write(&tx, &authoritative_commands, &message)
+        .await
+        .expect("same-tx authoritative write + outbox insert should succeed");
 
     let fact_count: i64 = tx
         .query_one("SELECT COUNT(*) AS count FROM authoritative_facts", &[])
@@ -154,6 +152,59 @@ async fn postgres_helpers_keep_truth_and_outbox_in_same_transaction() {
             command_id,
         })
     );
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
+async fn postgres_helper_rejects_empty_authoritative_write_batch() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: Uuid::from_u128(0x706),
+        idempotency_key: Uuid::from_u128(0x707),
+        stream_key: "settlement_case:706".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: Uuid::from_u128(0x708),
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "fact_id": "empty-batch" }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    let error = PostgresOrchestrationStore::record_authoritative_write(&tx, &[], &message)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, OrchestrationError::EmptyAuthoritativeWriteBatch);
 
     tx.rollback()
         .await

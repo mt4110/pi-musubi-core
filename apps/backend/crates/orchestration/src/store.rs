@@ -6,8 +6,9 @@ use uuid::Uuid;
 use crate::{
     ArchivedCommandInboxEntry, ArchivedOutboxMessage, AuthoritativeChange, ClaimedOutboxMessage,
     CommandBeginOutcome, CommandCompletion, CommandEnvelope, CommandInboxEntry, CommandInboxStatus,
-    CommandKey, DeliveryReceipt, NewOutboxMessage, OrchestrationError, OutboxAttempt,
-    OutboxDeliveryStatus, OutboxMessage, ProcessingFailure, PruneOutcome, QuarantineReason,
+    CommandKey, CommandQuarantine, DeliveryReceipt, NewOutboxMessage, OrchestrationError,
+    OutboxAttempt, OutboxDeliveryStatus, OutboxMessage, ProcessingFailure, PruneOutcome,
+    QuarantineReason,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,10 +92,7 @@ pub trait OrchestrationStore {
         consumer_name: &str,
         command_id: Uuid,
         expected_claimed_until: DateTime<Utc>,
-        quarantined_at: DateTime<Utc>,
-        retain_until: DateTime<Utc>,
-        reason: QuarantineReason,
-        failure: ProcessingFailure,
+        quarantine: CommandQuarantine,
     ) -> Result<(), OrchestrationError>;
 
     fn prune_coordination(
@@ -552,10 +550,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         consumer_name: &str,
         command_id: Uuid,
         expected_claimed_until: DateTime<Utc>,
-        quarantined_at: DateTime<Utc>,
-        retain_until: DateTime<Utc>,
-        reason: QuarantineReason,
-        failure: ProcessingFailure,
+        quarantine: CommandQuarantine,
     ) -> Result<(), OrchestrationError> {
         let key = Self::command_key(consumer_name, command_id);
         let entry = self.command_inbox.get_mut(&key).ok_or_else(|| {
@@ -576,12 +571,12 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         entry.attempt_count += 1;
         entry.claimed_by = None;
         entry.claimed_until = None;
-        entry.last_error_class = Some(failure.class);
-        entry.last_error_code = Some(failure.code);
-        entry.last_error_detail = Some(failure.detail);
-        entry.quarantined_at = Some(quarantined_at);
-        entry.quarantine_reason = Some(reason);
-        entry.retain_until = Some(retain_until);
+        entry.last_error_class = Some(quarantine.failure.class);
+        entry.last_error_code = Some(quarantine.failure.code);
+        entry.last_error_detail = Some(quarantine.failure.detail);
+        entry.quarantined_at = Some(quarantine.quarantined_at);
+        entry.quarantine_reason = Some(quarantine.reason);
+        entry.retain_until = Some(quarantine.retain_until);
 
         Ok(())
     }

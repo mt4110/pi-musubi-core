@@ -1,7 +1,5 @@
-use std::{future::Future, pin::Pin};
-
 use chrono::{DateTime, Utc};
-use tokio_postgres::{Row, Transaction};
+use tokio_postgres::{Row, Transaction, types::ToSql};
 use uuid::Uuid;
 
 use crate::{
@@ -12,19 +10,29 @@ use crate::{
 
 pub struct PostgresOrchestrationStore;
 
+pub type SqlParam<'a> = &'a (dyn ToSql + Sync);
+
+pub struct AuthoritativeSqlCommand<'a> {
+    pub statement: &'a str,
+    pub params: Vec<SqlParam<'a>>,
+}
+
 impl PostgresOrchestrationStore {
-    pub async fn record_authoritative_write<Apply>(
+    pub async fn record_authoritative_write(
         tx: &Transaction<'_>,
+        commands: &[AuthoritativeSqlCommand<'_>],
         message: &NewOutboxMessage,
-        apply_authoritative_write: Apply,
-    ) -> Result<(), OrchestrationError>
-    where
-        Apply: for<'a> FnOnce(
-            &'a Transaction<'a>,
-        )
-            -> Pin<Box<dyn Future<Output = Result<(), OrchestrationError>> + 'a>>,
-    {
-        apply_authoritative_write(tx).await?;
+    ) -> Result<(), OrchestrationError> {
+        if commands.is_empty() {
+            return Err(OrchestrationError::EmptyAuthoritativeWriteBatch);
+        }
+
+        for command in commands {
+            tx.execute(command.statement, &command.params)
+                .await
+                .map_err(database_error)?;
+        }
+
         Self::insert_outbox_message(tx, message).await
     }
 

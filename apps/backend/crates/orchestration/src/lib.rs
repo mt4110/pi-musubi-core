@@ -15,12 +15,12 @@ pub use error::OrchestrationError;
 pub use model::{
     ArchivedCommandInboxEntry, ArchivedOutboxMessage, AuthoritativeChange, ClaimedOutboxMessage,
     CommandBeginOutcome, CommandCompletion, CommandEnvelope, CommandInboxEntry, CommandInboxStatus,
-    CommandKey, ConsumeOutcome, DeliveryOutcome, DeliveryReceipt, ExternalIdempotencyKey,
-    NewOutboxMessage, OutboxAttempt, OutboxDeliveryStatus, OutboxMessage, ProcessingFailure,
-    PruneOutcome, QuarantineReason,
+    CommandKey, CommandQuarantine, ConsumeOutcome, DeliveryOutcome, DeliveryReceipt,
+    ExternalIdempotencyKey, NewOutboxMessage, NewOutboxMessageSpec, OutboxAttempt,
+    OutboxDeliveryStatus, OutboxMessage, ProcessingFailure, PruneOutcome, QuarantineReason,
 };
 pub use policy::{RetentionPolicy, RetryClass, RetryPolicy, SchemaCompatibilityPolicy};
-pub use postgres::PostgresOrchestrationStore;
+pub use postgres::{AuthoritativeSqlCommand, PostgresOrchestrationStore, SqlParam};
 pub use runtime::OrchestrationRuntime;
 pub use store::{InMemoryOrchestrationStore, OrchestrationStore, WriterReadSource};
 
