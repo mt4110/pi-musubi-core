@@ -47,15 +47,21 @@ pub async fn authenticate_pi(
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("@{pi_uid}"));
+    let has_access_token = payload
+        .access_token
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let access_token = payload
+        .access_token
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| bad_request("access_token is required"))?;
 
     println!(
         "pi auth received: pi_uid={pi_uid}, username={username}, wallet_address={:?}, has_access_token={}, has_profile={}",
         payload.wallet_address,
-        payload
-            .access_token
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty()),
+        has_access_token,
         payload.profile.is_some(),
     );
 
@@ -65,6 +71,7 @@ pub async fn authenticate_pi(
             pi_uid: pi_uid.clone(),
             username: username.clone(),
             wallet_address: payload.wallet_address,
+            access_token,
         },
     )
     .await

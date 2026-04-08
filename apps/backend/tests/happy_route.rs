@@ -51,7 +51,7 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
     let pending_view = get_json(
         &app,
         &format!("/api/projection/settlement-views/{settlement_case_id}"),
-        None,
+        Some(initiator.token.as_str()),
     )
     .await;
     assert_eq!(pending_view.status, StatusCode::OK);
@@ -87,7 +87,7 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
     let funded_view = get_json(
         &app,
         &format!("/api/projection/settlement-views/{settlement_case_id}"),
-        None,
+        Some(initiator.token.as_str()),
     )
     .await;
     assert_eq!(funded_view.status, StatusCode::OK);
@@ -129,7 +129,7 @@ async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection(
             "/api/projection/settlement-views/{}",
             prepared.settlement_case_id
         ),
-        None,
+        Some(prepared.initiator_token.as_str()),
     )
     .await;
     assert_eq!(settlement_view.status, StatusCode::OK);
@@ -214,12 +214,68 @@ async fn later_verified_callback_can_fund_after_initial_rejection() {
             "/api/projection/settlement-views/{}",
             prepared.settlement_case_id
         ),
-        None,
+        Some(prepared.initiator_token.as_str()),
     )
     .await;
     assert_eq!(settlement_view.status, StatusCode::OK);
     assert_eq!(settlement_view.body["current_settlement_status"], "funded");
     assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
+async fn authenticate_pi_requires_matching_access_token_for_existing_account() {
+    let app = build_app(new_state());
+
+    let first_sign_in = sign_in_with_access_token_response(
+        &app,
+        "pi-user-auth-reuse",
+        "auth-reuse",
+        "access-token-1",
+    )
+    .await;
+    assert_eq!(first_sign_in.status, StatusCode::OK);
+
+    let second_sign_in = sign_in_with_access_token_response(
+        &app,
+        "pi-user-auth-reuse",
+        "auth-reuse",
+        "access-token-2",
+    )
+    .await;
+    assert_eq!(second_sign_in.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        second_sign_in.body["error"],
+        "pi identity proof did not match the existing account"
+    );
+}
+
+#[tokio::test]
+async fn settlement_projection_requires_authenticated_participant() {
+    let app = build_app(new_state());
+    let prepared = prepare_funded_case(&app).await;
+    let outsider = sign_in(&app, "pi-user-outsider", "outsider").await;
+
+    let anonymous_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(anonymous_view.status, StatusCode::UNAUTHORIZED);
+
+    let outsider_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -349,6 +405,7 @@ struct PreparedCase {
     settlement_case_id: String,
     payment_id: String,
     initiator_pi_uid: String,
+    initiator_token: String,
 }
 
 async fn prepare_pending_case(app: &Router) -> PreparedCase {
@@ -391,6 +448,7 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         settlement_case_id,
         payment_id,
         initiator_pi_uid: initiator.pi_uid,
+        initiator_token: initiator.token,
     }
 }
 
@@ -421,15 +479,11 @@ async fn prepare_funded_case(app: &Router) -> PreparedCase {
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
-    let response = post_json(
+    let response = sign_in_with_access_token_response(
         app,
-        "/api/auth/pi",
-        None,
-        json!({
-            "pi_uid": pi_uid,
-            "username": username,
-            "wallet_address": format!("wallet-{pi_uid}")
-        }),
+        pi_uid,
+        username,
+        &format!("access-token-{pi_uid}"),
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
@@ -448,6 +502,26 @@ async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
             .expect("pi_uid must exist")
             .to_owned(),
     }
+}
+
+async fn sign_in_with_access_token_response(
+    app: &Router,
+    pi_uid: &str,
+    username: &str,
+    access_token: &str,
+) -> JsonResponse {
+    post_json(
+        app,
+        "/api/auth/pi",
+        None,
+        json!({
+            "pi_uid": pi_uid,
+            "username": username,
+            "wallet_address": format!("wallet-{pi_uid}"),
+            "access_token": access_token
+        }),
+    )
+    .await
 }
 
 struct JsonResponse {

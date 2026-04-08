@@ -3,11 +3,11 @@
 Day 1 backend app and Rust workspace root.
 
 Current local HTTP surface:
-- `POST /api/auth/pi`
+- `POST /api/auth/pi` with explicit `access_token`
 - `POST /api/promise/intents`
 - `POST /api/payment/callback`
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`
-- `GET /api/projection/settlement-views/{settlement_case_id}`
+- `GET /api/projection/settlement-views/{settlement_case_id}` for authenticated participants only
 
 ## Local infra
 

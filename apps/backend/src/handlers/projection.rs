@@ -1,13 +1,16 @@
 use axum::{
     Json,
     extract::{Path, State},
+    http::HeaderMap,
 };
 use serde::Serialize;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, map_happy_route_error},
-    services::happy_route::get_settlement_view as get_settlement_view_service,
+    handlers::{ApiResult, map_happy_route_error, require_bearer_token},
+    services::happy_route::{
+        authorize_account, get_settlement_view as get_settlement_view_service,
+    },
 };
 
 #[derive(Debug, Serialize)]
@@ -23,11 +26,20 @@ pub struct SettlementViewResponse {
 
 pub async fn get_settlement_view(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Path(settlement_case_id): Path<String>,
 ) -> ApiResult<SettlementViewResponse> {
-    let snapshot = get_settlement_view_service(&state, settlement_case_id.trim())
+    let bearer_token = require_bearer_token(&headers)?;
+    let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    let snapshot = get_settlement_view_service(
+        &state,
+        settlement_case_id.trim(),
+        &authenticated_account.account_id,
+    )
+    .await
+    .map_err(map_happy_route_error)?;
 
     Ok(Json(SettlementViewResponse {
         settlement_case_id: snapshot.settlement_case_id,

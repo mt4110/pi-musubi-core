@@ -1,3 +1,8 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -14,11 +19,17 @@ pub async fn authenticate_pi_account(
 ) -> Result<AuthenticatedAccount, HappyRouteError> {
     let now = Utc::now();
     let mut store = state.happy_route.write().await;
+    let access_token_fingerprint = fingerprint_access_token(&input.access_token);
 
     let account_id =
         if let Some(existing_account_id) = store.account_id_by_pi_uid.get(&input.pi_uid) {
             let account_id = existing_account_id.clone();
             if let Some(account) = store.accounts_by_id.get_mut(&account_id) {
+                if account.access_token_fingerprint != access_token_fingerprint {
+                    return Err(HappyRouteError::Unauthorized(
+                        "pi identity proof did not match the existing account".to_owned(),
+                    ));
+                }
                 account.username = input.username.clone();
                 account.wallet_address = input.wallet_address.clone();
                 account.updated_at = now;
@@ -31,6 +42,7 @@ pub async fn authenticate_pi_account(
                 pi_uid: input.pi_uid.clone(),
                 username: input.username.clone(),
                 wallet_address: input.wallet_address.clone(),
+                access_token_fingerprint,
                 created_at: now,
                 updated_at: now,
             };
@@ -56,6 +68,12 @@ pub async fn authenticate_pi_account(
         pi_uid: input.pi_uid,
         username: input.username,
     })
+}
+
+fn fingerprint_access_token(access_token: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    access_token.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub async fn authorize_account(

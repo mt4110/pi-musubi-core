@@ -18,7 +18,9 @@ It is to prove that the backend can show a MUSUBI-shaped flow with visible truth
 ### 1. `POST /api/auth/pi`
 
 - Upserts a mutable Ordinary Account envelope in in-memory `core`-like state.
+- Requires a non-empty `access_token` in the request payload.
 - Returns a bearer token and stable account id for the signed-in Pi identity.
+- Existing `pi_uid` reuse is only allowed when the same access-token fingerprint is presented again; real provider verification is still deferred beyond this stub.
 
 ### 2. `POST /api/promise/intents`
 
@@ -98,6 +100,7 @@ The second drain run processes projection refresh events and rebuilds:
 
 ### 6. `GET /api/projection/settlement-views/:settlement_case_id`
 
+Requires a bearer token for an account that participates in the referenced Promise / settlement case.
 Returns the derived read model:
 - current settlement status
 - total funded minor units

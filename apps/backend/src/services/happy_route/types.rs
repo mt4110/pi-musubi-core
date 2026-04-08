@@ -24,6 +24,7 @@ pub struct AuthenticationInput {
     pub pi_uid: String,
     pub username: String,
     pub wallet_address: Option<String>,
+    pub access_token: String,
 }
 
 #[derive(Clone, Debug)]

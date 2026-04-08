@@ -1,4 +1,7 @@
-use axum::{Json, http::StatusCode};
+use axum::{
+    Json,
+    http::{HeaderMap, StatusCode},
+};
 use serde::Serialize;
 
 use crate::services::happy_route::HappyRouteError;
@@ -51,6 +54,24 @@ pub fn internal_server_error(message: impl Into<String>) -> ApiError {
             error: message.into(),
         }),
     )
+}
+
+pub fn require_bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| unauthorized("authorization bearer token is required"))?;
+
+    let Some(token) = authorization.strip_prefix("Bearer ") else {
+        return Err(unauthorized("authorization bearer token is required"));
+    };
+
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(unauthorized("authorization bearer token is required"));
+    }
+
+    Ok(token.to_owned())
 }
 
 pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {

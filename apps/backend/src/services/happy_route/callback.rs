@@ -66,8 +66,30 @@ pub async fn ingest_payment_callback(
 pub async fn get_settlement_view(
     state: &SharedState,
     settlement_case_id: &str,
+    viewer_account_id: &str,
 ) -> Result<SettlementViewSnapshot, HappyRouteError> {
     let store = state.happy_route.read().await;
+    let settlement_case = store
+        .settlement_cases_by_id
+        .get(settlement_case_id)
+        .ok_or_else(|| {
+            HappyRouteError::NotFound(
+                "settlement projection has not been built for that settlement_case_id".to_owned(),
+            )
+        })?;
+    let promise_intent = store
+        .promise_intents_by_id
+        .get(&settlement_case.promise_intent_id)
+        .ok_or_else(|| {
+            HappyRouteError::Internal("settlement case points to missing promise intent".to_owned())
+        })?;
+    if viewer_account_id != promise_intent.initiator_account_id
+        && viewer_account_id != promise_intent.counterparty_account_id
+    {
+        return Err(HappyRouteError::NotFound(
+            "settlement projection has not been built for that settlement_case_id".to_owned(),
+        ));
+    }
     let settlement_view = store
         .settlement_views_by_id
         .get(settlement_case_id)

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error, unauthorized},
+    handlers::{ApiResult, bad_request, map_happy_route_error, require_bearer_token},
     services::happy_route::{
         PromiseIntentInput, authorize_account,
         create_promise_intent as create_promise_intent_service,
@@ -33,7 +33,7 @@ pub async fn create_promise_intent(
     headers: HeaderMap,
     Json(payload): Json<CreatePromiseIntentRequest>,
 ) -> ApiResult<CreatePromiseIntentResponse> {
-    let bearer_token = extract_bearer_token(&headers)?;
+    let bearer_token = require_bearer_token(&headers)?;
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
@@ -75,22 +75,4 @@ pub async fn create_promise_intent(
         outbox_event_ids: outcome.outbox_event_ids,
         replayed_intent: outcome.replayed_intent,
     }))
-}
-
-fn extract_bearer_token(headers: &HeaderMap) -> Result<String, crate::handlers::ApiError> {
-    let authorization = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| unauthorized("authorization bearer token is required"))?;
-
-    let Some(token) = authorization.strip_prefix("Bearer ") else {
-        return Err(unauthorized("authorization bearer token is required"));
-    };
-
-    let token = token.trim();
-    if token.is_empty() {
-        return Err(unauthorized("authorization bearer token is required"));
-    }
-
-    Ok(token.to_owned())
 }
