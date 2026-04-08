@@ -1,0 +1,22 @@
+use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OrchestrationError {
+    ReplicaReadForbidden,
+    PayloadHashEncodingFailed(String),
+    EmptyExternalIdempotencyKey,
+    Database(String),
+    EventAlreadyExists {
+        event_id: Uuid,
+    },
+    IdempotencyKeyAlreadyExists {
+        idempotency_key: Uuid,
+    },
+    OutboxMessageNotFound {
+        event_id: Uuid,
+    },
+    CommandInboxNotFound {
+        consumer_name: String,
+        command_id: Uuid,
+    },
+}
