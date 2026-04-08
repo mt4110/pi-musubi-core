@@ -7,12 +7,15 @@ The goal of this refactor is structural honesty:
 - create clear homes for MUSUBI domain concepts before schema and settlement work expand
 - prevent `Server`, `Realm`, `Citadel`, `Pool`, settlement, and orchestration from collapsing into one PoC-shaped module tree
 
-This refactor is intentionally limited.
-It does not implement:
-- database schema or migrations
-- PostgreSQL integration
-- settlement backend/provider traits
-- outbox/inbox runtime behavior
+The original Issue #2 refactor was intentionally limited.
+Later milestone work has since added:
+- schema skeleton and migrations
+- settlement-domain types and backend traits
+- orchestration runtime notes
+
+The backend still does not implement:
+- PostgreSQL runtime integration in the app crate
+- provider-specific adapters
 - happy-route expansion
 
 ## Ownership
@@ -72,13 +75,15 @@ Typed provider payloads in the domain crate must remain provider-agnostic and mu
 
 ### `musubi_orchestration`
 Owns:
-- the future boundary for transactional outbox / durable inbox orchestration
-- coordination vocabulary only, for now
+- transactional outbox runtime shape
+- durable command inbox dedupe shape
+- retry classification, quarantine, and pruning policy at the coordination boundary
+- writer-first orchestration invariants
 
 Must not own:
-- real outbox/inbox runtime yet
-- database integration
-- settlement/provider behavior
+- ledger truth
+- provider-side settlement behavior
+- application HTTP/runtime wiring
 
 ## Why this exists
 
