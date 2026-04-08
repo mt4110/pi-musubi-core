@@ -57,19 +57,6 @@ impl<'a> HappyRouteWriteRepository<'a> {
                     "settlement case points to missing promise intent".to_owned(),
                 )
             })?;
-        let raw_callback = RawProviderCallbackRecord {
-            raw_callback_id: raw_callback_id.to_owned(),
-            payment_id: input.payment_id.clone(),
-            payer_pi_uid: input.payer_pi_uid.clone(),
-            amount: observed_amount.clone(),
-            txid: input.txid.clone(),
-            callback_status: input.callback_status.clone(),
-            received_at,
-        };
-        self.store
-            .raw_provider_callbacks_by_id
-            .insert(raw_callback_id.to_owned(), raw_callback);
-
         if promise_intent
             .deposit_amount
             .checked_cmp(observed_amount)
@@ -99,6 +86,19 @@ impl<'a> HappyRouteWriteRepository<'a> {
                 "payer_pi_uid does not match the Promise initiator".to_owned(),
             ));
         }
+
+        let raw_callback = RawProviderCallbackRecord {
+            raw_callback_id: raw_callback_id.to_owned(),
+            payment_id: input.payment_id.clone(),
+            payer_pi_uid: input.payer_pi_uid.clone(),
+            amount: observed_amount.clone(),
+            txid: input.txid.clone(),
+            callback_status: input.callback_status.clone(),
+            received_at,
+        };
+        self.store
+            .raw_provider_callbacks_by_id
+            .insert(raw_callback_id.to_owned(), raw_callback);
 
         Ok(CallbackContext {
             raw_callback_id: raw_callback_id.to_owned(),

@@ -97,14 +97,30 @@ impl<'a> HappyRouteWriteRepository<'a> {
                         "payment receipt idempotency key points to missing receipt".to_owned(),
                     )
                 })?;
+            let existing_settlement_case_id = existing_payment_receipt.settlement_case_id.clone();
+            let existing_promise_intent_id = existing_payment_receipt.promise_intent_id.clone();
+            let existing_receipt_status = existing_payment_receipt.receipt_status.clone();
+            let existing_payment_receipt_id = existing_payment_receipt.payment_receipt_id.clone();
+            append_normalized_observations(
+                self.store,
+                &context.settlement_case.settlement_case_id,
+                Some(&context.settlement_submission_id),
+                &normalized_observations,
+            );
+            append_normalized_observations(
+                self.store,
+                &context.settlement_case.settlement_case_id,
+                Some(&context.settlement_submission_id),
+                verification_observations,
+            );
 
             return Ok(PaymentCallbackOutcome {
-                payment_receipt_id: existing_payment_receipt.payment_receipt_id.clone(),
+                payment_receipt_id: existing_payment_receipt_id,
                 raw_callback_id: context.raw_callback_id.clone(),
-                settlement_case_id: existing_payment_receipt.settlement_case_id.clone(),
-                promise_intent_id: existing_payment_receipt.promise_intent_id.clone(),
+                settlement_case_id: existing_settlement_case_id,
+                promise_intent_id: existing_promise_intent_id,
                 case_status: context.settlement_case.case_status.clone(),
-                receipt_status: existing_payment_receipt.receipt_status.clone(),
+                receipt_status: existing_receipt_status,
                 ledger_journal_id: None,
                 outbox_event_ids: Vec::new(),
                 duplicate_receipt: true,

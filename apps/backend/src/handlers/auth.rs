@@ -58,12 +58,13 @@ pub async fn authenticate_pi(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| bad_request("access_token is required"))?;
 
-    println!(
-        "pi auth received: pi_uid={pi_uid}, username={username}, wallet_address={:?}, has_access_token={}, has_profile={}",
-        payload.wallet_address,
-        has_access_token,
-        payload.profile.is_some(),
-    );
+    if cfg!(debug_assertions) {
+        println!(
+            "pi auth received: has_access_token={}, has_profile={}",
+            has_access_token,
+            payload.profile.is_some(),
+        );
+    }
 
     let authenticated = authenticate_pi_account(
         &state,
