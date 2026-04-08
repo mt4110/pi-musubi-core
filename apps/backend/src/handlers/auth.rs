@@ -1,9 +1,12 @@
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
-use crate::handlers::{ApiResult, bad_request};
+use crate::{
+    SharedState,
+    handlers::{ApiResult, bad_request},
+    services::happy_route::{AuthenticationInput, authenticate_pi_account},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct PiAuthRequest {
@@ -28,7 +31,10 @@ pub struct AuthUser {
     pub username: String,
 }
 
-pub async fn authenticate_pi(Json(payload): Json<PiAuthRequest>) -> ApiResult<PiAuthResponse> {
+pub async fn authenticate_pi(
+    axum::extract::State(state): axum::extract::State<SharedState>,
+    Json(payload): Json<PiAuthRequest>,
+) -> ApiResult<PiAuthResponse> {
     let pi_uid = payload
         .pi_uid
         .or(payload.uid)
@@ -53,12 +59,23 @@ pub async fn authenticate_pi(Json(payload): Json<PiAuthRequest>) -> ApiResult<Pi
         payload.profile.is_some(),
     );
 
+    let authenticated = authenticate_pi_account(
+        &state,
+        AuthenticationInput {
+            pi_uid: pi_uid.clone(),
+            username: username.clone(),
+            wallet_address: payload.wallet_address,
+        },
+    )
+    .await
+    .map_err(|error| bad_request(error.message()))?;
+
     Ok(Json(PiAuthResponse {
-        token: format!("pi-session-{}", Uuid::new_v4()),
+        token: authenticated.token,
         user: AuthUser {
-            id: Uuid::new_v4().to_string(),
-            pi_uid,
-            username,
+            id: authenticated.account_id,
+            pi_uid: authenticated.pi_uid,
+            username: authenticated.username,
         },
     }))
 }

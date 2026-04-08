@@ -1,0 +1,200 @@
+# Happy Route Walkthrough
+
+This note documents the minimal lawful Day 1 happy route implemented for M1 Issue #7.
+
+The goal is not broad product UX.
+It is to prove that the backend can show a MUSUBI-shaped flow with visible truth boundaries:
+
+1. sign-in
+2. bounded Promise / deposit intent
+3. settlement case creation
+4. outbox-driven provider submission
+5. observed receipt handling
+6. append-only ledger fact creation
+7. derived projection update
+
+## Implemented request / response path
+
+### 1. `POST /api/auth/pi`
+
+- Upserts a mutable Ordinary Account envelope in in-memory `core`-like state.
+- Returns a bearer token and stable account id for the signed-in Pi identity.
+
+### 2. `POST /api/promise/intents`
+
+Request:
+- bearer token
+- `internal_idempotency_key`
+- `realm_id`
+- `counterparty_account_id`
+- `deposit_amount_minor_units`
+- `currency_code`
+
+Writes in one authoritative step:
+- `dao.promise_intents`
+- `dao.settlement_cases`
+- `outbox` message `OPEN_HOLD_INTENT`
+- `outbox` message `REFRESH_PROMISE_VIEW`
+
+Immediate response:
+- `promise_intent_id`
+- `settlement_case_id`
+- `case_status = pending_funding`
+
+### 3. `POST /api/internal/orchestration/drain`
+
+This is the explicit demo relay for the local happy route.
+It makes the asynchronous boundary visible instead of hiding provider work inside the request that created truth.
+
+For `OPEN_HOLD_INTENT` it:
+- claims the outbox row
+- inserts command-inbox dedupe for `settlement-orchestrator`
+- persists `dao.settlement_intents`
+- persists a pending `dao.settlement_submissions`
+- drops the authoritative lock
+- calls the stub `SettlementBackend`
+- persists submission acceptance + normalized observation in a fresh write
+- emits `REFRESH_SETTLEMENT_VIEW`
+
+In code, that split now starts at `process_open_hold_intent(...)` and is explicitly separated into a prepare write and a post-I/O persistence write so the future PostgreSQL transaction boundary is easier to replace faithfully.
+
+Immediate response:
+- processed outbox rows
+- `provider_submission_id` for the accepted hold submission
+
+### 4. `POST /api/payment/callback`
+
+Request:
+- `payment_id` = provider submission id from the stub backend
+- `payer_pi_uid`
+- `amount_minor_units`
+- `currency_code`
+- optional `txid`
+- optional `status`
+
+Flow:
+- stores `core.raw_provider_callbacks` first
+- drops the authoritative lock
+- normalizes callback evidence through the stub backend
+- verifies the receipt through the stub backend
+- writes `core.payment_receipts` idempotently
+- advances `dao.settlement_cases` to `funded`
+- appends `ledger.journal_entries` + `ledger.account_postings`
+- emits `REFRESH_SETTLEMENT_VIEW` and `REFRESH_PROMISE_VIEW`
+
+Immediate response:
+- `payment_receipt_id`
+- `raw_callback_id`
+- `settlement_case_id`
+- `receipt_status`
+- optional `ledger_journal_id`
+
+### 5. `POST /api/internal/orchestration/drain`
+
+The second drain run processes projection refresh events and rebuilds:
+- `projection.promise_views`
+- `projection.settlement_views`
+
+### 6. `GET /api/projection/settlement-views/:settlement_case_id`
+
+Returns the derived read model:
+- current settlement status
+- total funded minor units
+- currency code
+- latest journal entry id
+
+## Where each truth boundary lives
+
+### Authoritative truth
+
+Written inside the in-memory authoritative store in `src/services/happy_route/`:
+- mutable account/session records
+- Promise coordination records
+- settlement case / intent / submission / observation records
+- payment receipt records
+- append-only ledger journals / postings
+
+This is a Day 1 demo stand-in for PostgreSQL.
+The code is shaped so that the lock boundary plays the role of the authoritative transaction boundary.
+
+### Outbox
+
+Written by:
+- `create_promise_intent(...)`
+- `process_open_hold_intent(...)`
+- `ingest_payment_callback(...)`
+
+Outbox rows are explicit `OutboxMessageRecord` values with:
+- internal event id
+- aggregate identity
+- schema version
+- delivery status
+- typed command payload
+
+### Evidence observation
+
+Observed in two places:
+- `normalize_callback(...)` on inbound callback evidence
+- `submit_action(...)` on provider submission acceptance
+
+Both come through the stub `SettlementBackend`.
+Provider responses are treated as evidence, not business truth.
+
+### Ledger fact append
+
+The happy route appends receipt-recognition truth in:
+- `append_receipt_recognition_ledger(...)`
+
+It creates:
+- one journal entry with `entry_kind = receipt_recognized`
+- one debit posting to `provider_clearing_inbound`
+- one credit posting to `user_secured_funds_liability`
+
+No historical ledger rows are mutated or deleted.
+
+### Projection update
+
+Projection refresh is handled by outbox consumers:
+- `process_refresh_promise_view(...)`
+- `process_refresh_settlement_view(...)`
+
+The settlement view total is rebuilt from authoritative ledger postings, not copied from the callback payload.
+
+## What is real vs stubbed
+
+### Real in this M1 implementation
+
+- explicit Promise -> settlement case authoring
+- transactional-shape truth + outbox boundary
+- separate outbox relay step
+- durable-style command-inbox dedupe
+- provider submission behind `SettlementBackend`
+- raw callback first
+- idempotent payment receipt handling
+- append-only ledger journal/posting creation
+- projection rebuilt from authoritative truth
+
+### Stubbed on purpose
+
+- PostgreSQL runtime wiring
+- actual SQL transaction runner
+- real Pi provider / wallet integration
+- real background workers / leases / retries
+- real pruning job execution
+
+The backend adapter is a fake, but the truth boundaries are not fake.
+
+## What remains deferred after M1
+
+- replace the in-memory authoritative store with PostgreSQL-backed repositories
+- bind the current record shapes to actual `core` / `dao` / `ledger` / `outbox` / `projection` tables
+- move internal relay endpoint behavior into real workers
+- add bounded retry / quarantine / pruning execution to runtime jobs
+- add reconciliation paths for unknown / contradictory provider results
+- add release / refund / compensation happy and unhappy routes beyond initial funding recognition
+
+## Important Day 1 limitations
+
+- The demo canonicalizes `PI` to scale `3` and uses minor units only.
+- The current happy route proves receipt recognition and funding visibility, not full release/refund lifecycle.
+- The internal relay endpoint exists for local visibility and tests; it is not the long-term product-facing orchestration surface.
