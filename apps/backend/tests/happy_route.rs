@@ -279,6 +279,33 @@ async fn settlement_projection_requires_authenticated_participant() {
 }
 
 #[tokio::test]
+async fn settlement_projection_accepts_lowercase_bearer_scheme() {
+    let app = build_app(new_state());
+    let prepared = prepare_funded_case(&app).await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ))
+        .header(
+            "authorization",
+            format!("bearer {}", prepared.initiator_token),
+        )
+        .body(Body::empty())
+        .expect("request must build");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("app should respond");
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn promise_intent_rejects_blank_internal_idempotency_key() {
     let app = build_app(new_state());
     let initiator = sign_in(&app, "pi-user-empty-key-a", "empty-key-a").await;
@@ -392,6 +419,33 @@ async fn promise_intent_rejects_payload_drift_for_same_initiator_and_key() {
     assert_eq!(
         drifted_create.body["error"],
         "internal_idempotency_key was already used with a different Promise payload"
+    );
+}
+
+#[tokio::test]
+async fn payment_callback_rejects_non_positive_amount_with_generic_message() {
+    let app = build_app(new_state());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 0,
+            "currency_code": "PI",
+            "txid": "pi-tx-zero-amount",
+            "status": "completed"
+        }),
+    )
+    .await;
+
+    assert_eq!(callback.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        callback.body["error"],
+        "minor_units must be greater than zero"
     );
 }
 

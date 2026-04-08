@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use musubi_settlement_domain::{
     NormalizedObservation, NormalizedObservationKind, ObservationConfidence,
 };
@@ -32,7 +32,10 @@ pub(super) fn append_normalized_observations(
                     .provider_tx_hash
                     .as_ref()
                     .map(|value| value.as_str().to_owned()),
-                observed_at: Utc::now(),
+                observed_at: observation
+                    .observed_at
+                    .map(DateTime::<Utc>::from)
+                    .unwrap_or_else(Utc::now),
             });
     }
 }

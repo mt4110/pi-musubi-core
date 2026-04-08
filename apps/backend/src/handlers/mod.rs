@@ -62,9 +62,16 @@ pub fn require_bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| unauthorized("authorization bearer token is required"))?;
 
-    let Some(token) = authorization.strip_prefix("Bearer ") else {
+    let mut parts = authorization.split_whitespace();
+    let Some(scheme) = parts.next() else {
         return Err(unauthorized("authorization bearer token is required"));
     };
+    let Some(token) = parts.next() else {
+        return Err(unauthorized("authorization bearer token is required"));
+    };
+    if !scheme.eq_ignore_ascii_case("bearer") || parts.next().is_some() {
+        return Err(unauthorized("authorization bearer token is required"));
+    }
 
     let token = token.trim();
     if token.is_empty() {

@@ -34,6 +34,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 tower-http = { version = "0.6.8", features = ["cors"] }
 async-trait = "0.1"
+sha2 = "0.10"
 musubi_settlement_domain = { path = "crates/settlement-domain" }
 
 [dev-dependencies]

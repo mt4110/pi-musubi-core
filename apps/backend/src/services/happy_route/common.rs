@@ -11,7 +11,7 @@ pub(super) fn canonical_pi_money(
 ) -> Result<Money, HappyRouteError> {
     if minor_units <= 0 {
         return Err(HappyRouteError::BadRequest(
-            "deposit_amount_minor_units must be greater than zero".to_owned(),
+            "minor_units must be greater than zero".to_owned(),
         ));
     }
 

@@ -37,7 +37,7 @@ pub(super) struct AccountRecord {
     pub(super) pi_uid: String,
     pub(super) username: String,
     pub(super) wallet_address: Option<String>,
-    pub(super) access_token_fingerprint: u64,
+    pub(super) access_token_digest: String,
     pub(super) created_at: DateTime<Utc>,
     pub(super) updated_at: DateTime<Utc>,
 }
