@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, not_found, unauthorized},
+    handlers::{ApiResult, bad_request, map_happy_route_error, unauthorized},
     services::happy_route::{
-        HappyRouteError, PromiseIntentInput, authorize_account,
+        PromiseIntentInput, authorize_account,
         create_promise_intent as create_promise_intent_service,
     },
 };
@@ -37,16 +37,32 @@ pub async fn create_promise_intent(
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    let internal_idempotency_key = payload.internal_idempotency_key.trim().to_owned();
+    if internal_idempotency_key.is_empty() {
+        return Err(bad_request("internal_idempotency_key is required"));
+    }
+    let realm_id = payload.realm_id.trim().to_owned();
+    if realm_id.is_empty() {
+        return Err(bad_request("realm_id is required"));
+    }
+    let counterparty_account_id = payload.counterparty_account_id.trim().to_owned();
+    if counterparty_account_id.is_empty() {
+        return Err(bad_request("counterparty_account_id is required"));
+    }
+    let currency_code = payload.currency_code.trim().to_owned();
+    if currency_code.is_empty() {
+        return Err(bad_request("currency_code is required"));
+    }
 
     let outcome = create_promise_intent_service(
         &state,
         &authenticated_account.account_id,
         PromiseIntentInput {
-            internal_idempotency_key: payload.internal_idempotency_key.trim().to_owned(),
-            realm_id: payload.realm_id.trim().to_owned(),
-            counterparty_account_id: payload.counterparty_account_id.trim().to_owned(),
+            internal_idempotency_key,
+            realm_id,
+            counterparty_account_id,
             deposit_amount_minor_units: payload.deposit_amount_minor_units,
-            currency_code: payload.currency_code.trim().to_owned(),
+            currency_code,
         },
     )
     .await
@@ -77,13 +93,4 @@ fn extract_bearer_token(headers: &HeaderMap) -> Result<String, crate::handlers::
     }
 
     Ok(token.to_owned())
-}
-
-fn map_happy_route_error(error: HappyRouteError) -> crate::handlers::ApiError {
-    match error {
-        HappyRouteError::BadRequest(message) => bad_request(message),
-        HappyRouteError::Unauthorized(message) => unauthorized(message),
-        HappyRouteError::NotFound(message) => not_found(message),
-        HappyRouteError::Internal(message) => bad_request(message),
-    }
 }

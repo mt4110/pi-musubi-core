@@ -39,7 +39,9 @@ pub(super) fn claim_pending_outbox_message(
     let now = Utc::now();
 
     for event_id in &store.outbox_order {
-        let message = store.outbox_messages_by_id.get_mut(event_id)?;
+        let Some(message) = store.outbox_messages_by_id.get_mut(event_id) else {
+            continue;
+        };
         if message.delivery_status == OUTBOX_PENDING && message.available_at <= now {
             message.delivery_status = OUTBOX_PROCESSING.to_owned();
             message.attempt_count += 1;
@@ -54,5 +56,12 @@ pub(super) fn mark_outbox_published(store: &mut HappyRouteState, event_id: &str)
     if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
         message.delivery_status = OUTBOX_PUBLISHED.to_owned();
         message.published_at = Some(Utc::now());
+    }
+}
+
+pub(super) fn mark_outbox_pending(store: &mut HappyRouteState, event_id: &str) {
+    if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
+        message.delivery_status = OUTBOX_PENDING.to_owned();
+        message.available_at = Utc::now();
     }
 }

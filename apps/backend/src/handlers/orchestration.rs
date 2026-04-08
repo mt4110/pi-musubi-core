@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request},
+    handlers::{ApiResult, map_happy_route_error},
     services::happy_route::drain_outbox as drain_outbox_service,
 };
 
@@ -25,7 +25,7 @@ pub struct ProcessedOutboxMessageResponse {
 pub async fn drain_outbox(State(state): State<SharedState>) -> ApiResult<DrainOutboxResponse> {
     let outcome = drain_outbox_service(&state)
         .await
-        .map_err(|error| bad_request(error.message()))?;
+        .map_err(map_happy_route_error)?;
 
     Ok(Json(DrainOutboxResponse {
         processed_messages: outcome

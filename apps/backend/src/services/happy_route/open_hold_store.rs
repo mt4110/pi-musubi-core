@@ -24,23 +24,6 @@ impl<'a> HappyRouteWriteRepository<'a> {
         settlement_case_id: &str,
     ) -> Result<OpenHoldIntentPrepareOutcome, HappyRouteError> {
         let inbox_key = (SETTLEMENT_ORCHESTRATOR.to_owned(), message.event_id.clone());
-        if self.store.command_inbox_by_key.contains_key(&inbox_key) {
-            mark_outbox_published(self.store, &message.event_id);
-            return Ok(OpenHoldIntentPrepareOutcome::ReplayNoop(
-                processed_outbox_message(message, SETTLEMENT_ORCHESTRATOR, None, true),
-            ));
-        }
-
-        self.store.command_inbox_by_key.insert(
-            inbox_key,
-            CommandInboxRecord {
-                consumer_name: SETTLEMENT_ORCHESTRATOR.to_owned(),
-                source_message_id: message.event_id.clone(),
-                received_at: Utc::now(),
-                processed_at: None,
-            },
-        );
-
         let settlement_case = self
             .store
             .settlement_cases_by_id
@@ -61,10 +44,38 @@ impl<'a> HappyRouteWriteRepository<'a> {
                     "promise intent referenced by settlement case is missing".to_owned(),
                 )
             })?;
+        let internal_idempotency_key = format!("hold-intent:{}", message.idempotency_key);
+
+        if let Some(command_inbox) = self.store.command_inbox_by_key.get(&inbox_key) {
+            if command_inbox.processed_at.is_some() {
+                mark_outbox_published(self.store, &message.event_id);
+                return Ok(OpenHoldIntentPrepareOutcome::ReplayNoop(
+                    processed_outbox_message(message, SETTLEMENT_ORCHESTRATOR, None, true),
+                ));
+            }
+        } else {
+            self.store.command_inbox_by_key.insert(
+                inbox_key,
+                CommandInboxRecord {
+                    consumer_name: SETTLEMENT_ORCHESTRATOR.to_owned(),
+                    source_message_id: message.event_id.clone(),
+                    received_at: Utc::now(),
+                    processed_at: None,
+                },
+            );
+        }
+
+        if let Some(existing_prepare) = find_existing_open_hold_preparation(
+            self.store,
+            &settlement_case,
+            &promise_intent,
+            &internal_idempotency_key,
+        ) {
+            return Ok(OpenHoldIntentPrepareOutcome::Ready(existing_prepare));
+        }
 
         let settlement_intent_id = Uuid::new_v4().to_string();
         let settlement_submission_id = Uuid::new_v4().to_string();
-        let internal_idempotency_key = format!("hold-intent:{}", message.idempotency_key);
 
         self.store.settlement_intents_by_id.insert(
             settlement_intent_id.clone(),
@@ -219,4 +230,31 @@ impl<'a> HappyRouteWriteRepository<'a> {
             provider_submission_id,
         })
     }
+}
+
+fn find_existing_open_hold_preparation(
+    store: &super::state::HappyRouteState,
+    settlement_case: &super::state::SettlementCaseRecord,
+    promise_intent: &super::state::PromiseIntentRecord,
+    internal_idempotency_key: &str,
+) -> Option<SubmissionPreparation> {
+    let existing_intent = store.settlement_intents_by_id.values().find(|intent| {
+        intent.settlement_case_id == settlement_case.settlement_case_id
+            && intent.internal_idempotency_key == internal_idempotency_key
+    })?;
+    let existing_submission = store
+        .settlement_submissions_by_id
+        .values()
+        .find(|submission| {
+            submission.settlement_case_id == settlement_case.settlement_case_id
+                && submission.settlement_intent_id == existing_intent.settlement_intent_id
+        })?;
+
+    Some(SubmissionPreparation {
+        settlement_case: settlement_case.clone(),
+        promise_intent: promise_intent.clone(),
+        settlement_intent_id: existing_intent.settlement_intent_id.clone(),
+        settlement_submission_id: existing_submission.settlement_submission_id.clone(),
+        internal_idempotency_key: internal_idempotency_key.to_owned(),
+    })
 }

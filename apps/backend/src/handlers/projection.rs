@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, not_found},
-    services::happy_route::{HappyRouteError, get_settlement_view as get_settlement_view_service},
+    handlers::{ApiResult, map_happy_route_error},
+    services::happy_route::get_settlement_view as get_settlement_view_service,
 };
 
 #[derive(Debug, Serialize)]
@@ -38,13 +38,4 @@ pub async fn get_settlement_view(
         currency_code: snapshot.currency_code,
         latest_journal_entry_id: snapshot.latest_journal_entry_id,
     }))
-}
-
-fn map_happy_route_error(error: HappyRouteError) -> crate::handlers::ApiError {
-    match error {
-        HappyRouteError::BadRequest(message) => bad_request(message),
-        HappyRouteError::Unauthorized(message) => bad_request(message),
-        HappyRouteError::NotFound(message) => not_found(message),
-        HappyRouteError::Internal(message) => bad_request(message),
-    }
 }

@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::cmp::Ordering;
 use uuid::Uuid;
 
 use crate::SharedState;
@@ -46,9 +47,13 @@ pub async fn create_promise_intent(
         ));
     }
 
+    let idempotency_scope = (
+        initiator_account_id.to_owned(),
+        input.internal_idempotency_key.clone(),
+    );
     if let Some(existing_promise_intent_id) = store
         .promise_intent_id_by_internal_idempotency_key
-        .get(&input.internal_idempotency_key)
+        .get(&idempotency_scope)
         .cloned()
     {
         let existing_promise = store
@@ -74,6 +79,24 @@ pub async fn create_promise_intent(
             .ok_or_else(|| {
                 HappyRouteError::Internal("settlement case is missing from state".to_owned())
             })?;
+        let same_payload = existing_promise.initiator_account_id == initiator_account_id
+            && existing_promise.realm_id == input.realm_id
+            && existing_promise.counterparty_account_id == input.counterparty_account_id
+            && existing_promise
+                .deposit_amount
+                .checked_cmp(&deposit_amount)
+                .map_err(|_| {
+                    HappyRouteError::BadRequest(
+                        "internal_idempotency_key payload comparison failed".to_owned(),
+                    )
+                })?
+                == Ordering::Equal;
+        if !same_payload {
+            return Err(HappyRouteError::BadRequest(
+                "internal_idempotency_key was already used with a different Promise payload"
+                    .to_owned(),
+            ));
+        }
 
         return Ok(PromiseIntentOutcome {
             promise_intent_id: existing_promise.promise_intent_id.clone(),
@@ -111,7 +134,7 @@ pub async fn create_promise_intent(
 
     store
         .promise_intent_id_by_internal_idempotency_key
-        .insert(input.internal_idempotency_key, promise_intent_id.clone());
+        .insert(idempotency_scope, promise_intent_id.clone());
     store
         .settlement_case_id_by_promise_intent_id
         .insert(promise_intent_id.clone(), settlement_case_id.clone());

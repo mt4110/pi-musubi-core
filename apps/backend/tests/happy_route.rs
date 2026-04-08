@@ -137,6 +137,123 @@ async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection(
     assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
 }
 
+#[tokio::test]
+async fn promise_intent_rejects_blank_internal_idempotency_key() {
+    let app = build_app(new_state());
+    let initiator = sign_in(&app, "pi-user-empty-key-a", "empty-key-a").await;
+    let counterparty = sign_in(&app, "pi-user-empty-key-b", "empty-key-b").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "   ",
+            "realm_id": "realm-empty-key",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+
+    assert_eq!(create_promise.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        create_promise.body["error"],
+        "internal_idempotency_key is required"
+    );
+}
+
+#[tokio::test]
+async fn promise_intent_idempotency_is_scoped_per_initiator() {
+    let app = build_app(new_state());
+    let initiator_a = sign_in(&app, "pi-user-scope-a", "scope-a").await;
+    let initiator_b = sign_in(&app, "pi-user-scope-b", "scope-b").await;
+    let counterparty = sign_in(&app, "pi-user-scope-c", "scope-c").await;
+
+    let create_for_a = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator_a.token.as_str()),
+        json!({
+            "internal_idempotency_key": "shared-client-key",
+            "realm_id": "realm-scope",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_for_a.status, StatusCode::OK);
+    assert_eq!(create_for_a.body["replayed_intent"], false);
+
+    let create_for_b = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator_b.token.as_str()),
+        json!({
+            "internal_idempotency_key": "shared-client-key",
+            "realm_id": "realm-scope",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_for_b.status, StatusCode::OK);
+    assert_eq!(create_for_b.body["replayed_intent"], false);
+    assert_ne!(
+        create_for_a.body["promise_intent_id"],
+        create_for_b.body["promise_intent_id"]
+    );
+    assert_ne!(
+        create_for_a.body["settlement_case_id"],
+        create_for_b.body["settlement_case_id"]
+    );
+}
+
+#[tokio::test]
+async fn promise_intent_rejects_payload_drift_for_same_initiator_and_key() {
+    let app = build_app(new_state());
+    let initiator = sign_in(&app, "pi-user-drift-a", "drift-a").await;
+    let counterparty_a = sign_in(&app, "pi-user-drift-b", "drift-b").await;
+    let counterparty_b = sign_in(&app, "pi-user-drift-c", "drift-c").await;
+
+    let first_create = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "drift-key",
+            "realm_id": "realm-drift",
+            "counterparty_account_id": counterparty_a.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(first_create.status, StatusCode::OK);
+
+    let drifted_create = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "drift-key",
+            "realm_id": "realm-drift",
+            "counterparty_account_id": counterparty_b.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(drifted_create.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        drifted_create.body["error"],
+        "internal_idempotency_key was already used with a different Promise payload"
+    );
+}
+
 struct SignedInUser {
     token: String,
     account_id: String,

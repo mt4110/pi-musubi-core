@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request},
+    handlers::{ApiResult, bad_request, map_happy_route_error},
     services::happy_route::{AuthenticationInput, authenticate_pi_account},
 };
 
@@ -68,7 +68,7 @@ pub async fn authenticate_pi(
         },
     )
     .await
-    .map_err(|error| bad_request(error.message()))?;
+    .map_err(map_happy_route_error)?;
 
     Ok(Json(PiAuthResponse {
         token: authenticated.token,

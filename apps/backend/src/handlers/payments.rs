@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, not_found},
-    services::happy_route::{HappyRouteError, PaymentCallbackInput, ingest_payment_callback},
+    handlers::{ApiResult, bad_request, map_happy_route_error},
+    services::happy_route::{PaymentCallbackInput, ingest_payment_callback},
 };
 
 #[derive(Debug, Deserialize)]
@@ -74,13 +74,4 @@ pub async fn payment_callback(
         outbox_event_ids: outcome.outbox_event_ids,
         duplicate_receipt: outcome.duplicate_receipt,
     }))
-}
-
-fn map_happy_route_error(error: HappyRouteError) -> crate::handlers::ApiError {
-    match error {
-        HappyRouteError::BadRequest(message) => bad_request(message),
-        HappyRouteError::Unauthorized(message) => bad_request(message),
-        HappyRouteError::NotFound(message) => not_found(message),
-        HappyRouteError::Internal(message) => bad_request(message),
-    }
 }
