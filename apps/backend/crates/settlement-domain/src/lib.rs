@@ -1,64 +1,42 @@
 //! MUSUBI settlement-domain crate.
-//! Owns pure settlement-facing domain concepts only.
-//! Must not own provider I/O, DB persistence, or app/runtime wiring.
+//! Owns pure settlement-facing domain concepts and adapter contracts.
+//! Must not own provider implementations, DB persistence, or app/runtime wiring.
 //! See `apps/backend/docs/package_boundaries.md`.
 
-use musubi_core_domain::OrdinaryAccountId;
+mod backend;
+mod commands;
+mod descriptor;
+mod errors;
+mod ids;
+mod money;
+mod observation;
+mod payload;
+mod results;
+mod state;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PromiseId(String);
-
-impl PromiseId {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SettlementCaseId(String);
-
-impl SettlementCaseId {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PaymentReference(String);
-
-impl PaymentReference {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EscrowStatus {
-    Funded,
-}
-
-impl EscrowStatus {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Funded => "Funded",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PromiseParties {
-    pub initiator_account_id: OrdinaryAccountId,
-    pub counterparty_account_id: OrdinaryAccountId,
-}
+pub use backend::{BackendKey, BackendPin, BackendVersion, SettlementBackend};
+pub use commands::{
+    NormalizeCallbackCmd, ReconcileSubmissionCmd, SubmitActionCmd, VerifyReceiptCmd,
+    VerifyReceiptExpectation,
+};
+pub use descriptor::{
+    BackendCapabilities, BackendDescriptor, ExecutionMode, ProviderFamily, SettlementCapability,
+};
+pub use errors::{
+    BackendError, ContradictionReason, PermanentFailureReason, ReviewReason,
+    VerificationRejectReason,
+};
+pub use ids::{
+    EscrowStatus, InternalIdempotencyKey, ObservationId, PaymentReceiptId, PromiseId,
+    PromiseParties, ProviderCallbackId, ProviderIdempotencyKey, ProviderRef, ProviderSubmissionId,
+    ProviderTxHash, SettlementCaseId, SettlementIntentId, SettlementSubmissionId,
+};
+pub use money::{CurrencyCode, CurrencyCodeError, Money, MoneyError};
+pub use observation::{NormalizedObservation, NormalizedObservationKind, ObservationConfidence};
+pub use payload::{
+    ProviderPayload, ProviderPayloadField, ProviderPayloadSchema, ProviderPayloadValue,
+};
+pub use results::{ReceiptVerification, ReconcileResult, SubmissionResult};
+pub use state::{
+    SettlementOverlay, SettlementPrimaryPhase, SettlementResolutionKind, SettlementState,
+};

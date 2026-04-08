@@ -54,19 +54,21 @@ Must not own:
 ### `musubi_settlement_domain`
 Owns:
 - pure settlement-facing concepts
-- minimal identifiers for `Promise`, settlement cases, and payment references
+- minimal identifiers for `Promise`, settlement cases, settlement intents, and payment receipts
+- settlement state vocabulary such as primary phase, resolution kind, and overlays
+- backend capability declarations and the pure `SettlementBackend` contract
 - pure `EscrowStatus`
 
 Must not own:
 - JSON / serde wire-format concerns
-- provider callbacks
+- provider implementations or callback transport handling
 - database code
 - runtime/app state
-- `SettlementBackend` trait work from Issue #4
 
 Note:
 the current PoC escrow record and callback input remain in the app crate on purpose.
-They still encode callback-oriented glue and `f64` PoC data that should not be promoted into long-term domain truth by Issue #2.
+They still encode callback-oriented glue and `f64` PoC data that should not be promoted into long-term domain truth by boundary cleanup alone.
+Typed provider payloads in the domain crate must remain provider-agnostic and must not become arbitrary bytes or JSON convenience blobs.
 
 ### `musubi_orchestration`
 Owns:

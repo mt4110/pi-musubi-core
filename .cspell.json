@@ -2,12 +2,20 @@
     "version": "0.2",
     "language": "en",
     "words": [
+        "footgun",
+        "Finalizable",
+        "KASHI",
+        "Masaki",
         "MUSUBI",
-        "pipefail",
         "Pi",
         "pioneer",
+        "pipefail",
         "Riverpod",
-        "signout"
+        "serde",
+        "signout",
+        "spoofable",
+        "Takemura",
+        "decisioning"
     ],
     "ignorePaths": [
         "node_modules",
