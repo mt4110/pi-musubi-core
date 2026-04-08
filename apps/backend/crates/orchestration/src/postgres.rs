@@ -412,6 +412,12 @@ impl PostgresOrchestrationStore {
 }
 
 fn map_command_row(row: Row) -> Result<CommandInboxEntry, OrchestrationError> {
+    let payload_hash = row
+        .get::<_, Option<String>>("payload_checksum")
+        .ok_or_else(|| {
+            OrchestrationError::Database("command inbox row is missing payload_checksum".to_owned())
+        })?;
+
     Ok(CommandInboxEntry {
         key: CommandKey {
             consumer_name: row.get("consumer_name"),
@@ -420,7 +426,7 @@ fn map_command_row(row: Row) -> Result<CommandInboxEntry, OrchestrationError> {
         source_event_id: row.get("source_event_id"),
         command_type: row.get("command_type"),
         schema_version: row.get("schema_version"),
-        payload_hash: row.get("payload_checksum"),
+        payload_hash,
         status: parse_command_status(row.get::<_, String>("status").as_str())?,
         attempt_count: row.get::<_, i32>("attempt_count") as u32,
         first_seen_at: row.get("received_at"),

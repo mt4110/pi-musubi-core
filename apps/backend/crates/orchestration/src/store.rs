@@ -71,6 +71,7 @@ pub trait OrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         completed_at: DateTime<Utc>,
         retain_until: DateTime<Utc>,
         completion: CommandCompletion,
@@ -80,6 +81,7 @@ pub trait OrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         retry_at: DateTime<Utc>,
         failure: ProcessingFailure,
     ) -> Result<(), OrchestrationError>;
@@ -88,6 +90,7 @@ pub trait OrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         quarantined_at: DateTime<Utc>,
         retain_until: DateTime<Utc>,
         reason: QuarantineReason,
@@ -173,6 +176,22 @@ impl InMemoryOrchestrationStore {
             consumer_name: consumer_name.to_owned(),
             command_id: command.command_id,
         })
+    }
+
+    fn outbox_attempt_matches(message: &OutboxMessage, attempt: &OutboxAttempt) -> bool {
+        matches!(message.delivery_status, OutboxDeliveryStatus::Processing)
+            && message.claimed_by.as_deref() == Some(attempt.relay_name.as_str())
+            && message.claimed_until == Some(attempt.claimed_until)
+    }
+
+    fn command_claim_matches(
+        entry: &CommandInboxEntry,
+        consumer_name: &str,
+        expected_claimed_until: DateTime<Utc>,
+    ) -> bool {
+        matches!(entry.status, CommandInboxStatus::Processing)
+            && entry.claimed_by.as_deref() == Some(consumer_name)
+            && entry.claimed_until == Some(expected_claimed_until)
     }
 }
 
@@ -295,6 +314,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .get_mut(&event_id)
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
 
+        if !Self::outbox_attempt_matches(message, &attempt) {
+            return Ok(());
+        }
+
         message.delivery_status = OutboxDeliveryStatus::Published;
         message.attempt_count += 1;
         message.published_at = Some(attempt.finished_at);
@@ -324,6 +347,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .get_mut(&event_id)
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
 
+        if !Self::outbox_attempt_matches(message, &attempt) {
+            return Ok(());
+        }
+
         message.delivery_status = OutboxDeliveryStatus::Pending;
         message.attempt_count += 1;
         message.available_at = retry_at;
@@ -352,6 +379,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
             .outbox_messages
             .get_mut(&event_id)
             .ok_or(OrchestrationError::OutboxMessageNotFound { event_id })?;
+
+        if !Self::outbox_attempt_matches(message, &attempt) {
+            return Ok(());
+        }
 
         message.delivery_status = OutboxDeliveryStatus::Quarantined;
         message.attempt_count += 1;
@@ -445,6 +476,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         completed_at: DateTime<Utc>,
         retain_until: DateTime<Utc>,
         completion: CommandCompletion,
@@ -456,6 +488,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
                 command_id,
             }
         })?;
+
+        if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
+            return Ok(());
+        }
 
         entry.status = CommandInboxStatus::Completed;
         entry.attempt_count += 1;
@@ -476,6 +512,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         retry_at: DateTime<Utc>,
         failure: ProcessingFailure,
     ) -> Result<(), OrchestrationError> {
@@ -486,6 +523,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
                 command_id,
             }
         })?;
+
+        if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
+            return Ok(());
+        }
 
         entry.status = CommandInboxStatus::Pending;
         entry.attempt_count += 1;
@@ -504,6 +545,7 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
         &mut self,
         consumer_name: &str,
         command_id: Uuid,
+        expected_claimed_until: DateTime<Utc>,
         quarantined_at: DateTime<Utc>,
         retain_until: DateTime<Utc>,
         reason: QuarantineReason,
@@ -516,6 +558,10 @@ impl OrchestrationStore for InMemoryOrchestrationStore {
                 command_id,
             }
         })?;
+
+        if !Self::command_claim_matches(entry, consumer_name, expected_claimed_until) {
+            return Ok(());
+        }
 
         entry.status = CommandInboxStatus::Quarantined;
         entry.attempt_count += 1;

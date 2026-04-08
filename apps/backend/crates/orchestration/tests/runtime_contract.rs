@@ -8,9 +8,10 @@ use uuid::Uuid;
 
 use musubi_orchestration::{
     AuthoritativeChange, CommandCompletion, CommandEnvelope, ConsumeOutcome, DeliveryOutcome,
-    ExternalIdempotencyKey, InMemoryOrchestrationStore, NewOutboxMessage, OrchestrationError,
-    OrchestrationRuntime, OrchestrationStore, OutboxDeliveryStatus, ProcessingFailure,
-    QuarantineReason, RetentionPolicy, RetryPolicy, SchemaCompatibilityPolicy, WriterReadSource,
+    DeliveryReceipt, ExternalIdempotencyKey, InMemoryOrchestrationStore, NewOutboxMessage,
+    OrchestrationError, OrchestrationRuntime, OrchestrationStore, OutboxAttempt,
+    OutboxDeliveryStatus, ProcessingFailure, QuarantineReason, RetentionPolicy, RetryPolicy,
+    SchemaCompatibilityPolicy, WriterReadSource,
 };
 
 fn runtime() -> OrchestrationRuntime<InMemoryOrchestrationStore> {
@@ -75,6 +76,28 @@ async fn producer_truth_and_outbox_commit_together() {
     let message = runtime.store().outbox_message(event_id).unwrap();
     assert_eq!(message.delivery_status, OutboxDeliveryStatus::Pending);
     assert_eq!(message.aggregate_id, aggregate_id);
+}
+
+#[test]
+fn payload_hash_matches_postgres_jsonb_text_canonicalization() {
+    let message = NewOutboxMessage::new(
+        Uuid::from_u128(0x31),
+        Uuid::from_u128(0x32),
+        "settlement_case:canonical",
+        "settlement_case",
+        Uuid::from_u128(0x33),
+        "settlement.receipt_recorded",
+        1,
+        json!({ "b": 1, "a": 2 }),
+        ts(0),
+        ts(0),
+    )
+    .unwrap();
+
+    assert_eq!(
+        message.payload_hash,
+        "21501dbaf73f5223934d22283f01caff4132bc1de4a9550c1ed0dffeb397a323"
+    );
 }
 
 #[tokio::test]
@@ -264,6 +287,75 @@ async fn transient_outbox_failure_schedules_retry() {
 }
 
 #[tokio::test]
+async fn transient_outbox_budget_counts_total_attempts() {
+    let mut runtime = runtime();
+    let aggregate_id = Uuid::from_u128(0x53);
+    let event_id = Uuid::from_u128(0x54);
+
+    runtime
+        .record_authoritative_write(
+            AuthoritativeChange {
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                change_type: "submission_requested".to_owned(),
+                payload_json: json!({ "intent_id": "budgeted-outbox" }),
+            },
+            NewOutboxMessage::new(
+                event_id,
+                Uuid::from_u128(0x55),
+                "settlement_case:53",
+                "settlement_case",
+                aggregate_id,
+                "settlement.submit_action",
+                1,
+                json!({ "intent_id": "budgeted-outbox" }),
+                ts(0),
+                ts(0),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    for now in [ts(0), ts(600)] {
+        let outcome = runtime
+            .deliver_ready_outbox("settlement-relay", now, |_| async {
+                Err(ProcessingFailure::transient(
+                    "provider_timeout",
+                    "provider did not respond in time",
+                ))
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            DeliveryOutcome::RetryScheduled {
+                event_id: returned_id,
+                ..
+            } if returned_id == event_id
+        ));
+    }
+
+    let exhausted = runtime
+        .deliver_ready_outbox("settlement-relay", ts(1_200), |_| async {
+            Err(ProcessingFailure::transient(
+                "provider_timeout",
+                "provider did not respond in time",
+            ))
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        exhausted,
+        DeliveryOutcome::Quarantined {
+            event_id,
+            reason: QuarantineReason::AttemptBudgetExceeded,
+        }
+    );
+}
+
+#[tokio::test]
 async fn handler_poison_pill_command_is_quarantined() {
     let mut runtime = runtime();
     let command_id = Uuid::from_u128(0x60);
@@ -361,6 +453,58 @@ async fn unknown_schema_is_deferred_then_quarantined_after_window() {
         ConsumeOutcome::Quarantined {
             command_id,
             reason: QuarantineReason::PoisonPill,
+        }
+    );
+}
+
+#[tokio::test]
+async fn transient_command_budget_counts_total_attempts() {
+    let mut runtime = runtime();
+    let command_id = Uuid::from_u128(0x69);
+    let command = CommandEnvelope::new(
+        command_id,
+        Uuid::from_u128(0x6A),
+        "projection.refresh",
+        1,
+        json!({ "case_id": "budgeted-command" }),
+    )
+    .unwrap();
+
+    for now in [ts(0), ts(600)] {
+        let outcome = runtime
+            .consume_command("projection-builder", command.clone(), now, |_| async {
+                Err(ProcessingFailure::transient(
+                    "projection_busy",
+                    "projection worker is still catching up",
+                ))
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            outcome,
+            ConsumeOutcome::RetryScheduled {
+                command_id: returned_id,
+                ..
+            } if returned_id == command_id
+        ));
+    }
+
+    let exhausted = runtime
+        .consume_command("projection-builder", command, ts(1_200), |_| async {
+            Err(ProcessingFailure::transient(
+                "projection_busy",
+                "projection worker is still catching up",
+            ))
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        exhausted,
+        ConsumeOutcome::Quarantined {
+            command_id,
+            reason: QuarantineReason::AttemptBudgetExceeded,
         }
     );
 }
@@ -530,4 +674,169 @@ async fn pruning_archives_terminal_coordination_rows() {
     );
     assert_eq!(runtime.store().archived_outbox_messages().len(), 1);
     assert_eq!(runtime.store().archived_command_inbox().len(), 1);
+}
+
+#[test]
+fn stale_outbox_retry_cannot_reopen_published_message() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let aggregate_id = Uuid::from_u128(0x80);
+    let event_id = Uuid::from_u128(0x81);
+
+    store
+        .commit_authoritative_write(
+            WriterReadSource::PrimaryWriter,
+            AuthoritativeChange {
+                aggregate_type: "settlement_case".to_owned(),
+                aggregate_id,
+                change_type: "submission_requested".to_owned(),
+                payload_json: json!({ "intent_id": "stale-outbox" }),
+            },
+            NewOutboxMessage::new(
+                event_id,
+                Uuid::from_u128(0x82),
+                "settlement_case:80",
+                "settlement_case",
+                aggregate_id,
+                "settlement.submit_action",
+                1,
+                json!({ "intent_id": "stale-outbox" }),
+                ts(0),
+                ts(0),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let claimed_by_a = store
+        .claim_ready_outbox(WriterReadSource::PrimaryWriter, "relay-a", ts(0), ts(300))
+        .unwrap()
+        .unwrap();
+    let claimed_by_b = store
+        .claim_ready_outbox(WriterReadSource::PrimaryWriter, "relay-b", ts(301), ts(600))
+        .unwrap()
+        .unwrap();
+
+    store
+        .mark_outbox_published(
+            event_id,
+            ts(3_600),
+            DeliveryReceipt {
+                external_idempotency_key: ExternalIdempotencyKey::new("provider-key-stale")
+                    .unwrap(),
+            },
+            OutboxAttempt {
+                event_id,
+                attempt_number: 1,
+                relay_name: "relay-b".to_owned(),
+                claimed_at: claimed_by_b.claimed_at,
+                claimed_until: claimed_by_b.claimed_until,
+                finished_at: ts(302),
+                failure_class: None,
+                failure_code: None,
+                failure_detail: None,
+                external_idempotency_key: Some("provider-key-stale".to_owned()),
+            },
+        )
+        .unwrap();
+
+    store
+        .schedule_outbox_retry(
+            event_id,
+            ts(900),
+            ProcessingFailure::transient("provider_timeout", "stale retry should be ignored"),
+            OutboxAttempt {
+                event_id,
+                attempt_number: 1,
+                relay_name: "relay-a".to_owned(),
+                claimed_at: claimed_by_a.claimed_at,
+                claimed_until: claimed_by_a.claimed_until,
+                finished_at: ts(303),
+                failure_class: Some(musubi_orchestration::RetryClass::Transient),
+                failure_code: Some("provider_timeout".to_owned()),
+                failure_detail: Some("stale retry should be ignored".to_owned()),
+                external_idempotency_key: None,
+            },
+        )
+        .unwrap();
+
+    let message = store.outbox_message(event_id).unwrap();
+    assert_eq!(message.delivery_status, OutboxDeliveryStatus::Published);
+    assert_eq!(message.attempt_count, 1);
+}
+
+#[test]
+fn stale_command_retry_cannot_reopen_completed_command() {
+    let mut store = InMemoryOrchestrationStore::default();
+    let command_id = Uuid::from_u128(0x83);
+    let command = CommandEnvelope::new(
+        command_id,
+        Uuid::from_u128(0x84),
+        "projection.refresh",
+        1,
+        json!({ "case_id": "stale-command" }),
+    )
+    .unwrap();
+
+    let first = store
+        .begin_command(
+            WriterReadSource::PrimaryWriter,
+            "projection-builder",
+            command.clone(),
+            ts(0),
+            ts(300),
+        )
+        .unwrap();
+    let second = store
+        .begin_command(
+            WriterReadSource::PrimaryWriter,
+            "projection-builder",
+            command,
+            ts(301),
+            ts(600),
+        )
+        .unwrap();
+
+    let first_claimed_until = match first {
+        musubi_orchestration::CommandBeginOutcome::FirstSeen(entry) => entry.claimed_until.unwrap(),
+        other => panic!("unexpected first outcome: {other:?}"),
+    };
+    let second_claimed_until = match second {
+        musubi_orchestration::CommandBeginOutcome::ReadyForRetry(entry) => {
+            entry.claimed_until.unwrap()
+        }
+        other => panic!("unexpected second outcome: {other:?}"),
+    };
+
+    store
+        .complete_command(
+            "projection-builder",
+            command_id,
+            second_claimed_until,
+            ts(302),
+            ts(3_600),
+            CommandCompletion {
+                result_type: "projected".to_owned(),
+                result_json: json!({ "projection_id": "read-stale" }),
+            },
+        )
+        .unwrap();
+
+    store
+        .schedule_command_retry(
+            "projection-builder",
+            command_id,
+            first_claimed_until,
+            ts(900),
+            ProcessingFailure::transient("projection_busy", "stale retry should be ignored"),
+        )
+        .unwrap();
+
+    let entry = store
+        .command_inbox_entry("projection-builder", command_id)
+        .unwrap();
+    assert_eq!(
+        entry.status,
+        musubi_orchestration::CommandInboxStatus::Completed
+    );
+    assert_eq!(entry.attempt_count, 1);
 }

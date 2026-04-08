@@ -159,3 +159,91 @@ async fn postgres_helpers_keep_truth_and_outbox_in_same_transaction() {
         .await
         .expect("rollback should clean up transactional test state");
 }
+
+#[tokio::test]
+async fn legacy_command_rows_without_payload_checksum_fail_gracefully() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let command_id = Uuid::from_u128(0x704);
+    let source_event_id = Uuid::from_u128(0x705);
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version
+        )
+        VALUES ($1, $2, $3, $4, NULL, $5, 'pending', $5, 0, $6, $7)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &command_id,
+            &source_event_id,
+            &ts(0),
+            &"projection.refresh",
+            &1_i32,
+        ],
+    )
+    .await
+    .expect("failed to insert legacy command row");
+
+    let result = PostgresOrchestrationStore::begin_command(
+        &tx,
+        "projection-builder",
+        &CommandEnvelope::new(
+            command_id,
+            source_event_id,
+            "projection.refresh",
+            1,
+            json!({ "settlement_case_id": "legacy" }),
+        )
+        .unwrap(),
+        ts(10),
+        ts(310),
+    )
+    .await;
+
+    assert_eq!(
+        result,
+        Err(OrchestrationError::Database(
+            "command inbox row is missing payload_checksum".to_owned()
+        ))
+    );
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}

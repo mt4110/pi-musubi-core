@@ -91,6 +91,7 @@ where
                 attempt_number: next_attempt_number,
                 relay_name: relay_name.to_owned(),
                 claimed_at: claimed.claimed_at,
+                claimed_until: claimed.claimed_until,
                 finished_at: now,
                 failure_class: Some(failure.class),
                 failure_code: Some(failure.code.clone()),
@@ -120,6 +121,7 @@ where
                         attempt_number: next_attempt_number,
                         relay_name: relay_name.to_owned(),
                         claimed_at: claimed.claimed_at,
+                        claimed_until: claimed.claimed_until,
                         finished_at: now,
                         failure_class: None,
                         failure_code: None,
@@ -140,6 +142,7 @@ where
                     attempt_number: next_attempt_number,
                     relay_name: relay_name.to_owned(),
                     claimed_at: claimed.claimed_at,
+                    claimed_until: claimed.claimed_until,
                     finished_at: now,
                     failure_class: Some(failure.class),
                     failure_code: Some(failure.code.clone()),
@@ -185,6 +188,11 @@ where
                 retry_at: entry.available_at,
             }),
             CommandBeginOutcome::FirstSeen(entry) | CommandBeginOutcome::ReadyForRetry(entry) => {
+                let claimed_until = entry.claimed_until.ok_or_else(|| {
+                    OrchestrationError::Database(
+                        "command begin outcome is missing the active claim lease".to_owned(),
+                    )
+                })?;
                 let next_attempt_number = entry.attempt_count + 1;
                 if let Err(failure) =
                     self.schema_policy
@@ -193,6 +201,7 @@ where
                     return self.finish_command_failure(
                         consumer_name,
                         command_id,
+                        claimed_until,
                         now,
                         next_attempt_number,
                         failure,
@@ -206,6 +215,7 @@ where
                         self.store.complete_command(
                             consumer_name,
                             command_id,
+                            claimed_until,
                             now,
                             now + self.retention_policy.completed_command_for,
                             completion,
@@ -216,6 +226,7 @@ where
                     Err(failure) => self.finish_command_failure(
                         consumer_name,
                         command_id,
+                        claimed_until,
                         now,
                         next_attempt_number,
                         failure,
@@ -279,6 +290,7 @@ where
         &mut self,
         consumer_name: &str,
         command_id: uuid::Uuid,
+        expected_claimed_until: DateTime<Utc>,
         now: DateTime<Utc>,
         next_attempt_number: u32,
         failure: ProcessingFailure,
@@ -294,8 +306,13 @@ where
                 .retry_policy
                 .next_retry_at(now, command_id, next_attempt_number);
 
-            self.store
-                .schedule_command_retry(consumer_name, command_id, retry_at, failure)?;
+            self.store.schedule_command_retry(
+                consumer_name,
+                command_id,
+                expected_claimed_until,
+                retry_at,
+                failure,
+            )?;
 
             Ok(ConsumeOutcome::RetryScheduled {
                 command_id,
@@ -311,6 +328,7 @@ where
             self.store.quarantine_command(
                 consumer_name,
                 command_id,
+                expected_claimed_until,
                 now,
                 now + self.retention_policy.quarantined_command_for,
                 reason,

@@ -14,7 +14,7 @@ COMMENT ON COLUMN outbox.events.stream_key IS
 'Ordering scope for replay and claim discipline. This is intentionally narrower than a global FIFO.';
 
 COMMENT ON COLUMN outbox.events.payload_hash IS
-'Deterministic payload hash used to audit envelope integrity and replay identity.';
+'Deterministic payload hash over canonical JSON text. The Rust runtime uses the same ordering and whitespace contract as PostgreSQL jsonb::text.';
 
 COMMENT ON COLUMN outbox.events.retain_until IS
 'Terminal coordination rows may be archived or pruned after this timestamp. This is not business truth retention.';

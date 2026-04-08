@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -109,6 +111,7 @@ pub struct OutboxAttempt {
     pub attempt_number: u32,
     pub relay_name: String,
     pub claimed_at: DateTime<Utc>,
+    pub claimed_until: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
     pub failure_class: Option<RetryClass>,
     pub failure_code: Option<String>,
@@ -339,7 +342,59 @@ pub struct PruneOutcome {
 }
 
 fn payload_hash(payload_json: &Value) -> Result<String, OrchestrationError> {
-    let payload_bytes = serde_json::to_vec(payload_json)
-        .map_err(|error| OrchestrationError::PayloadHashEncodingFailed(error.to_string()))?;
+    let payload_bytes = canonical_json_text(payload_json)?.into_bytes();
     Ok(format!("{:x}", Sha256::digest(payload_bytes)))
+}
+
+fn canonical_json_text(value: &Value) -> Result<String, OrchestrationError> {
+    let mut output = String::new();
+    write_canonical_json(value, &mut output)?;
+    Ok(output)
+}
+
+fn write_canonical_json(value: &Value, output: &mut String) -> Result<(), OrchestrationError> {
+    match value {
+        Value::Null => output.push_str("null"),
+        Value::Bool(boolean) => output.push_str(if *boolean { "true" } else { "false" }),
+        Value::Number(number) => {
+            write!(output, "{number}").map_err(|error| {
+                OrchestrationError::PayloadHashEncodingFailed(error.to_string())
+            })?;
+        }
+        Value::String(string) => {
+            output.push_str(&serde_json::to_string(string).map_err(|error| {
+                OrchestrationError::PayloadHashEncodingFailed(error.to_string())
+            })?);
+        }
+        Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push_str(", ");
+                }
+                write_canonical_json(value, output)?;
+            }
+            output.push(']');
+        }
+        Value::Object(map) => {
+            output.push('{');
+            let mut entries = map.iter().collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(right.0));
+
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push_str(", ");
+                }
+                output.push_str(&serde_json::to_string(key).map_err(|error| {
+                    OrchestrationError::PayloadHashEncodingFailed(error.to_string())
+                })?);
+                output.push_str(": ");
+                write_canonical_json(value, output)?;
+            }
+
+            output.push('}');
+        }
+    }
+
+    Ok(())
 }
