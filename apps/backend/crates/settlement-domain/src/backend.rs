@@ -60,6 +60,20 @@ pub trait SettlementBackend: Send + Sync {
         self.descriptor().supports(capability)
     }
 
+    fn ensure_capability(
+        &self,
+        capability: crate::SettlementCapability,
+    ) -> Result<(), BackendError> {
+        if self.supports(capability) {
+            Ok(())
+        } else {
+            Err(BackendError::CapabilityUnsupported {
+                backend_key: self.descriptor().backend_key.clone(),
+                capability,
+            })
+        }
+    }
+
     fn ensure_backend_pin(&self, backend: &BackendPin) -> Result<(), BackendError> {
         let available = self.descriptor().pin();
 
@@ -83,6 +97,7 @@ pub trait SettlementBackend: Send + Sync {
         cmd: VerifyReceiptCmd,
     ) -> Result<ReceiptVerification, BackendError> {
         self.ensure_backend_pin(&cmd.backend)?;
+        self.ensure_capability(crate::SettlementCapability::ReceiptVerify)?;
         self.verify_receipt_impl(cmd).await
     }
 
@@ -91,6 +106,7 @@ pub trait SettlementBackend: Send + Sync {
         cmd: SubmitActionCmd,
     ) -> Result<crate::SubmissionResult, BackendError> {
         self.ensure_backend_pin(&cmd.backend)?;
+        self.ensure_capability(cmd.capability)?;
         self.submit_action_impl(cmd).await
     }
 
@@ -99,6 +115,7 @@ pub trait SettlementBackend: Send + Sync {
         cmd: ReconcileSubmissionCmd,
     ) -> Result<ReconcileResult, BackendError> {
         self.ensure_backend_pin(&cmd.backend)?;
+        self.ensure_capability(crate::SettlementCapability::ReconcileStatus)?;
         self.reconcile_submission_impl(cmd).await
     }
 
@@ -107,6 +124,7 @@ pub trait SettlementBackend: Send + Sync {
         cmd: NormalizeCallbackCmd,
     ) -> Result<Vec<crate::NormalizedObservation>, BackendError> {
         self.ensure_backend_pin(&cmd.backend)?;
+        self.ensure_capability(crate::SettlementCapability::NormalizeCallback)?;
         self.normalize_callback_impl(cmd).await
     }
 

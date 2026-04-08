@@ -45,6 +45,21 @@ fn backend_pin_mismatch_fails_closed() {
     );
 }
 
+#[test]
+fn unsupported_capability_fails_closed() {
+    let backend = TestBackend::new();
+
+    let result = backend.ensure_capability(SettlementCapability::RefundValue);
+
+    assert_eq!(
+        result,
+        Err(BackendError::CapabilityUnsupported {
+            backend_key: BackendKey::new("pi"),
+            capability: SettlementCapability::RefundValue,
+        })
+    );
+}
+
 fn test_descriptor() -> BackendDescriptor {
     BackendDescriptor {
         backend_key: BackendKey::new("pi"),
