@@ -43,13 +43,17 @@ pub fn build_app(state: SharedState) -> Router {
             post(handlers::promise_intents::create_promise_intent),
         )
         .route(
-            "/api/payment/callback",
-            post(handlers::payments::payment_callback),
-        )
-        .route(
             "/api/projection/settlement-views/{settlement_case_id}",
             get(handlers::projection::get_settlement_view),
         );
+    let app = if unauthenticated_pi_callback_enabled() {
+        app.route(
+            "/api/payment/callback",
+            post(handlers::payments::payment_callback),
+        )
+    } else {
+        app
+    };
     let app = if internal_orchestration_drain_enabled() {
         app.route(
             "/api/internal/orchestration/drain",
@@ -93,6 +97,10 @@ async fn health() -> Json<HealthResponse> {
 
 fn internal_orchestration_drain_enabled() -> bool {
     cfg!(debug_assertions) || env_flag_enabled("MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN")
+}
+
+fn unauthenticated_pi_callback_enabled() -> bool {
+    cfg!(debug_assertions) || env_flag_enabled("MUSUBI_ENABLE_UNAUTHENTICATED_PI_CALLBACK")
 }
 
 fn env_flag_enabled(name: &str) -> bool {
