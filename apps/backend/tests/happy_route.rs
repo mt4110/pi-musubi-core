@@ -3,7 +3,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use musubi_backend::{build_app, new_state};
+use musubi_backend::{build_app, new_state, start_background_outbox_worker};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -135,6 +135,57 @@ async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection(
     assert_eq!(settlement_view.status, StatusCode::OK);
     assert_eq!(settlement_view.body["current_settlement_status"], "funded");
     assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
+async fn background_outbox_worker_processes_open_hold_without_http_drain() {
+    let state = new_state();
+    let worker = start_background_outbox_worker(state.clone());
+    let app = build_app(state.clone());
+
+    let initiator = sign_in(&app, "pi-user-worker-a", "worker-a").await;
+    let counterparty = sign_in(&app, "pi-user-worker-b", "worker-b").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-worker",
+            "realm_id": "realm-worker",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let mut settlement_view_status = StatusCode::NOT_FOUND;
+    for _ in 0..50 {
+        let settlement_view = get_json(
+            &app,
+            &format!("/api/projection/settlement-views/{settlement_case_id}"),
+            Some(initiator.token.as_str()),
+        )
+        .await;
+        settlement_view_status = settlement_view.status;
+        if settlement_view_status == StatusCode::OK {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    worker.abort();
+
+    assert!(
+        settlement_view_status == StatusCode::OK,
+        "background outbox worker must build the settlement projection without HTTP drain"
+    );
 }
 
 #[tokio::test]

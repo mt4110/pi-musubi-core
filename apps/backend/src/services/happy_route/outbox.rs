@@ -53,9 +53,12 @@ pub(super) fn claim_pending_outbox_message(
 }
 
 pub(super) fn mark_outbox_published(store: &mut HappyRouteState, event_id: &str) {
-    if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
+    if let Some(mut message) = store.outbox_messages_by_id.remove(event_id) {
         message.delivery_status = OUTBOX_PUBLISHED.to_owned();
         message.published_at = Some(Utc::now());
+        store
+            .outbox_order
+            .retain(|queued_event_id| queued_event_id != event_id);
     }
 }
 
@@ -63,5 +66,44 @@ pub(super) fn mark_outbox_pending(store: &mut HappyRouteState, event_id: &str) {
     if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
         message.delivery_status = OUTBOX_PENDING.to_owned();
         message.available_at = Utc::now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{claim_pending_outbox_message, insert_outbox_message, mark_outbox_published};
+    use crate::services::happy_route::state::{HappyRouteState, OutboxCommand};
+
+    #[test]
+    fn published_messages_are_pruned_from_outbox_scan_order() {
+        let mut store = HappyRouteState::default();
+        let first_event_id = insert_outbox_message(
+            &mut store,
+            "settlement_case",
+            "case-1",
+            "OPEN_HOLD_INTENT",
+            OutboxCommand::OpenHoldIntent {
+                settlement_case_id: "case-1".to_owned(),
+            },
+        );
+        let second_event_id = insert_outbox_message(
+            &mut store,
+            "settlement_case",
+            "case-2",
+            "OPEN_HOLD_INTENT",
+            OutboxCommand::OpenHoldIntent {
+                settlement_case_id: "case-2".to_owned(),
+            },
+        );
+
+        mark_outbox_published(&mut store, &first_event_id);
+
+        assert!(!store.outbox_messages_by_id.contains_key(&first_event_id));
+        assert_eq!(store.outbox_order, vec![second_event_id.clone()]);
+
+        let claimed = claim_pending_outbox_message(&mut store)
+            .expect("remaining pending message must still be claimable");
+        assert_eq!(claimed.event_id, second_event_id);
+        assert_eq!(claimed.delivery_status, "processing");
     }
 }

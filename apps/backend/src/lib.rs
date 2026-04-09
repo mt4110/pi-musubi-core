@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::Serialize;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 
 pub mod handlers;
@@ -67,6 +68,11 @@ pub fn build_app(state: SharedState) -> Router {
 }
 
 pub async fn run(state: SharedState) {
+    let _background_outbox_worker = if internal_orchestration_drain_enabled() {
+        None
+    } else {
+        Some(start_background_outbox_worker(state.clone()))
+    };
     let host = std::env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".to_owned());
     let port = std::env::var("PORT")
         .or_else(|_| std::env::var("APP_PORT"))
@@ -86,6 +92,17 @@ pub async fn run(state: SharedState) {
     axum::serve(listener, build_app(state))
         .await
         .expect("backend server exited unexpectedly");
+}
+
+pub fn start_background_outbox_worker(state: SharedState) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            if let Err(error) = services::happy_route::drain_outbox(&state).await {
+                eprintln!("background outbox worker error: {}", error.message());
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
 }
 
 async fn health() -> Json<HealthResponse> {
