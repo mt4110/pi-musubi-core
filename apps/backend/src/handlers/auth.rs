@@ -1,9 +1,12 @@
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
-use crate::handlers::{ApiResult, bad_request};
+use crate::{
+    SharedState,
+    handlers::{ApiResult, bad_request, map_happy_route_error},
+    services::happy_route::{AuthenticationInput, authenticate_pi_account},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct PiAuthRequest {
@@ -28,7 +31,10 @@ pub struct AuthUser {
     pub username: String,
 }
 
-pub async fn authenticate_pi(Json(payload): Json<PiAuthRequest>) -> ApiResult<PiAuthResponse> {
+pub async fn authenticate_pi(
+    axum::extract::State(state): axum::extract::State<SharedState>,
+    Json(payload): Json<PiAuthRequest>,
+) -> ApiResult<PiAuthResponse> {
     let pi_uid = payload
         .pi_uid
         .or(payload.uid)
@@ -41,24 +47,47 @@ pub async fn authenticate_pi(Json(payload): Json<PiAuthRequest>) -> ApiResult<Pi
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("@{pi_uid}"));
+    let has_access_token = payload
+        .access_token
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let access_token = payload
+        .access_token
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| bad_request("access_token is required"))?;
+    let wallet_address = payload
+        .wallet_address
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
 
-    println!(
-        "pi auth received: pi_uid={pi_uid}, username={username}, wallet_address={:?}, has_access_token={}, has_profile={}",
-        payload.wallet_address,
-        payload
-            .access_token
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty()),
-        payload.profile.is_some(),
-    );
+    if cfg!(debug_assertions) {
+        println!(
+            "pi auth received: has_access_token={}, has_profile={}",
+            has_access_token,
+            payload.profile.is_some(),
+        );
+    }
+
+    let authenticated = authenticate_pi_account(
+        &state,
+        AuthenticationInput {
+            pi_uid: pi_uid.clone(),
+            username: username.clone(),
+            wallet_address,
+            access_token,
+        },
+    )
+    .await
+    .map_err(map_happy_route_error)?;
 
     Ok(Json(PiAuthResponse {
-        token: format!("pi-session-{}", Uuid::new_v4()),
+        token: authenticated.token,
         user: AuthUser {
-            id: Uuid::new_v4().to_string(),
-            pi_uid,
-            username,
+            id: authenticated.account_id,
+            pi_uid: authenticated.pi_uid,
+            username: authenticated.username,
         },
     }))
 }

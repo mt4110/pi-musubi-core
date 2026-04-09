@@ -659,13 +659,16 @@ dependencies = [
 name = "musubi_backend"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "dotenvy",
  "musubi_settlement_domain",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
+ "tower",
  "tower-http",
  "uuid",
 ]

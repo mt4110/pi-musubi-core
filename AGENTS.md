@@ -39,6 +39,19 @@ Before changing code, the agent MUST read in this order:
 
 If a required upstream document is missing locally, stop and escalate rather than guessing.
 
+### 1.1 Refresh integration branches before issue work
+
+If an issue prompt tells the agent to branch from an integration branch such as `feat/happy_route`, the agent MUST treat branch freshness as part of setup.
+
+Before cutting the issue branch:
+
+1. `git fetch origin --prune`
+2. fast-forward local `main` to `origin/main`
+3. check whether `origin/main` is already an ancestor of the integration branch
+4. if not, update the integration branch from `origin/main` before cutting the issue branch, or stop and escalate if that merge is not intended
+
+If a required design note exists on `main` but is missing on the integration branch, treat that as a branch-freshness problem, not as permission to guess.
+
 ---
 
 ## 2. Mandatory implementation posture

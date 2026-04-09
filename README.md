@@ -1,6 +1,7 @@
 # pi-musubi-core
 
-Pi Network の `Sign in` と `10 Pi deposit` だけに絞った web PoC です。
+Pi Network の `Sign in` と `10 Pi deposit` web PoC から出発した、
+MUSUBI Day 1 の canonical implementation repository です。
 
 ## 構成
 - `apps/mobile`: Flutter Web フロントエンド
@@ -60,3 +61,31 @@ M1 - Core Truth and Orchestration Baseline
 See `docs/foundation_lock.md` for the pinned design corpus.
 
 Implementation agents must treat `docs/foundation_lock.md` as the mandatory reading gateway before changing code.
+
+## Git運用メモ
+
+M1 issue work は `main` から直接切るのではなく、
+integration branch を最新化してから issue branch を切る前提です。
+
+現在の integration branch:
+- `feat/happy_route`
+
+推奨手順:
+
+```bash
+git fetch origin --prune
+git checkout main
+git merge --ff-only origin/main
+git checkout feat/happy_route
+git merge --no-ff origin/main
+git checkout -b <issue-branch>
+```
+
+required docs が issue branch 側で見つからない場合は、
+先に integration branch の鮮度を疑ってください。
+missing docs を推測で補うのではなく、branch を揃えるか人間に確認するのが正解です。
+
+## Rust / Cargo 実行場所
+
+Rust workspace の root は repo 直下ではなく `apps/backend` です。
+`cargo check` や `cargo test` は `apps/backend` で実行してください。
