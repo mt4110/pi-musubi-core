@@ -1,8 +1,8 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use super::{
-    constants::{OUTBOX_PENDING, OUTBOX_PROCESSING, OUTBOX_PUBLISHED},
+    constants::{OUTBOX_PENDING, OUTBOX_PROCESSING, OUTBOX_PUBLISHED, OUTBOX_RETRY_BACKOFF_MILLIS},
     state::{HappyRouteState, OutboxCommand, OutboxMessageRecord},
 };
 
@@ -65,13 +65,16 @@ pub(super) fn mark_outbox_published(store: &mut HappyRouteState, event_id: &str)
 pub(super) fn mark_outbox_pending(store: &mut HappyRouteState, event_id: &str) {
     if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
         message.delivery_status = OUTBOX_PENDING.to_owned();
-        message.available_at = Utc::now();
+        message.available_at = Utc::now() + Duration::milliseconds(OUTBOX_RETRY_BACKOFF_MILLIS);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{claim_pending_outbox_message, insert_outbox_message, mark_outbox_published};
+    use super::{
+        claim_pending_outbox_message, insert_outbox_message, mark_outbox_pending,
+        mark_outbox_published,
+    };
     use crate::services::happy_route::state::{HappyRouteState, OutboxCommand};
 
     #[test]
@@ -105,5 +108,38 @@ mod tests {
             .expect("remaining pending message must still be claimable");
         assert_eq!(claimed.event_id, second_event_id);
         assert_eq!(claimed.delivery_status, "processing");
+    }
+
+    #[test]
+    fn failed_message_is_deferred_so_later_pending_events_can_run() {
+        let mut store = HappyRouteState::default();
+        let first_event_id = insert_outbox_message(
+            &mut store,
+            "settlement_case",
+            "case-failed",
+            "OPEN_HOLD_INTENT",
+            OutboxCommand::OpenHoldIntent {
+                settlement_case_id: "case-failed".to_owned(),
+            },
+        );
+        let second_event_id = insert_outbox_message(
+            &mut store,
+            "settlement_case",
+            "case-later",
+            "OPEN_HOLD_INTENT",
+            OutboxCommand::OpenHoldIntent {
+                settlement_case_id: "case-later".to_owned(),
+            },
+        );
+
+        let first_claim = claim_pending_outbox_message(&mut store)
+            .expect("first pending message must be claimable");
+        assert_eq!(first_claim.event_id, first_event_id);
+
+        mark_outbox_pending(&mut store, &first_event_id);
+
+        let second_claim = claim_pending_outbox_message(&mut store)
+            .expect("later pending message must not be starved by a failed retry");
+        assert_eq!(second_claim.event_id, second_event_id);
     }
 }

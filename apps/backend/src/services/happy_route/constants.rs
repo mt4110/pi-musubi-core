@@ -6,6 +6,7 @@ pub(super) const PROVIDER_VERSION: &str = "2026-04";
 pub(super) const OUTBOX_PENDING: &str = "pending";
 pub(super) const OUTBOX_PROCESSING: &str = "processing";
 pub(super) const OUTBOX_PUBLISHED: &str = "published";
+pub(super) const OUTBOX_RETRY_BACKOFF_MILLIS: i64 = 250;
 pub(super) const COMMAND_INBOX_RETENTION_MINUTES: i64 = 10;
 
 pub(super) const PROMISE_INTENT_PROPOSED: &str = "proposed";
