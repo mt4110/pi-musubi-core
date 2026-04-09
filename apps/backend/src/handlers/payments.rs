@@ -55,6 +55,10 @@ pub async fn payment_callback(
         .filter(|status| !status.is_empty())
         .ok_or_else(|| bad_request("status is required"))?
         .to_owned();
+    let txid = payload
+        .txid
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
 
     let outcome = ingest_payment_callback(
         &state,
@@ -63,7 +67,7 @@ pub async fn payment_callback(
             payer_pi_uid,
             amount_minor_units: payload.amount_minor_units,
             currency_code,
-            txid: payload.txid,
+            txid,
             callback_status,
         },
     )

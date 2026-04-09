@@ -4,7 +4,10 @@ use musubi_settlement_domain::{CurrencyCode, Money};
 use crate::SharedState;
 
 use super::{
-    constants::{PI_CURRENCY_CODE, PI_SCALE, PROJECTION_BUILDER},
+    constants::{
+        LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY, LEDGER_DIRECTION_CREDIT, PI_CURRENCY_CODE,
+        PI_SCALE, PROJECTION_BUILDER,
+    },
     outbox::mark_outbox_published,
     state::{
         CommandInboxRecord, HappyRouteState, OutboxMessageRecord, PromiseViewRecord,
@@ -165,10 +168,10 @@ fn calculate_total_funded(
         if journal.settlement_case_id != settlement_case_id {
             continue;
         }
-        if posting.ledger_account_code != "user_secured_funds_liability" {
+        if posting.ledger_account_code != LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY {
             continue;
         }
-        if posting.direction != "credit" {
+        if posting.direction != LEDGER_DIRECTION_CREDIT {
             continue;
         }
 

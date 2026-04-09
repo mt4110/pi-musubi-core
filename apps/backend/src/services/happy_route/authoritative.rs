@@ -4,9 +4,15 @@ use musubi_settlement_domain::{
 };
 use uuid::Uuid;
 
-use super::state::{
-    HappyRouteState, LedgerJournalRecord, LedgerPostingRecord, PromiseIntentRecord,
-    SettlementCaseRecord, SettlementObservationRecord,
+use super::{
+    constants::{
+        LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND, LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
+        LEDGER_DIRECTION_CREDIT, LEDGER_DIRECTION_DEBIT,
+    },
+    state::{
+        HappyRouteState, LedgerJournalRecord, LedgerPostingRecord, PromiseIntentRecord,
+        SettlementCaseRecord, SettlementObservationRecord,
+    },
 };
 
 pub(super) fn append_normalized_observations(
@@ -65,9 +71,9 @@ pub(super) fn append_receipt_recognition_ledger(
         posting_id: Uuid::new_v4().to_string(),
         journal_entry_id: journal_entry_id.clone(),
         posting_order: 1,
-        ledger_account_code: "provider_clearing_inbound".to_owned(),
+        ledger_account_code: LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND.to_owned(),
         account_id: None,
-        direction: "debit".to_owned(),
+        direction: LEDGER_DIRECTION_DEBIT.to_owned(),
         amount: promise_intent.deposit_amount.clone(),
         created_at: now,
     };
@@ -75,9 +81,9 @@ pub(super) fn append_receipt_recognition_ledger(
         posting_id: Uuid::new_v4().to_string(),
         journal_entry_id: journal_entry_id.clone(),
         posting_order: 2,
-        ledger_account_code: "user_secured_funds_liability".to_owned(),
+        ledger_account_code: LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY.to_owned(),
         account_id: Some(promise_intent.initiator_account_id.clone()),
-        direction: "credit".to_owned(),
+        direction: LEDGER_DIRECTION_CREDIT.to_owned(),
         amount: promise_intent.deposit_amount.clone(),
         created_at: now,
     };

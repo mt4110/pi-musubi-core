@@ -57,6 +57,10 @@ pub async fn authenticate_pi(
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| bad_request("access_token is required"))?;
+    let wallet_address = payload
+        .wallet_address
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
 
     if cfg!(debug_assertions) {
         println!(
@@ -71,7 +75,7 @@ pub async fn authenticate_pi(
         AuthenticationInput {
             pi_uid: pi_uid.clone(),
             username: username.clone(),
-            wallet_address: payload.wallet_address,
+            wallet_address,
             access_token,
         },
     )

@@ -10,6 +10,7 @@ pub struct HappyRouteState {
     pub(super) accounts_by_id: HashMap<String, AccountRecord>,
     pub(super) account_id_by_pi_uid: HashMap<String, String>,
     pub(super) auth_sessions_by_token: HashMap<String, AuthSessionRecord>,
+    pub(super) auth_session_token_by_account_id: HashMap<String, String>,
     pub(super) promise_intents_by_id: HashMap<String, PromiseIntentRecord>,
     pub(super) promise_intent_id_by_internal_idempotency_key: HashMap<(String, String), String>,
     pub(super) settlement_cases_by_id: HashMap<String, SettlementCaseRecord>,

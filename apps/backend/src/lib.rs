@@ -113,7 +113,11 @@ async fn health() -> Json<HealthResponse> {
 }
 
 fn internal_orchestration_drain_enabled() -> bool {
-    cfg!(debug_assertions) || env_flag_enabled("MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN")
+    internal_orchestration_drain_enabled_with_flags(
+        cfg!(debug_assertions),
+        env_flag_enabled("MUSUBI_DISABLE_INTERNAL_ORCHESTRATION_DRAIN"),
+        env_flag_enabled("MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN"),
+    )
 }
 
 fn unauthenticated_pi_callback_enabled() -> bool {
@@ -128,4 +132,35 @@ fn env_flag_enabled(name: &str) -> bool {
             normalized == "1" || normalized == "true" || normalized == "yes"
         })
         .unwrap_or(false)
+}
+
+fn internal_orchestration_drain_enabled_with_flags(
+    debug_build: bool,
+    disable_internal_drain: bool,
+    enable_internal_drain: bool,
+) -> bool {
+    if disable_internal_drain {
+        return false;
+    }
+
+    debug_build || enable_internal_drain
+}
+
+#[cfg(test)]
+mod tests {
+    use super::internal_orchestration_drain_enabled_with_flags;
+
+    #[test]
+    fn debug_build_can_disable_internal_drain() {
+        assert!(!internal_orchestration_drain_enabled_with_flags(
+            true, true, false,
+        ));
+    }
+
+    #[test]
+    fn release_build_can_enable_internal_drain() {
+        assert!(internal_orchestration_drain_enabled_with_flags(
+            false, false, true,
+        ));
+    }
 }

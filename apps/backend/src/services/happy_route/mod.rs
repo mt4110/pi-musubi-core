@@ -5,6 +5,7 @@ mod callback;
 mod callback_store;
 mod common;
 mod constants;
+mod inbox;
 mod open_hold;
 mod open_hold_store;
 mod orchestration;

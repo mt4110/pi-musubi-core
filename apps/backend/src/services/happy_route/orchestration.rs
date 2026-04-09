@@ -1,6 +1,7 @@
 use crate::SharedState;
 
 use super::{
+    inbox::prune_processed_command_inbox,
     open_hold::process_open_hold_intent,
     outbox::{claim_pending_outbox_message, mark_outbox_pending},
     projection::{process_refresh_promise_view, process_refresh_settlement_view},
@@ -10,6 +11,10 @@ use super::{
 
 pub async fn drain_outbox(state: &SharedState) -> Result<DrainOutboxOutcome, HappyRouteError> {
     let mut processed_messages = Vec::new();
+    {
+        let mut store = state.happy_route.write().await;
+        prune_processed_command_inbox(&mut store);
+    }
 
     loop {
         let next_message = {

@@ -6,6 +6,7 @@ pub(super) const PROVIDER_VERSION: &str = "2026-04";
 pub(super) const OUTBOX_PENDING: &str = "pending";
 pub(super) const OUTBOX_PROCESSING: &str = "processing";
 pub(super) const OUTBOX_PUBLISHED: &str = "published";
+pub(super) const COMMAND_INBOX_RETENTION_MINUTES: i64 = 10;
 
 pub(super) const PROMISE_INTENT_PROPOSED: &str = "proposed";
 pub(super) const SETTLEMENT_CASE_PENDING_FUNDING: &str = "pending_funding";
@@ -21,3 +22,8 @@ pub(super) const PROJECTION_BUILDER: &str = "projection-builder";
 pub(super) const EVENT_OPEN_HOLD_INTENT: &str = "OPEN_HOLD_INTENT";
 pub(super) const EVENT_REFRESH_PROMISE_VIEW: &str = "REFRESH_PROMISE_VIEW";
 pub(super) const EVENT_REFRESH_SETTLEMENT_VIEW: &str = "REFRESH_SETTLEMENT_VIEW";
+
+pub(super) const LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND: &str = "provider_clearing_inbound";
+pub(super) const LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY: &str = "user_secured_funds_liability";
+pub(super) const LEDGER_DIRECTION_DEBIT: &str = "debit";
+pub(super) const LEDGER_DIRECTION_CREDIT: &str = "credit";

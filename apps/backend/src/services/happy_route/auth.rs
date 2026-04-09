@@ -53,6 +53,12 @@ pub async fn authenticate_pi_account(
         };
 
     let token = format!("pi-session-{}", Uuid::new_v4());
+    if let Some(previous_token) = store
+        .auth_session_token_by_account_id
+        .insert(account_id.clone(), token.clone())
+    {
+        store.auth_sessions_by_token.remove(&previous_token);
+    }
     let session = AuthSessionRecord {
         token: token.clone(),
         account_id: account_id.clone(),

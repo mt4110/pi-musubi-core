@@ -301,6 +301,69 @@ async fn authenticate_pi_requires_matching_access_token_for_existing_account() {
 }
 
 #[tokio::test]
+async fn re_authentication_rotates_the_prior_session_token() {
+    let app = build_app(new_state());
+    let counterparty = sign_in(&app, "pi-user-session-b", "session-b").await;
+
+    let first_sign_in = sign_in_with_access_token_response(
+        &app,
+        "pi-user-session-a",
+        "session-a",
+        "access-token-session",
+    )
+    .await;
+    assert_eq!(first_sign_in.status, StatusCode::OK);
+    let first_token = first_sign_in.body["token"]
+        .as_str()
+        .expect("token must exist")
+        .to_owned();
+
+    let second_sign_in = sign_in_with_access_token_response(
+        &app,
+        "pi-user-session-a",
+        "session-a",
+        "access-token-session",
+    )
+    .await;
+    assert_eq!(second_sign_in.status, StatusCode::OK);
+    let second_token = second_sign_in.body["token"]
+        .as_str()
+        .expect("token must exist")
+        .to_owned();
+    assert_ne!(first_token, second_token);
+
+    let stale_session_request = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(first_token.as_str()),
+        json!({
+            "internal_idempotency_key": "stale-session-key",
+            "realm_id": "realm-session",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(stale_session_request.status, StatusCode::UNAUTHORIZED);
+
+    let active_session_request = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(second_token.as_str()),
+        json!({
+            "internal_idempotency_key": "active-session-key",
+            "realm_id": "realm-session",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(active_session_request.status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn settlement_projection_requires_authenticated_participant() {
     let app = build_app(new_state());
     let prepared = prepare_funded_case(&app).await;
