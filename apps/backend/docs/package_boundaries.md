@@ -10,11 +10,11 @@ The goal of this refactor is structural honesty:
 The original Issue #2 refactor was intentionally limited.
 Later milestone work has since added:
 - schema skeleton and migrations
+- DB runtime and migration runner wiring
 - settlement-domain types and backend traits
 - orchestration runtime notes
 
 The backend still does not implement:
-- PostgreSQL runtime integration in the app crate
 - provider-specific adapters
 - happy-route expansion
 
@@ -28,11 +28,34 @@ Owns:
 - temporary in-memory PoC state wiring
 - temporary service glue required to keep the PoC compiling
 - wire-format serialization of domain values when the PoC API needs it
+- backend startup schema checks through `musubi_db_runtime`
 
 Must not become:
 - the long-term home for domain truth
 - the settlement architecture
 - the place where `Server`, `Realm`, `Citadel`, and `Pool` are blurred together
+
+### `musubi_db_runtime`
+Owns:
+- writer DB env parsing and conservative connection settings
+- migration tracking, checksum validation, and advisory locking
+- backend startup schema drift checks
+- local-only reset guard
+
+Must not own:
+- business truth tables
+- provider callbacks
+- settlement domain rules
+- a fake pool abstraction that implies stronger runtime guarantees than the code provides
+
+### `musubi-ops`
+Owns:
+- operator/developer CLI commands for local DB bootstrap, migrate, status, and guarded local reset
+
+Must not own:
+- application HTTP handlers
+- business-domain policy
+- production destructive reset behavior
 
 ### `musubi_core_domain`
 Owns:

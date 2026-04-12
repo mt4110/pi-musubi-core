@@ -1,6 +1,10 @@
 .env
+.env.dev
+.env.stg
 .env.local
 .env.*.local
+!.env.example
+!**/.env.example
 *.pem
 *.key
 
@@ -29,3 +33,5 @@ out/
 cache/
 
 .codex/
+
+musubi_issue8_18_codex_ready_pack/*

@@ -12,6 +12,8 @@ use tower_http::cors::{Any, CorsLayer};
 pub mod handlers;
 pub mod services;
 
+use musubi_db_runtime::{DbConfig, MigrationRunner, StartupCheck};
+
 pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
@@ -65,6 +67,13 @@ pub fn build_app(state: SharedState) -> Router {
     };
 
     app.layer(cors).with_state(state)
+}
+
+pub async fn verify_backend_startup() -> musubi_db_runtime::Result<StartupCheck> {
+    let config = DbConfig::from_env()?;
+    MigrationRunner::new(config.migrations_dir.clone())
+        .verify_startup(&config)
+        .await
 }
 
 pub async fn run(state: SharedState) {

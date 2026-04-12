@@ -1,0 +1,12 @@
+[package]
+name = "musubi_db_runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt", "time"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
