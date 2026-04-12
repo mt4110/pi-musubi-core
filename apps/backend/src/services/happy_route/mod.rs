@@ -18,12 +18,12 @@ mod state;
 mod types;
 
 pub use auth::{authenticate_pi_account, authorize_account};
-pub use callback::{get_settlement_view, ingest_payment_callback};
+pub use callback::{accept_payment_callback, get_settlement_view};
 pub use orchestration::drain_outbox;
 pub use promise::create_promise_intent;
 pub use state::HappyRouteState;
 pub use types::{
     AuthenticatedAccount, AuthenticationInput, DrainOutboxOutcome, HappyRouteError,
-    PaymentCallbackInput, PaymentCallbackOutcome, ProcessedOutboxMessage, PromiseIntentInput,
-    PromiseIntentOutcome, SettlementViewSnapshot,
+    PaymentCallbackAccepted, PaymentCallbackInput, PaymentCallbackOutcome, ProcessedOutboxMessage,
+    PromiseIntentInput, PromiseIntentOutcome, ProviderErrorClass, SettlementViewSnapshot,
 };

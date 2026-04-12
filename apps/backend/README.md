@@ -60,6 +60,22 @@ make dev
 `REDIS_URL` points at the local Redis instance on `127.0.0.1:56379`.
 `REQUIRE_LATEST_SCHEMA=true` makes backend startup fail if migration tracking is missing, the DB has an applied migration missing from the local checkout, a migration failed, checksum drift exists, or pending migrations remain.
 
+The Day 1 Pi provider adapter is sandbox-only:
+
+- `PROVIDER_MODE=sandbox`
+- `PROVIDER_BASE_URL=https://sandbox.minepi.com/v2`
+- `PROVIDER_API_KEY`
+- `PROVIDER_WEBHOOK_SECRET`
+- `PROVIDER_TIMEOUT_MS=3000`
+
+The adapter records provider idempotency mappings and raw callback dedupe in the current in-memory happy-route store.
+It reads only `PROVIDER_*` settings, so sandbox and production Pi credentials do not silently mix through legacy `PI_API_*` fallback.
+`POST /api/payment/callback` is intentionally thin: it saves exact raw body bytes plus redacted headers, records callback dedupe, enqueues `INGEST_PROVIDER_CALLBACK`, and returns without mutating settlement final state.
+Normalization, receipt verification, funding, ledger append, and projection refresh run from the orchestration drain / worker side.
+If a valid callback arrives before provider submission mapping is visible, callback processing is retried/deferred before any manual-review parking.
+Callback signature verification is intentionally skipped for Issue #9 until a pinned Pi callback signature / auth contract exists; raw callback records keep `signature_valid = None` as the future slot.
+Those records are shaped as the future PostgreSQL uniqueness boundaries; they are not a production Pi payment integration yet.
+
 ### Run the orchestration contract tests
 
 ```bash
@@ -86,6 +102,7 @@ These files establish the Day 1 `core`, `dao`, `ledger`, `outbox`, and `projecti
 See `docs/schema_skeleton.md` for ownership notes and deferred scope.
 Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
+Issue #9 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 
 ## Local design notes
 

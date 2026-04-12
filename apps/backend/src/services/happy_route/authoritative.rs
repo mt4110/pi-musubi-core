@@ -22,28 +22,63 @@ pub(super) fn append_normalized_observations(
     observations: &[NormalizedObservation],
 ) {
     for observation in observations {
+        let observation_kind = normalized_observation_kind(observation.kind).to_owned();
+        let confidence = observation_confidence(observation.confidence).to_owned();
+        let provider_ref = observation
+            .provider_ref
+            .as_ref()
+            .map(|value| value.as_str().to_owned());
+        let provider_tx_hash = observation
+            .provider_tx_hash
+            .as_ref()
+            .map(|value| value.as_str().to_owned());
+        let dedupe_key = normalized_observation_dedupe_key(
+            settlement_case_id,
+            settlement_submission_id,
+            &observation_kind,
+            &confidence,
+            provider_ref.as_deref(),
+            provider_tx_hash.as_deref(),
+        );
+        if !store.normalized_observation_dedupe_keys.insert(dedupe_key) {
+            continue;
+        }
+
         store
             .settlement_observations
             .push(SettlementObservationRecord {
                 observation_id: observation.observation_id.as_str().to_owned(),
                 settlement_case_id: settlement_case_id.to_owned(),
                 settlement_submission_id: settlement_submission_id.map(str::to_owned),
-                observation_kind: normalized_observation_kind(observation.kind).to_owned(),
-                confidence: observation_confidence(observation.confidence).to_owned(),
-                provider_ref: observation
-                    .provider_ref
-                    .as_ref()
-                    .map(|value| value.as_str().to_owned()),
-                provider_tx_hash: observation
-                    .provider_tx_hash
-                    .as_ref()
-                    .map(|value| value.as_str().to_owned()),
+                observation_kind,
+                confidence,
+                provider_ref,
+                provider_tx_hash,
                 observed_at: observation
                     .observed_at
                     .map(DateTime::<Utc>::from)
                     .unwrap_or_else(Utc::now),
             });
     }
+}
+
+fn normalized_observation_dedupe_key(
+    settlement_case_id: &str,
+    settlement_submission_id: Option<&str>,
+    observation_kind: &str,
+    confidence: &str,
+    provider_ref: Option<&str>,
+    provider_tx_hash: Option<&str>,
+) -> String {
+    [
+        settlement_case_id,
+        settlement_submission_id.unwrap_or(""),
+        observation_kind,
+        confidence,
+        provider_ref.unwrap_or(""),
+        provider_tx_hash.unwrap_or(""),
+    ]
+    .join("\u{1f}")
 }
 
 pub(super) fn append_receipt_recognition_ledger(

@@ -87,7 +87,7 @@ that would still be a bug even if these tests stay green.
 The backend is still on a small Day 1 skeleton:
 - no custom lint crate
 - no MIR/static analysis pass
-- no provider adapters yet
+- only a sandbox provider adapter, with production Pi networking still deferred
 
 Because of that, the most honest posture is:
 - encode the invariant at the runtime seam with executable sequencing tests
@@ -95,6 +95,12 @@ Because of that, the most honest posture is:
 - encode writer-first via interface and tests
 - encode idempotency via durable uniqueness and duplicate-delivery tests
 - explicitly document the places where review is still required
+
+Issue #9 adds the first sandbox Pi provider adapter in the happy-route service.
+It follows the same no-transaction-across-provider-await shape by preparing authoritative state, releasing the store lock, calling the adapter, and persisting the result in a later write.
+Provider errors now keep a retry class at the app boundary: transient provider failures can retry, valid out-of-order callbacks defer while provider submission mapping catches up, terminal failures are quarantined, and ambiguous provider behavior is held for manual review instead of being returned to the pending queue.
+Payment callbacks now persist exact raw body bytes and redacted headers before mapping, amount, payer, normalization, or receipt verification logic runs.
+The HTTP callback endpoint does not advance settlement state, append ledger rows, or refresh projections; it schedules `INGEST_PROVIDER_CALLBACK` for outbox-driven orchestration.
 
 ## Expected next improvements
 

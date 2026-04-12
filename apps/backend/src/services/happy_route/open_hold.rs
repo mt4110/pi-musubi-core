@@ -6,7 +6,7 @@ use musubi_settlement_domain::{
 use crate::SharedState;
 
 use super::{
-    backend::StubPiSettlementBackend,
+    backend::PiSettlementBackend,
     common::map_backend_error,
     constants::SETTLEMENT_ORCHESTRATOR,
     repository::HappyRouteWriteRepository,
@@ -34,7 +34,7 @@ pub(super) async fn process_open_hold_intent(
         }
     };
 
-    let backend = StubPiSettlementBackend::new(state.clone());
+    let backend = PiSettlementBackend::new(state.clone());
     let submission_result = backend
         .submit_action(SubmitActionCmd {
             backend: prepare.settlement_case.backend_pin.clone(),
