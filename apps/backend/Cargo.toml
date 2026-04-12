@@ -7,16 +7,20 @@ edition = "2024"
 members = [
     ".",
     "crates/core-domain",
+    "crates/db-runtime",
     "crates/realm-domain",
     "crates/settlement-domain",
     "crates/orchestration",
+    "crates/ops",
 ]
 default-members = [
     ".",
     "crates/core-domain",
+    "crates/db-runtime",
     "crates/realm-domain",
     "crates/settlement-domain",
     "crates/orchestration",
+    "crates/ops",
 ]
 resolver = "2"
 
@@ -35,6 +39,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 tower-http = { version = "0.6.8", features = ["cors"] }
 async-trait = "0.1"
 sha2 = "0.10"
+musubi_db_runtime = { path = "crates/db-runtime" }
 musubi_settlement_domain = { path = "crates/settlement-domain" }
 
 [dev-dependencies]

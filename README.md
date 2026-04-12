@@ -19,13 +19,16 @@ MUSUBI Day 1 の canonical implementation repository です。
 cd apps/backend
 cp .env.example .env
 docker-compose up -d postgres redis
+make db-bootstrap
+make db-migrate
+make db-status
 ```
 
 そのうえで backend をホスト側で起動します。
 
 ```bash
 cd apps/backend
-cargo run
+make dev
 ```
 
 必要なら backend コンテナごと起動することもできます。
@@ -43,9 +46,12 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8088
 
 ローカル接続先の既定値は以下です。
 
+- `APP_ENV=local`
 - `DATABASE_URL=postgres://musubi:musubi_local_dev@127.0.0.1:55432/musubi_dev`
 - `MUSUBI_TEST_DATABASE_URL=postgres://musubi:musubi_local_dev@127.0.0.1:55432/musubi_test`
 - `REDIS_URL=redis://127.0.0.1:56379/0`
+
+`REQUIRE_LATEST_SCHEMA=true` の場合、backend は pending / failed / checksum drift に加えて、DB 側にだけ存在する applied migration がある状態では起動しません。
 
 ## Foundation alignment
 

@@ -28,16 +28,37 @@ cp .env.example .env
 docker-compose up -d postgres redis
 ```
 
+### Bootstrap and migrate the writer DB
+
+```bash
+cd apps/backend
+make db-bootstrap
+make db-migrate
+make db-status
+```
+
+Equivalent raw commands:
+
+```bash
+cargo run -p musubi-ops -- db bootstrap
+cargo run -p musubi-ops -- db migrate
+cargo run -p musubi-ops -- db status
+```
+
+Migration tracking lives in `public.musubi_schema_migrations`.
+The runner records file checksums, uses a PostgreSQL advisory lock, and treats duplicate migrate runs as no-ops.
+
 ### Run the backend on the host
 
 ```bash
 cd apps/backend
-cargo run
+make dev
 ```
 
 `DATABASE_URL` points at the development database on `127.0.0.1:55432`.
 `MUSUBI_TEST_DATABASE_URL` points at the test database on `127.0.0.1:55432`.
 `REDIS_URL` points at the local Redis instance on `127.0.0.1:56379`.
+`REQUIRE_LATEST_SCHEMA=true` makes backend startup fail if migration tracking is missing, the DB has an applied migration missing from the local checkout, a migration failed, checksum drift exists, or pending migrations remain.
 
 ### Run the orchestration contract tests
 
@@ -63,10 +84,13 @@ Issue #3 adds plain SQL migration scaffolding under `migrations/`.
 These files establish the Day 1 `core`, `dao`, `ledger`, `outbox`, and `projection` boundaries without adding runtime DB wiring yet.
 
 See `docs/schema_skeleton.md` for ownership notes and deferred scope.
+Issue #8 adds the runtime migration runner and backend startup schema check.
+See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
 
 ## Local design notes
 
 - `docs/package_boundaries.md`: crate and ownership boundaries
+- `docs/db_runtime.md`: local DB bootstrap, migration runner, and startup schema check
 - `docs/schema_skeleton.md`: physical truth boundaries
 - `docs/settlement_domain_types.md`: settlement-domain contract
 - `docs/orchestration_runtime.md`: outbox/inbox runtime rules

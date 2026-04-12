@@ -52,6 +52,12 @@ Before cutting the issue branch:
 
 If a required design note exists on `main` but is missing on the integration branch, treat that as a branch-freshness problem, not as permission to guess.
 
+### 1.2 GitHub and Codex metadata hygiene
+
+Do not add `codex`, `Codex`, or `[codex]` to GitHub repository names, PR titles, issue titles, branch names, commit messages, labels, or other project-facing metadata unless the user explicitly asks for it.
+
+`.codex/` is local agent state and must remain ignored by git. Do not commit `.codex/` contents.
+
 ---
 
 ## 2. Mandatory implementation posture

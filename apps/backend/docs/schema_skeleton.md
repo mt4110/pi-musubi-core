@@ -6,7 +6,7 @@ The migration strategy is intentionally small:
 - plain PostgreSQL DDL files under `apps/backend/migrations/`
 - ordered, deterministic filenames
 - no ORM layer
-- no runtime migration runner yet
+- a runtime migration runner now records checksums in `public.musubi_schema_migrations`
 
 The purpose is to make MUSUBI's physical truth boundaries explicit before Issue #4 and Issue #5 add domain and orchestration behavior.
 
@@ -74,7 +74,7 @@ Must not own:
 ## Foundation alignment
 
 This skeleton matches the pinned foundation law in three important ways:
-- PostgreSQL remains the business truth boundary, even before runtime wiring exists.
+- PostgreSQL remains the business truth boundary; Issue #8 now adds runtime checks around this schema.
 - mutable PII-bearing records are physically separated from immutable ledger truth.
 - outbox and projection data are explicitly non-authoritative.
 
@@ -93,9 +93,8 @@ Money safety is also explicit:
 
 ## Intentionally incomplete
 
-This issue does not implement:
-- PostgreSQL runtime wiring in the Axum app
-- a migration runner or ORM
+Issue #3 did not implement:
+- an ORM
 - `SettlementBackend` trait work from Issue #4
 - provider adapters or callbacks beyond the current PoC app glue
 - outbox/inbox workers, pruning jobs, or retry executors

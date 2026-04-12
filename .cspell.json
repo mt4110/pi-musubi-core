@@ -2,8 +2,15 @@
     "version": "0.2",
     "language": "en",
     "words": [
-        "footgun",
+        "appendonly",
+        "chrono",
+        "decisioning",
+        "dotenvy",
         "Finalizable",
+        "footgun",
+        "healthcheck",
+        "initdb",
+        "isready",
         "KASHI",
         "Masaki",
         "MUSUBI",
@@ -14,8 +21,7 @@
         "serde",
         "signout",
         "spoofable",
-        "Takemura",
-        "decisioning"
+        "Takemura"
     ],
     "ignorePaths": [
         "node_modules",

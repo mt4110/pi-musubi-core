@@ -656,6 +656,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "musubi-ops"
+version = "0.1.0"
+dependencies = [
+ "dotenvy",
+ "musubi_db_runtime",
+ "tokio",
+]
+
+[[package]]
 name = "musubi_backend"
 version = "0.1.0"
 dependencies = [
@@ -663,6 +672,7 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "musubi_db_runtime",
  "musubi_settlement_domain",
  "serde",
  "serde_json",
@@ -676,6 +686,15 @@ dependencies = [
 [[package]]
 name = "musubi_core_domain"
 version = "0.1.0"
+
+[[package]]
+name = "musubi_db_runtime"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "musubi_orchestration"
