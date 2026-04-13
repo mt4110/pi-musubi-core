@@ -231,6 +231,8 @@ mod tests {
             },
             delivery_status: "processing".to_owned(),
             attempt_count: 1,
+            last_error_class: None,
+            last_error_message: None,
             available_at: Utc::now(),
             published_at: None,
             created_at: Utc::now(),

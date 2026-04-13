@@ -76,10 +76,15 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
     )
     .await;
     assert_eq!(callback.status, StatusCode::OK);
-    assert_eq!(callback.body["receipt_status"], "verified");
-    assert_eq!(callback.body["duplicate_receipt"], false);
-    assert!(callback.body["ledger_journal_id"].is_string());
-    assert_eq!(callback.body["case_status"], "funded");
+    assert!(callback.body["raw_callback_id"].is_string());
+    assert_eq!(callback.body["duplicate_callback"], false);
+    assert_eq!(
+        callback.body["outbox_event_ids"]
+            .as_array()
+            .expect("callback should enqueue provider callback ingestion")
+            .len(),
+        1
+    );
 
     let second_drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(second_drain.status, StatusCode::OK);
@@ -98,7 +103,7 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
 }
 
 #[tokio::test]
-async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection() {
+async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection() {
     let app = build_app(new_state());
     let prepared = prepare_funded_case(&app).await;
 
@@ -117,11 +122,70 @@ async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection(
     )
     .await;
     assert_eq!(duplicate_callback.status, StatusCode::OK);
-    assert_eq!(duplicate_callback.body["duplicate_receipt"], true);
+    assert_eq!(duplicate_callback.body["duplicate_callback"], false);
 
     let drain_after_duplicate =
         post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_after_duplicate.status, StatusCode::OK);
+
+    let settlement_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(settlement_view.status, StatusCode::OK);
+    assert_eq!(settlement_view.body["current_settlement_status"], "funded");
+    assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
+async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
+    let app = build_app(new_state());
+    let prepared = prepare_pending_case(&app).await;
+
+    let payload = json!({
+        "payment_id": prepared.payment_id,
+        "payer_pi_uid": prepared.initiator_pi_uid,
+        "amount_minor_units": 10000,
+        "currency_code": "PI",
+        "txid": "pi-tx-exact-replay",
+        "status": "completed"
+    });
+    let first_callback = post_json(&app, "/api/payment/callback", None, payload.clone()).await;
+    assert_eq!(first_callback.status, StatusCode::OK);
+    assert_eq!(first_callback.body["duplicate_callback"], false);
+    assert!(first_callback.body["raw_callback_id"].is_string());
+
+    let replayed_callback = post_json(&app, "/api/payment/callback", None, payload).await;
+    assert_eq!(replayed_callback.status, StatusCode::OK);
+    assert_eq!(replayed_callback.body["duplicate_callback"], true);
+    assert_ne!(
+        replayed_callback.body["raw_callback_id"],
+        first_callback.body["raw_callback_id"]
+    );
+
+    let drain_after_replay =
+        post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_after_replay.status, StatusCode::OK);
+    let callback_messages = drain_after_replay.body["processed_messages"]
+        .as_array()
+        .expect("processed_messages must be an array")
+        .iter()
+        .filter(|message| message["event_type"] == "INGEST_PROVIDER_CALLBACK")
+        .collect::<Vec<_>>();
+    assert_eq!(callback_messages.len(), 2);
+    assert!(callback_messages.iter().all(|message| {
+        message["provider_submission_id"].as_str() == Some(prepared.payment_id.as_str())
+    }));
+    assert!(
+        callback_messages
+            .iter()
+            .any(|message| { message["already_processed"].as_bool() == Some(true) })
+    );
 
     let settlement_view = get_json(
         &app,
@@ -189,7 +253,7 @@ async fn background_outbox_worker_processes_open_hold_without_http_drain() {
 }
 
 #[tokio::test]
-async fn payment_callback_requires_explicit_status() {
+async fn payment_callback_without_status_is_accepted_as_raw_evidence() {
     let app = build_app(new_state());
     let prepared = prepare_pending_case(&app).await;
 
@@ -207,8 +271,16 @@ async fn payment_callback_requires_explicit_status() {
     )
     .await;
 
-    assert_eq!(callback.status, StatusCode::BAD_REQUEST);
-    assert_eq!(callback.body["error"], "status is required");
+    assert_eq!(callback.status, StatusCode::OK);
+    assert!(callback.body["raw_callback_id"].is_string());
+    assert_eq!(callback.body["duplicate_callback"], false);
+    assert_eq!(
+        callback.body["outbox_event_ids"]
+            .as_array()
+            .expect("callback should enqueue provider callback ingestion")
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -231,9 +303,11 @@ async fn later_verified_callback_can_fund_after_initial_rejection() {
     )
     .await;
     assert_eq!(rejected_callback.status, StatusCode::OK);
-    assert_eq!(rejected_callback.body["receipt_status"], "rejected");
-    assert_eq!(rejected_callback.body["duplicate_receipt"], false);
-    assert_eq!(rejected_callback.body["case_status"], "pending_funding");
+    assert_eq!(rejected_callback.body["duplicate_callback"], false);
+
+    let drain_rejected =
+        post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_rejected.status, StatusCode::OK);
 
     let verified_callback = post_json(
         &app,
@@ -250,10 +324,7 @@ async fn later_verified_callback_can_fund_after_initial_rejection() {
     )
     .await;
     assert_eq!(verified_callback.status, StatusCode::OK);
-    assert_eq!(verified_callback.body["receipt_status"], "verified");
-    assert_eq!(verified_callback.body["duplicate_receipt"], false);
-    assert_eq!(verified_callback.body["case_status"], "funded");
-    assert!(verified_callback.body["ledger_journal_id"].is_string());
+    assert_eq!(verified_callback.body["duplicate_callback"], false);
 
     let drain_projection =
         post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
@@ -537,7 +608,7 @@ async fn promise_intent_rejects_payload_drift_for_same_initiator_and_key() {
 }
 
 #[tokio::test]
-async fn payment_callback_rejects_non_positive_amount_with_generic_message() {
+async fn payment_callback_with_non_positive_amount_is_accepted_then_requires_review() {
     let app = build_app(new_state());
     let prepared = prepare_pending_case(&app).await;
 
@@ -556,11 +627,32 @@ async fn payment_callback_rejects_non_positive_amount_with_generic_message() {
     )
     .await;
 
-    assert_eq!(callback.status, StatusCode::BAD_REQUEST);
-    assert_eq!(
-        callback.body["error"],
-        "minor_units must be greater than zero"
-    );
+    assert_eq!(callback.status, StatusCode::OK);
+    assert!(callback.body["raw_callback_id"].is_string());
+
+    let drain_callback =
+        post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_callback.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(drain_callback.body["error"], "provider requires review");
+}
+
+#[tokio::test]
+async fn payment_callback_rejects_oversized_body() {
+    let app = build_app(new_state());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/payment/callback")
+        .header("content-type", "application/json")
+        .body(Body::from(vec![b'a'; 20_000]))
+        .expect("request must build");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("app should respond");
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 struct SignedInUser {

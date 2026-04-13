@@ -16,17 +16,71 @@ use super::{
 };
 
 impl<'a> HappyRouteWriteRepository<'a> {
+    pub(super) fn payment_callback_replay_outcome(
+        &mut self,
+        context: &CallbackContext,
+    ) -> Result<Option<PaymentCallbackOutcome>, HappyRouteError> {
+        let business_key = (
+            PROVIDER_KEY.to_owned(),
+            context.provider_submission_id.clone(),
+        );
+        let Some(existing_payment_receipt_id) = self
+            .store
+            .payment_receipt_id_by_business_key
+            .get(&business_key)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+
+        let existing_payment_receipt = self
+            .store
+            .payment_receipts_by_id
+            .get(&existing_payment_receipt_id)
+            .ok_or_else(|| {
+                HappyRouteError::Internal(
+                    "payment receipt idempotency key points to missing receipt".to_owned(),
+                )
+            })?;
+        let case_status = self
+            .store
+            .settlement_cases_by_id
+            .get(&existing_payment_receipt.settlement_case_id)
+            .map(|case| case.case_status.clone())
+            .unwrap_or_else(|| context.settlement_case.case_status.clone());
+
+        Ok(Some(PaymentCallbackOutcome {
+            payment_receipt_id: existing_payment_receipt.payment_receipt_id.clone(),
+            raw_callback_id: context.raw_callback_id.clone(),
+            settlement_case_id: existing_payment_receipt.settlement_case_id.clone(),
+            promise_intent_id: existing_payment_receipt.promise_intent_id.clone(),
+            case_status,
+            receipt_status: existing_payment_receipt.receipt_status.clone(),
+            ledger_journal_id: None,
+            outbox_event_ids: Vec::new(),
+            duplicate_receipt: true,
+        }))
+    }
+
     pub(super) fn persist_payment_callback_result(
         &mut self,
         context: &CallbackContext,
-        payment_id: &str,
         observed_amount: Money,
         verification: ReceiptVerification,
         normalized_observations: Vec<NormalizedObservation>,
     ) -> Result<PaymentCallbackOutcome, HappyRouteError> {
-        let business_key = (PROVIDER_KEY.to_owned(), payment_id.to_owned());
+        let business_key = (
+            PROVIDER_KEY.to_owned(),
+            context.provider_submission_id.clone(),
+        );
         let receipt_status = receipt_status(&verification).to_owned();
         let verification_observations = verification_observations(&verification)?;
+        if context.duplicate_callback {
+            if let Some(outcome) = self.payment_callback_replay_outcome(context)? {
+                return Ok(outcome);
+            }
+        }
+
         if let Some(existing_payment_receipt_id) = self
             .store
             .payment_receipt_id_by_business_key
@@ -131,7 +185,7 @@ impl<'a> HappyRouteWriteRepository<'a> {
         let payment_receipt = PaymentReceiptRecord {
             payment_receipt_id: payment_receipt_id.clone(),
             provider_key: PROVIDER_KEY.to_owned(),
-            external_payment_id: payment_id.to_owned(),
+            external_payment_id: context.provider_submission_id.clone(),
             settlement_case_id: context.settlement_case.settlement_case_id.clone(),
             promise_intent_id: context.promise_intent.promise_intent_id.clone(),
             amount: observed_amount,

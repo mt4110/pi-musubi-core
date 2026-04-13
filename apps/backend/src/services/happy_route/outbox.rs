@@ -2,7 +2,10 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use super::{
-    constants::{OUTBOX_PENDING, OUTBOX_PROCESSING, OUTBOX_PUBLISHED, OUTBOX_RETRY_BACKOFF_MILLIS},
+    constants::{
+        OUTBOX_MANUAL_REVIEW, OUTBOX_PENDING, OUTBOX_PROCESSING, OUTBOX_PUBLISHED,
+        OUTBOX_QUARANTINED, OUTBOX_RETRY_BACKOFF_MILLIS,
+    },
     state::{HappyRouteState, OutboxCommand, OutboxMessageRecord},
 };
 
@@ -24,6 +27,8 @@ pub(super) fn insert_outbox_message(
         command,
         delivery_status: OUTBOX_PENDING.to_owned(),
         attempt_count: 0,
+        last_error_class: None,
+        last_error_message: None,
         available_at: Utc::now(),
         published_at: None,
         created_at: Utc::now(),
@@ -62,20 +67,62 @@ pub(super) fn mark_outbox_published(store: &mut HappyRouteState, event_id: &str)
     }
 }
 
-pub(super) fn mark_outbox_pending(store: &mut HappyRouteState, event_id: &str) {
+pub(super) fn mark_outbox_retry_pending(
+    store: &mut HappyRouteState,
+    event_id: &str,
+    error_class: &str,
+    error_message: &str,
+) {
     if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
         message.delivery_status = OUTBOX_PENDING.to_owned();
+        message.last_error_class = Some(error_class.to_owned());
+        message.last_error_message = Some(error_message.to_owned());
         message.available_at = Utc::now() + Duration::milliseconds(OUTBOX_RETRY_BACKOFF_MILLIS);
+    }
+}
+
+pub(super) fn mark_outbox_manual_review(
+    store: &mut HappyRouteState,
+    event_id: &str,
+    error_class: &str,
+    error_message: &str,
+) {
+    if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
+        message.delivery_status = OUTBOX_MANUAL_REVIEW.to_owned();
+        message.last_error_class = Some(error_class.to_owned());
+        message.last_error_message = Some(error_message.to_owned());
+        store
+            .outbox_order
+            .retain(|queued_event_id| queued_event_id != event_id);
+    }
+}
+
+pub(super) fn mark_outbox_quarantined(
+    store: &mut HappyRouteState,
+    event_id: &str,
+    error_class: &str,
+    error_message: &str,
+) {
+    if let Some(message) = store.outbox_messages_by_id.get_mut(event_id) {
+        message.delivery_status = OUTBOX_QUARANTINED.to_owned();
+        message.last_error_class = Some(error_class.to_owned());
+        message.last_error_message = Some(error_message.to_owned());
+        store
+            .outbox_order
+            .retain(|queued_event_id| queued_event_id != event_id);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_pending_outbox_message, insert_outbox_message, mark_outbox_pending,
-        mark_outbox_published,
+        claim_pending_outbox_message, insert_outbox_message, mark_outbox_manual_review,
+        mark_outbox_published, mark_outbox_quarantined, mark_outbox_retry_pending,
     };
-    use crate::services::happy_route::state::{HappyRouteState, OutboxCommand};
+    use crate::services::happy_route::{
+        constants::{OUTBOX_MANUAL_REVIEW, OUTBOX_QUARANTINED},
+        state::{HappyRouteState, OutboxCommand},
+    };
 
     #[test]
     fn published_messages_are_pruned_from_outbox_scan_order() {
@@ -136,10 +183,59 @@ mod tests {
             .expect("first pending message must be claimable");
         assert_eq!(first_claim.event_id, first_event_id);
 
-        mark_outbox_pending(&mut store, &first_event_id);
+        mark_outbox_retry_pending(&mut store, &first_event_id, "retryable", "test failure");
 
         let second_claim = claim_pending_outbox_message(&mut store)
             .expect("later pending message must not be starved by a failed retry");
         assert_eq!(second_claim.event_id, second_event_id);
+    }
+
+    #[test]
+    fn terminal_review_messages_leave_active_scan_order_but_remain_visible() {
+        let mut store = HappyRouteState::default();
+        let manual_review_event_id = insert_open_hold_message(&mut store, "case-manual-review");
+        let quarantined_event_id = insert_open_hold_message(&mut store, "case-quarantined");
+        let still_pending_event_id = insert_open_hold_message(&mut store, "case-pending");
+
+        mark_outbox_manual_review(
+            &mut store,
+            &manual_review_event_id,
+            "manual_review",
+            "operator review required",
+        );
+        mark_outbox_quarantined(
+            &mut store,
+            &quarantined_event_id,
+            "terminal",
+            "terminal failure",
+        );
+
+        let manual_review_message = store
+            .outbox_messages_by_id
+            .get(&manual_review_event_id)
+            .expect("manual-review rows remain visible for review");
+        assert_eq!(manual_review_message.delivery_status, OUTBOX_MANUAL_REVIEW);
+        let quarantined_message = store
+            .outbox_messages_by_id
+            .get(&quarantined_event_id)
+            .expect("quarantined rows remain visible for review");
+        assert_eq!(quarantined_message.delivery_status, OUTBOX_QUARANTINED);
+
+        assert_eq!(store.outbox_order, vec![still_pending_event_id.clone()]);
+        let claimed = claim_pending_outbox_message(&mut store)
+            .expect("pending rows should remain claimable after terminal pruning");
+        assert_eq!(claimed.event_id, still_pending_event_id);
+    }
+
+    fn insert_open_hold_message(store: &mut HappyRouteState, settlement_case_id: &str) -> String {
+        insert_outbox_message(
+            store,
+            "settlement_case",
+            settlement_case_id,
+            "OPEN_HOLD_INTENT",
+            OutboxCommand::OpenHoldIntent {
+                settlement_case_id: settlement_case_id.to_owned(),
+            },
+        )
     }
 }

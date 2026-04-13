@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::services::happy_route::HappyRouteError;
+use crate::services::happy_route::{HappyRouteError, ProviderErrorClass};
 
 pub mod auth;
 pub mod orchestration;
@@ -56,6 +56,15 @@ pub fn internal_server_error(message: impl Into<String>) -> ApiError {
     )
 }
 
+pub fn service_unavailable(message: impl Into<String>) -> ApiError {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorResponse {
+            error: message.into(),
+        }),
+    )
+}
+
 pub fn require_bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -86,6 +95,21 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
         HappyRouteError::BadRequest(message) => bad_request(message),
         HappyRouteError::Unauthorized(message) => unauthorized(message),
         HappyRouteError::NotFound(message) => not_found(message),
+        HappyRouteError::ProviderCallbackMappingDeferred(message) => {
+            eprintln!("provider callback mapping deferred: {message}");
+            service_unavailable("provider callback processing deferred")
+        }
+        HappyRouteError::Provider { class, message } => {
+            eprintln!("provider happy route error ({class:?}): {message}");
+            match class {
+                ProviderErrorClass::Retryable => {
+                    service_unavailable("provider temporarily unavailable")
+                }
+                ProviderErrorClass::Terminal | ProviderErrorClass::ManualReview => {
+                    internal_server_error("provider requires review")
+                }
+            }
+        }
         HappyRouteError::Internal(message) => {
             eprintln!("internal happy route error: {message}");
             internal_server_error("internal server error")

@@ -5,6 +5,11 @@ pub enum HappyRouteError {
     BadRequest(String),
     Unauthorized(String),
     NotFound(String),
+    ProviderCallbackMappingDeferred(String),
+    Provider {
+        class: ProviderErrorClass,
+        message: String,
+    },
     Internal(String),
 }
 
@@ -14,9 +19,30 @@ impl HappyRouteError {
             Self::BadRequest(message)
             | Self::Unauthorized(message)
             | Self::NotFound(message)
+            | Self::ProviderCallbackMappingDeferred(message)
+            | Self::Provider { message, .. }
             | Self::Internal(message) => message,
         }
     }
+
+    pub(super) fn provider_error_class(&self) -> Option<ProviderErrorClass> {
+        match self {
+            Self::ProviderCallbackMappingDeferred(_) => Some(ProviderErrorClass::Retryable),
+            Self::Provider { class, .. } => Some(*class),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_provider_callback_mapping_deferred(&self) -> bool {
+        matches!(self, Self::ProviderCallbackMappingDeferred(_))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderErrorClass {
+    Retryable,
+    Terminal,
+    ManualReview,
 }
 
 #[derive(Clone, Debug)]
@@ -55,12 +81,33 @@ pub struct PromiseIntentOutcome {
 
 #[derive(Clone, Debug)]
 pub struct PaymentCallbackInput {
-    pub payment_id: String,
+    pub raw_body_bytes: Vec<u8>,
+    pub redacted_headers: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ParsedPaymentCallback {
+    pub provider_submission_id: String,
     pub payer_pi_uid: String,
     pub amount_minor_units: i128,
     pub currency_code: String,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct RawPaymentCallbackFields {
+    pub provider_submission_id: Option<String>,
+    pub payer_pi_uid: Option<String>,
+    pub amount_minor_units: Option<i128>,
+    pub currency_code: Option<String>,
     pub txid: Option<String>,
-    pub callback_status: String,
+    pub callback_status: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaymentCallbackAccepted {
+    pub raw_callback_id: String,
+    pub duplicate_callback: bool,
+    pub outbox_event_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +170,8 @@ pub(super) struct OpenHoldIntentPersistResult {
 #[derive(Clone)]
 pub(super) struct CallbackContext {
     pub(super) raw_callback_id: String,
+    pub(super) duplicate_callback: bool,
+    pub(super) provider_submission_id: String,
     pub(super) settlement_case: SettlementCaseRecord,
     pub(super) settlement_submission_id: String,
     pub(super) promise_intent: PromiseIntentRecord,

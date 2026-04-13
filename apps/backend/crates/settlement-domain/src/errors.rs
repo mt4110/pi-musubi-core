@@ -50,6 +50,7 @@ pub enum BackendError {
         requested: BackendPin,
         available: BackendPin,
     },
+    InvalidConfiguration(String),
     InvalidProviderPayload,
     InvalidProviderResponse,
     Timeout,

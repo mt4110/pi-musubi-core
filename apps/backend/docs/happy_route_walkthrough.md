@@ -20,7 +20,7 @@ It is to prove that the backend can show a MUSUBI-shaped flow with visible truth
 - Upserts a mutable Ordinary Account envelope in in-memory `core`-like state.
 - Requires a non-empty `access_token` in the request payload.
 - Returns a bearer token and stable account id for the signed-in Pi identity.
-- Existing `pi_uid` reuse is only allowed when the same access-token fingerprint is presented again; real provider verification is still deferred beyond this stub.
+- Existing `pi_uid` reuse is only allowed when the same access-token fingerprint is presented again; production provider identity verification is still deferred.
 
 ### 2. `POST /api/promise/intents`
 
@@ -55,7 +55,8 @@ For `OPEN_HOLD_INTENT` it:
 - persists `dao.settlement_intents`
 - persists a pending `dao.settlement_submissions`
 - drops the authoritative lock
-- calls the stub `SettlementBackend`
+- calls the sandbox Pi `SettlementBackend`
+- records the provider idempotency mapping and request hash
 - persists submission acceptance + normalized observation in a fresh write
 - emits `REFRESH_SETTLEMENT_VIEW`
 
@@ -68,7 +69,7 @@ Immediate response:
 ### 4. `POST /api/payment/callback`
 
 Request:
-- `payment_id` = provider submission id from the stub backend
+- `payment_id` = provider submission id from the sandbox Pi backend
 - `payer_pi_uid`
 - `amount_minor_units`
 - `currency_code`
@@ -76,29 +77,42 @@ Request:
 - explicit provider `status`
 
 Flow:
-- stores `core.raw_provider_callbacks` first
-- drops the authoritative lock
-- normalizes callback evidence through the stub backend
-- verifies the receipt through the stub backend
+- stores `core.raw_provider_callbacks` first, including exact raw body bytes, redacted headers, nullable signature validity, receive time, and dedupe key
+- keeps malformed, unmapped, and out-of-order callbacks as raw evidence instead of dropping them in the HTTP request
+- records provider callback dedupe evidence from the exact raw payload bytes
+- emits `INGEST_PROVIDER_CALLBACK`
+
+Immediate response:
+- `raw_callback_id`
+- `duplicate_callback`
+- `outbox_event_ids`
+
+The callback endpoint does not normalize, verify, fund, append ledger rows, or refresh projections.
+It only accepts raw evidence and schedules internal processing.
+
+### 5. `POST /api/internal/orchestration/drain`
+
+For `INGEST_PROVIDER_CALLBACK` it:
+- claims the provider callback outbox row
+- loads the raw callback evidence
+- validates provider submission mapping, amount, and payer only after raw evidence exists
+- defers valid callbacks whose provider submission mapping is not ready yet, returning the callback outbox row to retry before manual review is allowed
+- normalizes callback evidence through the sandbox Pi backend
+- verifies the receipt through the sandbox Pi backend
 - writes `core.payment_receipts` idempotently
 - advances `dao.settlement_cases` to `funded`
 - appends `ledger.journal_entries` + `ledger.account_postings`
 - emits `REFRESH_SETTLEMENT_VIEW` and `REFRESH_PROMISE_VIEW`
 
-Immediate response:
-- `payment_receipt_id`
-- `raw_callback_id`
-- `settlement_case_id`
-- `receipt_status`
-- optional `ledger_journal_id`
+Exact provider callback replays keep a new raw callback record for evidence, but reuse the existing receipt outcome and do not re-run normalization, verification, ledger append, or projection refresh side effects.
 
-### 5. `POST /api/internal/orchestration/drain`
+### 6. `POST /api/internal/orchestration/drain`
 
-The second drain run processes projection refresh events and rebuilds:
+The following drain work processes projection refresh events and rebuilds:
 - `projection.promise_views`
 - `projection.settlement_views`
 
-### 6. `GET /api/projection/settlement-views/:settlement_case_id`
+### 7. `GET /api/projection/settlement-views/:settlement_case_id`
 
 Requires a bearer token for an account that participates in the referenced Promise / settlement case.
 Returns the derived read model:
@@ -126,7 +140,8 @@ The code is shaped so that the lock boundary plays the role of the authoritative
 Written by:
 - `create_promise_intent(...)`
 - `process_open_hold_intent(...)`
-- `ingest_payment_callback(...)`
+- `accept_payment_callback(...)`
+- `process_provider_callback(...)`
 
 Outbox rows are explicit `OutboxMessageRecord` values with:
 - internal event id
@@ -141,7 +156,7 @@ Observed in two places:
 - `normalize_callback(...)` on inbound callback evidence
 - `submit_action(...)` on provider submission acceptance
 
-Both come through the stub `SettlementBackend`.
+Both come through the sandbox Pi `SettlementBackend`.
 Provider responses are treated as evidence, not business truth.
 
 ### Ledger fact append
@@ -172,8 +187,15 @@ The settlement view total is rebuilt from authoritative ledger postings, not cop
 - transactional-shape truth + outbox boundary
 - separate outbox relay step
 - durable-style command-inbox dedupe
-- provider submission behind `SettlementBackend`
+- sandbox Pi provider submission behind `SettlementBackend`
+- provider request hash and idempotency mapping
+- minimal sandbox provider status polling through `reconcile_submission(...)`
 - raw callback first
+- malformed / unmapped callback evidence retention
+- thin callback endpoint that accepts raw evidence and schedules provider callback processing
+- out-of-order callback retry while provider submission mapping is still catching up
+- raw callback replay detection
+- provider error classification into retryable, terminal, and manual-review outcomes
 - idempotent payment receipt handling
 - append-only ledger journal/posting creation
 - projection rebuilt from authoritative truth
@@ -182,11 +204,12 @@ The settlement view total is rebuilt from authoritative ledger postings, not cop
 
 - PostgreSQL runtime wiring
 - actual SQL transaction runner
-- real Pi provider / wallet integration
+- production Pi provider / wallet integration
+- callback signature verification, until a pinned Pi callback signature / auth contract exists
 - real background workers / leases / retries
 - real pruning job execution
 
-The backend adapter is a fake, but the truth boundaries are not fake.
+The backend adapter is sandbox-only, but the truth boundaries are not fake.
 
 ## What remains deferred after M1
 

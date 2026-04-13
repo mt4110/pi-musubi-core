@@ -50,6 +50,8 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8088
 - `DATABASE_URL=postgres://musubi:musubi_local_dev@127.0.0.1:55432/musubi_dev`
 - `MUSUBI_TEST_DATABASE_URL=postgres://musubi:musubi_local_dev@127.0.0.1:55432/musubi_test`
 - `REDIS_URL=redis://127.0.0.1:56379/0`
+- `PROVIDER_MODE=sandbox`
+- `PROVIDER_BASE_URL=https://sandbox.minepi.com/v2`
 
 `REQUIRE_LATEST_SCHEMA=true` の場合、backend は pending / failed / checksum drift に加えて、DB 側にだけ存在する applied migration がある状態では起動しません。
 

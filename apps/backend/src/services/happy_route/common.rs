@@ -2,7 +2,7 @@ use musubi_settlement_domain::{BackendError, CurrencyCode, Money};
 
 use super::{
     constants::{PI_CURRENCY_CODE, PI_SCALE},
-    types::HappyRouteError,
+    types::{HappyRouteError, ProviderErrorClass},
 };
 
 pub(super) fn canonical_pi_money(
@@ -28,5 +28,53 @@ pub(super) fn canonical_pi_money(
 }
 
 pub(super) fn map_backend_error(error: BackendError) -> HappyRouteError {
-    HappyRouteError::Internal(format!("settlement backend error: {error:?}"))
+    let class = match error {
+        BackendError::Timeout | BackendError::TemporarilyUnavailable => {
+            ProviderErrorClass::Retryable
+        }
+        BackendError::InvalidConfiguration(_) => ProviderErrorClass::Terminal,
+        BackendError::InvalidProviderResponse | BackendError::ObservationNormalizationFailed => {
+            ProviderErrorClass::ManualReview
+        }
+        BackendError::IdempotencyMappingFailed => ProviderErrorClass::ManualReview,
+        BackendError::InvalidProviderPayload
+        | BackendError::CapabilityUnsupported { .. }
+        | BackendError::BackendPinMismatch { .. } => ProviderErrorClass::Terminal,
+        _ => ProviderErrorClass::ManualReview,
+    };
+
+    HappyRouteError::Provider {
+        class,
+        message: format!("settlement backend error: {error:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use musubi_settlement_domain::BackendError;
+
+    use super::*;
+
+    #[test]
+    fn backend_error_mapping_preserves_retry_classification() {
+        assert_eq!(
+            map_backend_error(BackendError::Timeout).provider_error_class(),
+            Some(ProviderErrorClass::Retryable)
+        );
+        assert_eq!(
+            map_backend_error(BackendError::IdempotencyMappingFailed).provider_error_class(),
+            Some(ProviderErrorClass::ManualReview)
+        );
+        assert_eq!(
+            map_backend_error(BackendError::InvalidConfiguration(
+                "unsupported provider mode".to_owned()
+            ))
+            .provider_error_class(),
+            Some(ProviderErrorClass::Terminal)
+        );
+        assert_eq!(
+            map_backend_error(BackendError::InvalidProviderPayload).provider_error_class(),
+            Some(ProviderErrorClass::Terminal)
+        );
+    }
 }

@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::SharedState;
 
 use super::{
-    backend::stub_backend_descriptor,
+    backend::pi_backend_descriptor,
     common::canonical_pi_money,
     constants::{
         EVENT_OPEN_HOLD_INTENT, EVENT_REFRESH_PROMISE_VIEW, PROMISE_INTENT_PROPOSED,
@@ -127,7 +127,7 @@ pub async fn create_promise_intent(
         promise_intent_id: promise_intent_id.clone(),
         realm_id: input.realm_id,
         case_status: SETTLEMENT_CASE_PENDING_FUNDING.to_owned(),
-        backend_pin: stub_backend_descriptor().pin(),
+        backend_pin: pi_backend_descriptor().pin(),
         created_at: now,
         updated_at: now,
     };
