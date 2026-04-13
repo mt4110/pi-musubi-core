@@ -32,6 +32,7 @@ pub(super) fn map_backend_error(error: BackendError) -> HappyRouteError {
         BackendError::Timeout | BackendError::TemporarilyUnavailable => {
             ProviderErrorClass::Retryable
         }
+        BackendError::InvalidConfiguration(_) => ProviderErrorClass::Terminal,
         BackendError::InvalidProviderResponse | BackendError::ObservationNormalizationFailed => {
             ProviderErrorClass::ManualReview
         }
@@ -63,6 +64,13 @@ mod tests {
         assert_eq!(
             map_backend_error(BackendError::IdempotencyMappingFailed).provider_error_class(),
             Some(ProviderErrorClass::ManualReview)
+        );
+        assert_eq!(
+            map_backend_error(BackendError::InvalidConfiguration(
+                "unsupported provider mode".to_owned()
+            ))
+            .provider_error_class(),
+            Some(ProviderErrorClass::Terminal)
         );
         assert_eq!(
             map_backend_error(BackendError::InvalidProviderPayload).provider_error_class(),

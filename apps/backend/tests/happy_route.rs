@@ -103,7 +103,7 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
 }
 
 #[tokio::test]
-async fn duplicate_callback_is_idempotent_and_does_not_double_credit_projection() {
+async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection() {
     let app = build_app(new_state());
     let prepared = prepare_funded_case(&app).await;
 
@@ -171,6 +171,21 @@ async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
     let drain_after_replay =
         post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_after_replay.status, StatusCode::OK);
+    let callback_messages = drain_after_replay.body["processed_messages"]
+        .as_array()
+        .expect("processed_messages must be an array")
+        .iter()
+        .filter(|message| message["event_type"] == "INGEST_PROVIDER_CALLBACK")
+        .collect::<Vec<_>>();
+    assert_eq!(callback_messages.len(), 2);
+    assert!(callback_messages.iter().all(|message| {
+        message["provider_submission_id"].as_str() == Some(prepared.payment_id.as_str())
+    }));
+    assert!(
+        callback_messages
+            .iter()
+            .any(|message| { message["already_processed"].as_bool() == Some(true) })
+    );
 
     let settlement_view = get_json(
         &app,
@@ -618,10 +633,26 @@ async fn payment_callback_with_non_positive_amount_is_accepted_then_requires_rev
     let drain_callback =
         post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_callback.status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(
-        drain_callback.body["error"],
-        "provider callback requires review"
-    );
+    assert_eq!(drain_callback.body["error"], "provider requires review");
+}
+
+#[tokio::test]
+async fn payment_callback_rejects_oversized_body() {
+    let app = build_app(new_state());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/payment/callback")
+        .header("content-type", "application/json")
+        .body(Body::from(vec![b'a'; 20_000]))
+        .expect("request must build");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("app should respond");
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 struct SignedInUser {

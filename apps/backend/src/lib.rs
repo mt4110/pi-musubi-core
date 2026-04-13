@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
+    extract::DefaultBodyLimit,
     routing::{get, post},
 };
 use serde::Serialize;
@@ -52,7 +53,7 @@ pub fn build_app(state: SharedState) -> Router {
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(
             "/api/payment/callback",
-            post(handlers::payments::payment_callback),
+            post(handlers::payments::payment_callback).layer(DefaultBodyLimit::max(16 * 1024)),
         )
     } else {
         app

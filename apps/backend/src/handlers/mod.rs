@@ -106,7 +106,7 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
                     service_unavailable("provider temporarily unavailable")
                 }
                 ProviderErrorClass::Terminal | ProviderErrorClass::ManualReview => {
-                    internal_server_error("provider callback requires review")
+                    internal_server_error("provider requires review")
                 }
             }
         }

@@ -102,7 +102,7 @@ These files establish the Day 1 `core`, `dao`, `ledger`, `outbox`, and `projecti
 See `docs/schema_skeleton.md` for ownership notes and deferred scope.
 Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
-Issue #9 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
+Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 
 ## Local design notes
 

@@ -54,10 +54,29 @@ fn redacted_headers(headers: &HeaderMap) -> Vec<(String, String)> {
 }
 
 fn is_sensitive_header(name: &str) -> bool {
-    name == "authorization"
+    name.contains("auth")
         || name == "cookie"
         || name == "set-cookie"
         || name.contains("api-key")
         || name.contains("secret")
         || name.contains("token")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_sensitive_header;
+
+    #[test]
+    fn redacts_auth_bearing_headers() {
+        assert!(is_sensitive_header("authorization"));
+        assert!(is_sensitive_header("proxy-authorization"));
+        assert!(is_sensitive_header("x-authorization"));
+        assert!(is_sensitive_header("x-auth"));
+    }
+
+    #[test]
+    fn keeps_non_secret_headers_visible() {
+        assert!(!is_sensitive_header("content-type"));
+        assert!(!is_sensitive_header("x-provider-event"));
+    }
 }

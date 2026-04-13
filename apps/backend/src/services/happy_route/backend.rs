@@ -94,6 +94,13 @@ impl SettlementBackend for PiSettlementBackend {
         &self,
         cmd: VerifyReceiptCmd,
     ) -> Result<ReceiptVerification, BackendError> {
+        if !self.config.sandbox_enabled() {
+            return Err(BackendError::InvalidConfiguration(format!(
+                "PROVIDER_MODE '{}' is unsupported; only sandbox is implemented",
+                self.config.mode
+            )));
+        }
+
         let raw_callback = self.raw_callback(&cmd.raw_callback_ref).await?;
         let provider_ref = raw_callback
             .provider_ref
@@ -168,7 +175,10 @@ impl SettlementBackend for PiSettlementBackend {
         cmd: SubmitActionCmd,
     ) -> Result<SubmissionResult, BackendError> {
         if !self.config.sandbox_enabled() {
-            return Err(BackendError::TemporarilyUnavailable);
+            return Err(BackendError::InvalidConfiguration(format!(
+                "PROVIDER_MODE '{}' is unsupported; only sandbox is implemented",
+                self.config.mode
+            )));
         }
 
         let provider_idempotency_key =
@@ -281,7 +291,10 @@ impl SettlementBackend for PiSettlementBackend {
         cmd: ReconcileSubmissionCmd,
     ) -> Result<ReconcileResult, BackendError> {
         if !self.config.sandbox_enabled() {
-            return Err(BackendError::TemporarilyUnavailable);
+            return Err(BackendError::InvalidConfiguration(format!(
+                "PROVIDER_MODE '{}' is unsupported; only sandbox is implemented",
+                self.config.mode
+            )));
         }
 
         let attempt = {
@@ -362,6 +375,13 @@ impl SettlementBackend for PiSettlementBackend {
         &self,
         cmd: NormalizeCallbackCmd,
     ) -> Result<Vec<NormalizedObservation>, BackendError> {
+        if !self.config.sandbox_enabled() {
+            return Err(BackendError::InvalidConfiguration(format!(
+                "PROVIDER_MODE '{}' is unsupported; only sandbox is implemented",
+                self.config.mode
+            )));
+        }
+
         let raw_callback = self.raw_callback(&cmd.raw_callback_ref).await?;
 
         Ok(vec![
@@ -580,7 +600,18 @@ fn provider_request_hash(cmd: &SubmitActionCmd) -> String {
         cmd.intent_id.as_str().to_owned(),
         cmd.submission_id.as_str().to_owned(),
         cmd.internal_idempotency_key.as_str().to_owned(),
-        format!("{:?}", cmd.capability),
+        match cmd.capability {
+            SettlementCapability::ReceiptVerify => "receipt_verify".to_owned(),
+            SettlementCapability::HoldValue => "hold_value".to_owned(),
+            SettlementCapability::ReleaseValue => "release_value".to_owned(),
+            SettlementCapability::RefundValue => "refund_value".to_owned(),
+            SettlementCapability::CompensateValue => "compensate_value".to_owned(),
+            SettlementCapability::AllocateTreasury => "allocate_treasury".to_owned(),
+            SettlementCapability::AttestExecution => "attest_execution".to_owned(),
+            SettlementCapability::ReconcileStatus => "reconcile_status".to_owned(),
+            SettlementCapability::NormalizeCallback => "normalize_callback".to_owned(),
+            _ => format!("unhandled_capability:{:?}", cmd.capability),
+        },
         cmd.provider_payload.schema.name.clone(),
         cmd.provider_payload.schema.version.to_string(),
     ];
@@ -614,7 +645,7 @@ fn payload_value_for_hash(value: &ProviderPayloadValue) -> String {
             format!("provider_tx_hash:{}", value.as_str())
         }
         ProviderPayloadValue::Boolean(value) => format!("boolean:{value}"),
-        _ => "unknown".to_owned(),
+        _ => format!("unhandled:{value:?}"),
     }
 }
 
@@ -626,7 +657,7 @@ fn failed_observation(raw_callback: &RawProviderCallbackRecord) -> NormalizedObs
 
 fn ambiguous_observation(raw_callback: &RawProviderCallbackRecord) -> NormalizedObservation {
     NormalizedObservationBuilder::new(raw_callback)
-        .kind(NormalizedObservationKind::Contradictory)
+        .kind(NormalizedObservationKind::Unknown)
         .build()
 }
 
@@ -766,6 +797,34 @@ mod tests {
         assert_eq!(ProviderPollStatus::Finalized.as_str(), "finalized");
         assert_eq!(ProviderPollStatus::Failed.as_str(), "failed");
         assert_eq!(ProviderPollStatus::Unknown.as_str(), "unknown");
+    }
+
+    #[tokio::test]
+    async fn unsupported_provider_mode_fails_closed() {
+        let config = PiProviderConfig {
+            mode: "production".to_owned(),
+            base_url: DEFAULT_PROVIDER_BASE_URL.to_owned(),
+            api_key_present: true,
+            webhook_secret_present: true,
+            timeout: Duration::from_millis(DEFAULT_PROVIDER_TIMEOUT_MS),
+        };
+        let backend = PiSettlementBackend {
+            state: crate::new_state(),
+            descriptor: pi_backend_descriptor(),
+            client: SandboxPiProviderClient::new(config.clone()),
+            config,
+        };
+
+        let error = backend
+            .submit_action_impl(submit_cmd("realm-a"))
+            .await
+            .expect_err("unsupported provider mode must fail closed");
+
+        assert!(matches!(
+            error,
+            BackendError::InvalidConfiguration(message)
+                if message.contains("only sandbox is implemented")
+        ));
     }
 
     fn submit_cmd(realm_id: &str) -> SubmitActionCmd {

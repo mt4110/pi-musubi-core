@@ -107,7 +107,11 @@ pub(super) async fn process_provider_callback(
             .payment_callback_replay_outcome(&callback_context)?
         {
             super::outbox::mark_outbox_published(&mut store, &message.event_id);
-            return Ok(processed_provider_callback_message(&message, &outcome));
+            return Ok(processed_provider_callback_message(
+                &message,
+                &callback_context.provider_submission_id,
+                &outcome,
+            ));
         }
     }
 
@@ -139,15 +143,24 @@ pub(super) async fn process_provider_callback(
         normalized_observations,
     )?;
     super::outbox::mark_outbox_published(&mut store, &message.event_id);
-    Ok(processed_provider_callback_message(&message, &outcome))
+    Ok(processed_provider_callback_message(
+        &message,
+        &callback_context.provider_submission_id,
+        &outcome,
+    ))
 }
 
 fn processed_provider_callback_message(
     message: &OutboxMessageRecord,
+    provider_submission_id: &str,
     outcome: &PaymentCallbackOutcome,
 ) -> ProcessedOutboxMessage {
-    let _ = outcome;
-    processed_outbox_message(message, PROVIDER_CALLBACK_CONSUMER, None, false)
+    processed_outbox_message(
+        message,
+        PROVIDER_CALLBACK_CONSUMER,
+        Some(provider_submission_id.to_owned()),
+        outcome.duplicate_receipt,
+    )
 }
 
 fn callback_review_error(error: HappyRouteError) -> HappyRouteError {
