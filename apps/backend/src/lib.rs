@@ -19,6 +19,7 @@ pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
     pub happy_route: RwLock<services::happy_route::HappyRouteState>,
+    pub proof: RwLock<services::proof::ProofState>,
 }
 
 #[derive(Serialize)]
@@ -30,6 +31,7 @@ struct HealthResponse {
 pub fn new_state() -> SharedState {
     Arc::new(AppState {
         happy_route: RwLock::new(services::happy_route::HappyRouteState::default()),
+        proof: RwLock::new(services::proof::ProofState::default()),
     })
 }
 
@@ -45,6 +47,14 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/promise/intents",
             post(handlers::promise_intents::create_promise_intent),
+        )
+        .route(
+            "/api/proof/challenges",
+            post(handlers::proof::start_proof_challenge).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/proof/submissions",
+            post(handlers::proof::submit_proof_envelope).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/projection/settlement-views/{settlement_case_id}",

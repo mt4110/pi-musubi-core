@@ -6,6 +6,8 @@ Current local HTTP surface:
 - `POST /api/auth/pi` with explicit `access_token`
 - `POST /api/promise/intents`
 - `POST /api/payment/callback`
+- `POST /api/proof/challenges`
+- `POST /api/proof/submissions`
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`
 - `GET /api/projection/settlement-views/{settlement_case_id}` for authenticated participants only
 
@@ -103,6 +105,12 @@ See `docs/schema_skeleton.md` for ownership notes and deferred scope.
 Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
 Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
+ISSUE-10 adds Day 1 safer venue proof primitives.
+The public HTTP surface supports the normal venue-code path only.
+Proof challenges are short-lived, proof envelopes are server-verified before acceptance, exact replays are rejected with server-keyed replay keys, and venue verification is realm-scoped, server-secret-backed, and bound to the challenge-issued key version.
+Operator PIN fallback remains an internal/deferred primitive until an authenticated operator surface exists; subject-facing requests for `operator_pin` are rejected before any operator audit or rate-limit state is touched.
+Location hints are sanitized before proof records are built, unsupported fallback modes are rejected before display-code verification, and malformed or cross-subject attempts do not burn another challenge's failed-attempt budget.
+These proof records are input facts only; they are not settlement truth or final anti-spoof guarantees.
 
 ## Local design notes
 
@@ -112,4 +120,5 @@ Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route ho
 - `docs/settlement_domain_types.md`: settlement-domain contract
 - `docs/orchestration_runtime.md`: outbox/inbox runtime rules
 - `docs/guardrails.md`: executable architectural guardrails
+- `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path

@@ -11,6 +11,7 @@ pub mod orchestration;
 pub mod payments;
 pub mod projection;
 pub mod promise_intents;
+pub mod proof;
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
