@@ -102,6 +102,16 @@ Provider errors now keep a retry class at the app boundary: transient provider f
 Payment callbacks now persist exact raw body bytes and redacted headers before mapping, amount, payer, normalization, or receipt verification logic runs.
 The HTTP callback endpoint does not advance settlement state, append ledger rows, or refresh projections; it schedules `INGEST_PROVIDER_CALLBACK` for outbox-driven orchestration.
 
+ISSUE-10 adds safer venue proof input primitives.
+Proof challenges are short-lived, near single-use, account-bound, realm/venue-bound, and verified against the challenge-issued, server-secret-backed, key-version-aware rotating code or a rate-limited operator fallback.
+The subject-facing proof challenge route only supports the normal venue-code flow; `operator_pin` is rejected before service-layer issuance so subject callers cannot self-assert operator identity, create operator audit rows, or burn operator fallback rate-limit budget.
+The proof service records only bounded proof-input evidence: sanitized coarse location hints, hashed device-session hints, server-keyed display-code hashes, canonical fallback modes, server-keyed replay keys, and redacted payload shape.
+Failed-attempt budget is charged only for bound secret-check failures after challenge, account, venue, nonce, and live-status binding.
+It does not write raw GPS, exact addresses, oversized location strings, arbitrary fallback-mode strings, clear display codes, clear operator PINs, or excessive device fingerprint material into the current in-memory truth stand-in.
+Venue display codes and operator PIN hashes are not derived from public identifiers alone.
+Verified proof remains an input fact, not authoritative business truth.
+Product and later domain flows must not describe this as complete anti-spoofing.
+
 ## Expected next improvements
 
 The next meaningful upgrades would be:
