@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Write as _};
 
 use chrono::{DateTime, Duration, Utc};
+use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -48,6 +49,8 @@ const REASON_UNSUPPORTED_FALLBACK_MODE: &str = "unsupported_fallback_mode";
 const REASON_KEY_VERSION_MISMATCH: &str = "key_version_mismatch";
 
 const RISK_INVALID_COARSE_LOCATION_HINT: &str = "invalid_coarse_location_hint";
+
+type HmacSha256 = Hmac<Sha256>;
 
 pub struct ProofState {
     server_secret: String,
@@ -111,7 +114,7 @@ struct VenueChallengeRecord {
     expires_at: DateTime<Utc>,
     consumed_at: Option<DateTime<Utc>>,
     fallback_mode: String,
-    operator_pin_hash: Option<String>,
+    operator_pin_hash: Option<[u8; 32]>,
     operator_pin_expires_at: Option<DateTime<Utc>>,
     operator_id: Option<String>,
     venue_key_version: i32,
@@ -158,7 +161,7 @@ struct OperatorPinAuditRecord {
     realm_id: String,
     issued_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
-    pin_hash: String,
+    pin_hash: [u8; 32],
 }
 
 #[derive(Clone, Debug)]
@@ -597,8 +600,14 @@ fn verify_operator_pin(
     {
         return no_charge(rejected(REASON_EXPIRED));
     }
-    let submitted_pin_hash = operator_pin_hash(server_secret, &challenge.challenge_id, &pin);
-    if challenge.operator_pin_hash.as_deref() != Some(submitted_pin_hash.as_str()) {
+    let Some(expected_pin_hash) = challenge.operator_pin_hash.as_ref() else {
+        return no_charge(rejected(REASON_OPERATOR_PIN_INVALID));
+    };
+    if !hmac_sha256_matches(
+        server_secret.as_bytes(),
+        &["operator-pin", &challenge.challenge_id, &pin],
+        expected_pin_hash,
+    ) {
         return charge(rejected(REASON_OPERATOR_PIN_INVALID));
     }
     risk_flags.push("operator_fallback".to_owned());
@@ -737,8 +746,11 @@ fn random_numeric_code() -> String {
     format!("{value:06}")
 }
 
-fn operator_pin_hash(server_secret: &str, challenge_id: &str, pin: &str) -> String {
-    hmac_sha256_hex(server_secret, &["operator-pin", challenge_id, pin])
+fn operator_pin_hash(server_secret: &str, challenge_id: &str, pin: &str) -> [u8; 32] {
+    hmac_sha256(
+        server_secret.as_bytes(),
+        &["operator-pin", challenge_id, pin],
+    )
 }
 
 fn venue_secret_material(
@@ -859,6 +871,7 @@ fn server_keyed_display_code_hash(server_secret: &str, display_code: &str) -> St
 }
 
 fn replay_key(server_secret: &str, input: &ProofEnvelopeInput) -> String {
+    let subject_account_id = input.subject_account_id.trim().to_owned();
     let challenge_id = canonical_optional(input.challenge_id.as_deref());
     let venue_id = canonical_optional(input.venue_id.as_deref());
     let display_code = input
@@ -890,6 +903,7 @@ fn replay_key(server_secret: &str, input: &ProofEnvelopeInput) -> String {
         server_secret,
         &[
             "proof-envelope",
+            subject_account_id.as_str(),
             challenge_id.as_str(),
             venue_id.as_str(),
             display_code.as_str(),
@@ -997,30 +1011,28 @@ fn hmac_sha256_hex(key: &str, parts: &[&str]) -> String {
 }
 
 fn hmac_sha256(key: &[u8], parts: &[&str]) -> [u8; 32] {
-    const SHA256_BLOCK_SIZE: usize = 64;
-    let mut normalized_key = if key.len() > SHA256_BLOCK_SIZE {
-        Sha256::digest(key).to_vec()
-    } else {
-        key.to_vec()
-    };
-    normalized_key.resize(SHA256_BLOCK_SIZE, 0);
+    let mut mac = new_hmac_sha256(key);
+    update_hmac_with_parts(&mut mac, parts);
+    mac.finalize().into_bytes().into()
+}
 
-    let mut inner_pad = [0x36_u8; SHA256_BLOCK_SIZE];
-    let mut outer_pad = [0x5c_u8; SHA256_BLOCK_SIZE];
-    for (index, byte) in normalized_key.iter().enumerate() {
-        inner_pad[index] ^= byte;
-        outer_pad[index] ^= byte;
+fn hmac_sha256_matches(key: &[u8], parts: &[&str], expected: &[u8]) -> bool {
+    let mut mac = new_hmac_sha256(key);
+    update_hmac_with_parts(&mut mac, parts);
+    mac.verify_slice(expected).is_ok()
+}
+
+fn new_hmac_sha256(key: &[u8]) -> HmacSha256 {
+    HmacSha256::new_from_slice(key).expect("HMAC-SHA256 accepts arbitrary key length")
+}
+
+fn update_hmac_with_parts(mac: &mut HmacSha256, parts: &[&str]) {
+    for part in parts {
+        mac.update(part.len().to_string().as_bytes());
+        mac.update(b":");
+        mac.update(part.as_bytes());
+        mac.update(b";");
     }
-
-    let mut inner = Sha256::new();
-    inner.update(inner_pad);
-    update_hasher_with_parts(&mut inner, parts);
-    let inner_digest = inner.finalize();
-
-    let mut outer = Sha256::new();
-    outer.update(outer_pad);
-    outer.update(inner_digest);
-    outer.finalize().into()
 }
 
 fn update_hasher_with_parts(hasher: &mut Sha256, parts: &[&str]) {
@@ -1343,6 +1355,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn different_subject_changes_replay_key() {
+        let first = ProofEnvelopeInput {
+            subject_account_id: "account-replay-key-a".to_owned(),
+            challenge_id: Some("challenge-replay-key".to_owned()),
+            venue_id: Some("venue-replay-key".to_owned()),
+            display_code: Some("ABC123".to_owned()),
+            key_version: Some(7),
+            client_nonce: Some("nonce-replay-key".to_owned()),
+            observed_at_ms: Some(123456789),
+            coarse_location_bucket: Some("tokyo-shibuya".to_owned()),
+            device_session_id: Some("device-replay-key".to_owned()),
+            fallback_mode: Some(FALLBACK_NONE.to_owned()),
+            operator_pin: None,
+        };
+        let second = ProofEnvelopeInput {
+            subject_account_id: "account-replay-key-b".to_owned(),
+            ..first.clone()
+        };
+
+        assert_ne!(
+            replay_key("server-secret-a", &first),
+            replay_key("server-secret-a", &second)
+        );
+    }
+
     #[tokio::test]
     async fn persisted_replay_material_is_not_plain_digest_over_low_entropy_secrets() {
         let state = crate::new_state();
@@ -1417,6 +1455,40 @@ mod tests {
         .expect("previous window proof should produce a result");
 
         assert!(outcome.accepted);
+    }
+
+    #[tokio::test]
+    async fn subject_mismatch_submission_does_not_poison_valid_subject_submission() {
+        let state = crate::new_state();
+        let challenge = start_test_challenge(&state, "venue-replay-subject", FALLBACK_NONE).await;
+        let received_at = Utc::now();
+        let code = display_code(
+            &state,
+            "venue-replay-subject",
+            challenge.venue_key_version,
+            received_at,
+        )
+        .await;
+
+        let mut mismatched: ProofEnvelopeInput = valid_envelope(&challenge, code.clone()).into();
+        mismatched.subject_account_id = "other-account".to_owned();
+        let mismatched_outcome = submit_proof_envelope_at(&state, mismatched, received_at)
+            .await
+            .expect("subject mismatch should still return a verification result");
+        assert_eq!(
+            mismatched_outcome.reason_code.as_deref(),
+            Some(REASON_SUBJECT_MISMATCH)
+        );
+
+        let valid_outcome = submit_proof_envelope_at(
+            &state,
+            valid_envelope(&challenge, code).into(),
+            received_at + Duration::seconds(1),
+        )
+        .await
+        .expect("valid subject should not be blocked by another account");
+
+        assert!(valid_outcome.accepted);
     }
 
     #[tokio::test]
@@ -2212,7 +2284,7 @@ mod tests {
             .find(|audit| audit.challenge_id == first_challenge.challenge_id)
             .expect("first operator PIN audit should exist");
         assert_ne!(
-            first_audit.pin_hash,
+            hex_bytes(&first_audit.pin_hash),
             digest_parts(&[
                 "operator-pin",
                 &first_challenge.challenge_id,

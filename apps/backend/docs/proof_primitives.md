@@ -24,7 +24,7 @@ Accepted fields:
 
 The public subject-facing endpoint supports only the normal venue-code flow.
 `fallback_mode` may be omitted or set to `none`.
-`operator_pin` returns `400 Bad Request` because the request is asking the public subject route to perform an operator-only action.
+`fallback_mode=operator_pin` returns `400 Bad Request` because the request is asking the public subject route to perform an operator-only action.
 The public request body is never a source of truth for `operator_id`, audit identity, or fallback rate-limit accounting.
 The response deliberately reports `operator_pin_issued = false`; it does not expose an operator PIN or operator delivery object.
 
@@ -109,7 +109,7 @@ This gives key rotation an explicit seam without claiming production key-managem
 
 Challenges expire after a short TTL and are consumed on successful verification.
 Exact proof-envelope replay is rejected using a deterministic server-keyed replay key.
-Replay keys include canonicalized envelope fields and are HMACed with the server secret so stored replay material cannot be used by itself to enumerate low-entropy display codes or operator PINs offline.
+Replay keys include the authenticated subject plus canonicalized envelope fields and are HMACed with the server secret so stored replay material cannot be used by itself to enumerate low-entropy display codes or operator PINs offline.
 Each issued challenge also has a small failed-attempt budget.
 Malformed envelopes, unsupported fallback modes, missing nonce, missing challenge, subject mismatch, venue mismatch, replay, expired challenges, risk quarantine, and key-version echo mismatch do not consume that budget.
 Only bound secret-check failures, such as a wrong display code or wrong operator PIN after challenge, subject, venue, nonce, and live-status binding, consume attempts.
