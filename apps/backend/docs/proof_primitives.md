@@ -135,6 +135,7 @@ PIN issuance is:
 - rate-limited per venue / operator
 
 Successful fallback adds an `operator_fallback` risk flag.
+An operator-pin-capable challenge still accepts the normal display-code path when a live venue code is available; `operator_fallback` is recorded only when the PIN path is actually used.
 The audit record keeps the PIN hash and issuance metadata, not the clear PIN.
 The clear PIN is not stored in proof state and is not part of the client-facing response.
 

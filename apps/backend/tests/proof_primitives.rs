@@ -131,7 +131,7 @@ async fn invalid_proof_envelope_is_recorded_as_rejected_evidence() {
         json!({
             "challenge_id": challenge.body["challenge_id"],
             "venue_id": "venue-proof-b",
-            "display_code": "BAD123",
+            "display_code": impossible_display_code(),
             "key_version": challenge.body["venue_key_version"],
             "client_nonce": challenge.body["client_nonce"],
             "observed_at_ms": chrono::Utc::now().timestamp_millis(),
@@ -180,6 +180,10 @@ async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
 struct JsonResponse {
     status: StatusCode,
     body: Value,
+}
+
+fn impossible_display_code() -> &'static str {
+    "BAD12Z"
 }
 
 async fn post_json(

@@ -19,10 +19,12 @@ const OPERATOR_PIN_TTL_SECONDS: i64 = 60;
 const OPERATOR_PIN_RATE_LIMIT_WINDOW_SECONDS: i64 = 60;
 const OPERATOR_PIN_RATE_LIMIT_PER_MINUTE: usize = 3;
 const MAX_CHALLENGE_FAILED_ATTEMPTS: u8 = 3;
-const PROOF_CHALLENGE_RETENTION_SECONDS: i64 = PROOF_SUBMISSION_RETENTION_SECONDS;
+const PROOF_CHALLENGE_RETENTION_SECONDS: i64 = CHALLENGE_TTL_SECONDS * 2;
 const PROOF_SUBMISSION_RETENTION_SECONDS: i64 = 15 * 60;
+const MAX_ACTIVE_PROOF_CHALLENGES_PER_SUBJECT: usize = 4;
 const MAX_RETAINED_PROOF_CHALLENGES: usize = MAX_RETAINED_PROOF_SUBMISSIONS;
 const MAX_RETAINED_PROOF_SUBMISSIONS: usize = 1024;
+const MAX_ACTIVE_PROOF_CHALLENGES: usize = MAX_RETAINED_PROOF_CHALLENGES;
 const MAX_RETAINED_OPERATOR_PIN_AUDITS: usize = MAX_RETAINED_PROOF_CHALLENGES;
 
 const KEY_STATUS_ACTIVE: &str = "active";
@@ -269,6 +271,18 @@ pub async fn start_proof_challenge(
     let fallback_mode = normalize_fallback_mode(input.fallback_mode.as_str())?;
     let mut store = state.proof.write().await;
     prune_ephemeral_proof_state(&mut store, now);
+    if active_challenge_count_for_subject(&store, &subject_account_id, now)
+        >= MAX_ACTIVE_PROOF_CHALLENGES_PER_SUBJECT
+    {
+        return Err(HappyRouteError::BadRequest(
+            "active proof challenge limit exceeded".to_owned(),
+        ));
+    }
+    if active_challenge_count(&store, now) >= MAX_ACTIVE_PROOF_CHALLENGES {
+        return Err(HappyRouteError::BadRequest(
+            "proof challenge capacity exceeded".to_owned(),
+        ));
+    }
     let key_version = ensure_active_venue_key(&mut store, &realm_id, &venue_id, now);
     let challenge_id = Uuid::new_v4().to_string();
     let client_nonce = Uuid::new_v4().to_string();
@@ -990,15 +1004,20 @@ fn prune_venue_challenge_state(store: &mut ProofState, now: DateTime<Utc>) {
         .filter(|(_, challenge)| challenge_retention_anchor(challenge) >= cutoff)
         .map(|(challenge_id, challenge)| (challenge_id.clone(), challenge.issued_at))
         .collect();
+    let total_retained = retained_challenges.len();
+    retained_challenges.retain(|(challenge_id, _)| {
+        store
+            .venue_challenges_by_id
+            .get(challenge_id)
+            .is_some_and(|challenge| !is_challenge_active(challenge, now))
+    });
     retained_challenges.sort_by(|(left_id, left_issued_at), (right_id, right_issued_at)| {
         left_issued_at
             .cmp(right_issued_at)
             .then_with(|| left_id.cmp(right_id))
     });
 
-    let overflow = retained_challenges
-        .len()
-        .saturating_sub(MAX_RETAINED_PROOF_CHALLENGES);
+    let overflow = total_retained.saturating_sub(MAX_RETAINED_PROOF_CHALLENGES);
     expired_challenge_ids.extend(
         retained_challenges
             .into_iter()
@@ -1028,6 +1047,35 @@ fn challenge_retention_anchor(challenge: &VenueChallengeRecord) -> DateTime<Utc>
         anchor = operator_pin_expires_at;
     }
     anchor
+}
+
+fn is_challenge_active(challenge: &VenueChallengeRecord, now: DateTime<Utc>) -> bool {
+    challenge.status == CHALLENGE_STATUS_ISSUED
+        && challenge.consumed_at.is_none()
+        && now <= challenge.expires_at
+}
+
+fn active_challenge_count(store: &ProofState, now: DateTime<Utc>) -> usize {
+    store
+        .venue_challenges_by_id
+        .values()
+        .filter(|challenge| is_challenge_active(challenge, now))
+        .count()
+}
+
+fn active_challenge_count_for_subject(
+    store: &ProofState,
+    subject_account_id: &str,
+    now: DateTime<Utc>,
+) -> usize {
+    store
+        .venue_challenges_by_id
+        .values()
+        .filter(|challenge| {
+            challenge.subject_account_id == subject_account_id
+                && is_challenge_active(challenge, now)
+        })
+        .count()
 }
 
 fn prune_venue_key_state(store: &mut ProofState) {
@@ -1895,7 +1943,7 @@ mod tests {
 
         for attempt in 0..MAX_CHALLENGE_FAILED_ATTEMPTS {
             let mut envelope: ProofEnvelopeInput =
-                valid_envelope(&challenge, format!("BAD{attempt:03}")).into();
+                valid_envelope(&challenge, impossible_display_code(attempt.into())).into();
             envelope.observed_at_ms =
                 Some((received_at + Duration::seconds(attempt.into())).timestamp_millis());
             let outcome = submit_proof_envelope_at(
@@ -1953,7 +2001,7 @@ mod tests {
                     subject_account_id: "account-proof-a".to_owned(),
                     challenge_id: Some(challenge.challenge_id.clone()),
                     venue_id: None,
-                    display_code: Some(format!("BAD{index:03}")),
+                    display_code: Some(impossible_display_code(index as usize)),
                     key_version: Some(challenge.venue_key_version),
                     client_nonce: None,
                     observed_at_ms: Some(
@@ -2024,7 +2072,7 @@ mod tests {
         let challenge = start_test_challenge(&state, "venue-secret-budget", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let mut missing_display_code: ProofEnvelopeInput =
-            valid_envelope(&challenge, "BAD000".to_owned()).into();
+            valid_envelope(&challenge, impossible_display_code(0)).into();
         missing_display_code.display_code = None;
 
         let missing = submit_proof_envelope_at(&state, missing_display_code, received_at)
@@ -2034,7 +2082,7 @@ mod tests {
 
         let wrong_display_code = submit_proof_envelope_at(
             &state,
-            valid_envelope(&challenge, "BAD001".to_owned()).into(),
+            valid_envelope(&challenge, impossible_display_code(1)).into(),
             received_at + Duration::seconds(1),
         )
         .await
@@ -2142,7 +2190,7 @@ mod tests {
 
         for attempt in 0..MAX_CHALLENGE_FAILED_ATTEMPTS {
             let mut envelope: ProofEnvelopeInput =
-                valid_envelope(&challenge, format!("BAD{attempt:03}")).into();
+                valid_envelope(&challenge, impossible_display_code(attempt.into())).into();
             envelope.observed_at_ms =
                 Some((received_at + Duration::seconds(10 + i64::from(attempt))).timestamp_millis());
             let outcome = submit_proof_envelope_at(
@@ -2522,6 +2570,44 @@ mod tests {
                 &first_challenge.challenge_id,
                 &first_delivery.pin
             ])
+        );
+    }
+
+    #[tokio::test]
+    async fn operator_pin_capable_challenge_accepts_normal_display_code_flow() {
+        let state = crate::new_state();
+        let start = start_proof_challenge(
+            &state,
+            StartProofChallengeInput {
+                subject_account_id: "account-proof-a".to_owned(),
+                venue_id: "venue-operator-display-code".to_owned(),
+                realm_id: "realm-proof".to_owned(),
+                fallback_mode: FALLBACK_OPERATOR_PIN.to_owned(),
+                operator_id: Some("operator-display-code".to_owned()),
+            },
+        )
+        .await
+        .expect("operator fallback challenge should issue");
+        let challenge = start.client;
+        let code = display_code_for_realm(
+            &state,
+            &challenge.realm_id,
+            &challenge.venue_id,
+            challenge.venue_key_version,
+            Utc::now(),
+        )
+        .await;
+
+        let outcome = submit_proof_envelope(&state, valid_envelope(&challenge, code).into())
+            .await
+            .expect("normal display-code flow should remain valid");
+
+        assert!(outcome.accepted);
+        assert!(
+            !outcome
+                .risk_flags
+                .iter()
+                .any(|flag| flag == "operator_fallback")
         );
     }
 
@@ -2915,48 +3001,96 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn challenge_state_caps_retained_challenges() {
+    async fn active_challenge_limit_is_enforced_per_subject() {
         let state = crate::new_state();
-        let mut first_challenge_id = None;
-        let mut last_challenge_id = None;
 
-        for index in 0..=MAX_RETAINED_PROOF_CHALLENGES {
-            let challenge = start_proof_challenge(
+        for index in 0..MAX_ACTIVE_PROOF_CHALLENGES_PER_SUBJECT {
+            start_proof_challenge(
                 &state,
                 StartProofChallengeInput {
-                    subject_account_id: format!("account-challenge-cap-{index}"),
-                    venue_id: "venue-challenge-cap".to_owned(),
+                    subject_account_id: "account-challenge-cap".to_owned(),
+                    venue_id: format!("venue-challenge-cap-{index}"),
                     realm_id: "realm-proof".to_owned(),
                     fallback_mode: FALLBACK_NONE.to_owned(),
                     operator_id: None,
                 },
             )
             .await
-            .expect("challenge within retained cap should issue")
-            .client;
+            .expect("challenge within subject cap should issue");
+        }
 
-            if index == 0 {
-                first_challenge_id = Some(challenge.challenge_id.clone());
-            }
-            if index == MAX_RETAINED_PROOF_CHALLENGES {
-                last_challenge_id = Some(challenge.challenge_id.clone());
+        let blocked = start_proof_challenge(
+            &state,
+            StartProofChallengeInput {
+                subject_account_id: "account-challenge-cap".to_owned(),
+                venue_id: "venue-challenge-cap-blocked".to_owned(),
+                realm_id: "realm-proof".to_owned(),
+                fallback_mode: FALLBACK_NONE.to_owned(),
+                operator_id: None,
+            },
+        )
+        .await
+        .expect_err("subject beyond active challenge cap should be rejected");
+        assert_eq!(blocked.message(), "active proof challenge limit exceeded");
+    }
+
+    #[tokio::test]
+    async fn active_challenge_capacity_preserves_existing_active_challenges() {
+        let state = crate::new_state();
+        let first = start_test_challenge(&state, "venue-challenge-cap-first", FALLBACK_NONE).await;
+
+        {
+            let now = Utc::now();
+            let mut store = state.proof.write().await;
+            for index in 0..MAX_ACTIVE_PROOF_CHALLENGES - 1 {
+                let challenge_id = format!("manual-active-challenge-{index}");
+                let venue_id = format!("manual-active-venue-{index}");
+                store.venue_challenges_by_id.insert(
+                    challenge_id.clone(),
+                    VenueChallengeRecord {
+                        challenge_id: challenge_id.clone(),
+                        subject_account_id: format!("manual-subject-{index}"),
+                        venue_id,
+                        realm_id: "realm-proof".to_owned(),
+                        client_nonce_hash: digest_parts(&["client-nonce", &challenge_id, "manual"]),
+                        issued_at: now,
+                        expires_at: now + Duration::seconds(CHALLENGE_TTL_SECONDS),
+                        consumed_at: None,
+                        fallback_mode: FALLBACK_NONE.to_owned(),
+                        operator_pin_hash: None,
+                        operator_pin_expires_at: None,
+                        operator_id: None,
+                        venue_key_version: 1,
+                        failed_attempt_count: 0,
+                        status: CHALLENGE_STATUS_ISSUED.to_owned(),
+                    },
+                );
             }
         }
 
+        let blocked = start_proof_challenge(
+            &state,
+            StartProofChallengeInput {
+                subject_account_id: "account-capacity-blocked".to_owned(),
+                venue_id: "venue-capacity-blocked".to_owned(),
+                realm_id: "realm-proof".to_owned(),
+                fallback_mode: FALLBACK_NONE.to_owned(),
+                operator_id: None,
+            },
+        )
+        .await
+        .expect_err("global active challenge capacity should reject new issuance");
+        assert_eq!(blocked.message(), "proof challenge capacity exceeded");
+
         let store = state.proof.read().await;
         assert_eq!(
-            store.venue_challenges_by_id.len(),
-            MAX_RETAINED_PROOF_CHALLENGES
-        );
-        assert!(
-            !store
-                .venue_challenges_by_id
-                .contains_key(&first_challenge_id.expect("first challenge id"))
+            active_challenge_count(&store, Utc::now()),
+            MAX_ACTIVE_PROOF_CHALLENGES
         );
         assert!(
             store
                 .venue_challenges_by_id
-                .contains_key(&last_challenge_id.expect("last challenge id"))
+                .contains_key(&first.challenge_id)
         );
     }
 
@@ -3041,6 +3175,10 @@ mod tests {
 
         let second = start_test_challenge(&state, "venue-key-retain", FALLBACK_NONE).await;
         assert_eq!(second.venue_key_version, rotated_key_version);
+    }
+
+    fn impossible_display_code(index: usize) -> String {
+        format!("Z{index:05}")
     }
 
     async fn start_test_challenge(
