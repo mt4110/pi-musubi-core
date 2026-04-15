@@ -16,10 +16,14 @@ use super::happy_route::HappyRouteError;
 const CHALLENGE_TTL_SECONDS: i64 = 90;
 const DISPLAY_CODE_WINDOW_SECONDS: i64 = 30;
 const OPERATOR_PIN_TTL_SECONDS: i64 = 60;
+const OPERATOR_PIN_RATE_LIMIT_WINDOW_SECONDS: i64 = 60;
 const OPERATOR_PIN_RATE_LIMIT_PER_MINUTE: usize = 3;
 const MAX_CHALLENGE_FAILED_ATTEMPTS: u8 = 3;
+const PROOF_CHALLENGE_RETENTION_SECONDS: i64 = PROOF_SUBMISSION_RETENTION_SECONDS;
 const PROOF_SUBMISSION_RETENTION_SECONDS: i64 = 15 * 60;
+const MAX_RETAINED_PROOF_CHALLENGES: usize = MAX_RETAINED_PROOF_SUBMISSIONS;
 const MAX_RETAINED_PROOF_SUBMISSIONS: usize = 1024;
+const MAX_RETAINED_OPERATOR_PIN_AUDITS: usize = MAX_RETAINED_PROOF_CHALLENGES;
 
 const KEY_STATUS_ACTIVE: &str = "active";
 const KEY_STATUS_DRAINING: &str = "draining";
@@ -264,6 +268,7 @@ pub async fn start_proof_challenge(
         required_trimmed(input.subject_account_id, "subject_account_id is required")?;
     let fallback_mode = normalize_fallback_mode(input.fallback_mode.as_str())?;
     let mut store = state.proof.write().await;
+    prune_ephemeral_proof_state(&mut store, now);
     let key_version = ensure_active_venue_key(&mut store, &realm_id, &venue_id, now);
     let challenge_id = Uuid::new_v4().to_string();
     let client_nonce = Uuid::new_v4().to_string();
@@ -332,6 +337,7 @@ pub async fn start_proof_challenge(
             status: CHALLENGE_STATUS_ISSUED.to_owned(),
         },
     );
+    prune_ephemeral_proof_state(&mut store, now);
 
     Ok(StartProofChallengeServiceOutcome {
         client: StartProofChallengeOutcome {
@@ -361,7 +367,7 @@ async fn submit_proof_envelope_at(
     received_at: DateTime<Utc>,
 ) -> Result<ProofSubmissionOutcome, HappyRouteError> {
     let mut store = state.proof.write().await;
-    prune_proof_submission_state(&mut store, received_at);
+    prune_ephemeral_proof_state(&mut store, received_at);
     let replay_key = replay_key(&store.server_secret, &input);
     let replayed_submission_id = store
         .proof_submission_id_by_replay_key
@@ -431,8 +437,7 @@ async fn submit_proof_envelope_at(
     };
     store
         .proof_submission_id_by_replay_key
-        .entry(replay_key)
-        .or_insert_with(|| proof_submission_id.clone());
+        .insert(replay_key, proof_submission_id.clone());
     store
         .proof_submissions_by_id
         .insert(proof_submission_id.clone(), submission);
@@ -458,7 +463,7 @@ async fn submit_proof_envelope_at(
             operator_override_case_id: None,
         },
     );
-    prune_proof_submission_state(&mut store, received_at);
+    prune_ephemeral_proof_state(&mut store, received_at);
 
     Ok(ProofSubmissionOutcome {
         proof_submission_id,
@@ -962,6 +967,88 @@ fn redacted_payload(
     })
 }
 
+fn prune_ephemeral_proof_state(store: &mut ProofState, now: DateTime<Utc>) {
+    prune_venue_challenge_state(store, now);
+    prune_operator_pin_audit_state(store, now);
+    prune_proof_submission_state(store, now);
+}
+
+fn prune_venue_challenge_state(store: &mut ProofState, now: DateTime<Utc>) {
+    let cutoff = now - Duration::seconds(PROOF_CHALLENGE_RETENTION_SECONDS);
+    let mut expired_challenge_ids: HashSet<String> = store
+        .venue_challenges_by_id
+        .iter()
+        .filter_map(|(challenge_id, challenge)| {
+            (challenge_retention_anchor(challenge) < cutoff).then(|| challenge_id.clone())
+        })
+        .collect();
+
+    let mut retained_challenges: Vec<(String, DateTime<Utc>)> = store
+        .venue_challenges_by_id
+        .iter()
+        .filter(|(_, challenge)| challenge_retention_anchor(challenge) >= cutoff)
+        .map(|(challenge_id, challenge)| (challenge_id.clone(), challenge.issued_at))
+        .collect();
+    retained_challenges.sort_by(|(left_id, left_issued_at), (right_id, right_issued_at)| {
+        left_issued_at
+            .cmp(right_issued_at)
+            .then_with(|| left_id.cmp(right_id))
+    });
+
+    let overflow = retained_challenges
+        .len()
+        .saturating_sub(MAX_RETAINED_PROOF_CHALLENGES);
+    expired_challenge_ids.extend(
+        retained_challenges
+            .into_iter()
+            .take(overflow)
+            .map(|(challenge_id, _)| challenge_id),
+    );
+
+    if expired_challenge_ids.is_empty() {
+        return;
+    }
+
+    store
+        .venue_challenges_by_id
+        .retain(|challenge_id, _| !expired_challenge_ids.contains(challenge_id));
+}
+
+fn challenge_retention_anchor(challenge: &VenueChallengeRecord) -> DateTime<Utc> {
+    let mut anchor = challenge.expires_at;
+    if let Some(consumed_at) = challenge.consumed_at
+        && consumed_at > anchor
+    {
+        anchor = consumed_at;
+    }
+    if let Some(operator_pin_expires_at) = challenge.operator_pin_expires_at
+        && operator_pin_expires_at > anchor
+    {
+        anchor = operator_pin_expires_at;
+    }
+    anchor
+}
+
+fn prune_operator_pin_audit_state(store: &mut ProofState, now: DateTime<Utc>) {
+    let cutoff = now - Duration::seconds(OPERATOR_PIN_RATE_LIMIT_WINDOW_SECONDS);
+    store
+        .operator_pin_audits
+        .retain(|audit| audit.issued_at >= cutoff && audit.issued_at <= now);
+    store.operator_pin_audits.sort_by(|left, right| {
+        left.issued_at
+            .cmp(&right.issued_at)
+            .then_with(|| left.audit_id.cmp(&right.audit_id))
+    });
+
+    let overflow = store
+        .operator_pin_audits
+        .len()
+        .saturating_sub(MAX_RETAINED_OPERATOR_PIN_AUDITS);
+    if overflow > 0 {
+        store.operator_pin_audits.drain(0..overflow);
+    }
+}
+
 fn prune_proof_submission_state(store: &mut ProofState, now: DateTime<Utc>) {
     let cutoff = now - Duration::seconds(PROOF_SUBMISSION_RETENTION_SECONDS);
     let mut expired_submission_ids: HashSet<String> = store
@@ -1003,12 +1090,24 @@ fn prune_proof_submission_state(store: &mut ProofState, now: DateTime<Utc>) {
     store
         .proof_submissions_by_id
         .retain(|submission_id, _| !expired_submission_ids.contains(submission_id));
-    store
-        .proof_submission_id_by_replay_key
-        .retain(|_, submission_id| !expired_submission_ids.contains(submission_id));
     store.proof_verifications_by_id.retain(|_, verification| {
         !expired_submission_ids.contains(&verification.proof_submission_id)
     });
+
+    let mut retained_submissions: Vec<(&String, &ProofSubmissionRecord)> =
+        store.proof_submissions_by_id.iter().collect();
+    retained_submissions.sort_by(|(left_id, left_submission), (right_id, right_submission)| {
+        left_submission
+            .received_at
+            .cmp(&right_submission.received_at)
+            .then_with(|| left_id.cmp(right_id))
+    });
+
+    let mut replay_index = HashMap::new();
+    for (submission_id, submission) in retained_submissions {
+        replay_index.insert(submission.replay_key.clone(), submission_id.clone());
+    }
+    store.proof_submission_id_by_replay_key = replay_index;
 }
 
 fn risk_flags(
@@ -1053,7 +1152,7 @@ fn operator_pin_issuance_count(
     operator_id: &str,
     now: DateTime<Utc>,
 ) -> usize {
-    let since = now - Duration::seconds(60);
+    let since = now - Duration::seconds(OPERATOR_PIN_RATE_LIMIT_WINDOW_SECONDS);
     store
         .operator_pin_audits
         .iter()
@@ -2599,6 +2698,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replay_index_tracks_latest_retained_duplicate_submission() {
+        let state = crate::new_state();
+        let base = Utc::now();
+        let input = ProofEnvelopeInput {
+            subject_account_id: "account-replay-prune".to_owned(),
+            challenge_id: Some("challenge-replay-prune".to_owned()),
+            venue_id: Some("venue-replay-prune".to_owned()),
+            display_code: None,
+            key_version: None,
+            client_nonce: None,
+            observed_at_ms: None,
+            coarse_location_bucket: None,
+            device_session_id: None,
+            fallback_mode: None,
+            operator_pin: None,
+        };
+
+        let first = submit_proof_envelope_at(&state, input.clone(), base)
+            .await
+            .expect("first malformed proof should be recorded");
+        let second = submit_proof_envelope_at(&state, input.clone(), base + Duration::seconds(2))
+            .await
+            .expect("duplicate malformed proof should be recorded as replay");
+        assert_eq!(second.reason_code.as_deref(), Some(REASON_REPLAY));
+
+        let third = submit_proof_envelope_at(
+            &state,
+            input.clone(),
+            base + Duration::seconds(PROOF_SUBMISSION_RETENTION_SECONDS + 1),
+        )
+        .await
+        .expect("retained duplicate should still be treated as replay");
+        assert_eq!(third.reason_code.as_deref(), Some(REASON_REPLAY));
+
+        let store = state.proof.read().await;
+        let replay_key = replay_key(&store.server_secret, &input);
+        assert_eq!(
+            store.proof_submission_id_by_replay_key.get(&replay_key),
+            Some(&third.proof_submission_id)
+        );
+        assert!(
+            !store
+                .proof_submissions_by_id
+                .contains_key(&first.proof_submission_id)
+        );
+    }
+
+    #[tokio::test]
     async fn proof_submission_state_caps_unique_rejected_evidence() {
         let state = crate::new_state();
         let base = Utc::now();
@@ -2652,6 +2799,106 @@ mod tests {
             store
                 .proof_submissions_by_id
                 .contains_key(&last_submission_id.expect("last submission id"))
+        );
+    }
+
+    #[tokio::test]
+    async fn challenge_state_prunes_expired_challenges_and_stale_operator_audits() {
+        let state = crate::new_state();
+        let first = start_proof_challenge(
+            &state,
+            StartProofChallengeInput {
+                subject_account_id: "account-prune-challenge-0".to_owned(),
+                venue_id: "venue-prune-challenge".to_owned(),
+                realm_id: "realm-proof".to_owned(),
+                fallback_mode: FALLBACK_OPERATOR_PIN.to_owned(),
+                operator_id: Some("operator-prune".to_owned()),
+            },
+        )
+        .await
+        .expect("operator fallback challenge should issue")
+        .client;
+
+        {
+            let mut store = state.proof.write().await;
+            let challenge = store
+                .venue_challenges_by_id
+                .get_mut(&first.challenge_id)
+                .expect("first challenge should be retained before pruning");
+            let stale_at = Utc::now() - Duration::seconds(PROOF_CHALLENGE_RETENTION_SECONDS + 1);
+            challenge.expires_at = stale_at;
+            challenge.operator_pin_expires_at = Some(stale_at);
+
+            let audit = store
+                .operator_pin_audits
+                .iter_mut()
+                .find(|audit| audit.challenge_id == first.challenge_id)
+                .expect("operator audit should exist");
+            let stale_audit_at =
+                Utc::now() - Duration::seconds(OPERATOR_PIN_RATE_LIMIT_WINDOW_SECONDS + 1);
+            audit.issued_at = stale_audit_at;
+            audit.expires_at = stale_audit_at;
+        }
+
+        let second = start_test_challenge(&state, "venue-prune-challenge", FALLBACK_NONE).await;
+
+        let store = state.proof.read().await;
+        assert!(
+            !store
+                .venue_challenges_by_id
+                .contains_key(&first.challenge_id)
+        );
+        assert!(
+            store
+                .venue_challenges_by_id
+                .contains_key(&second.challenge_id)
+        );
+        assert!(store.operator_pin_audits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn challenge_state_caps_retained_challenges() {
+        let state = crate::new_state();
+        let mut first_challenge_id = None;
+        let mut last_challenge_id = None;
+
+        for index in 0..=MAX_RETAINED_PROOF_CHALLENGES {
+            let challenge = start_proof_challenge(
+                &state,
+                StartProofChallengeInput {
+                    subject_account_id: format!("account-challenge-cap-{index}"),
+                    venue_id: "venue-challenge-cap".to_owned(),
+                    realm_id: "realm-proof".to_owned(),
+                    fallback_mode: FALLBACK_NONE.to_owned(),
+                    operator_id: None,
+                },
+            )
+            .await
+            .expect("challenge within retained cap should issue")
+            .client;
+
+            if index == 0 {
+                first_challenge_id = Some(challenge.challenge_id.clone());
+            }
+            if index == MAX_RETAINED_PROOF_CHALLENGES {
+                last_challenge_id = Some(challenge.challenge_id.clone());
+            }
+        }
+
+        let store = state.proof.read().await;
+        assert_eq!(
+            store.venue_challenges_by_id.len(),
+            MAX_RETAINED_PROOF_CHALLENGES
+        );
+        assert!(
+            !store
+                .venue_challenges_by_id
+                .contains_key(&first_challenge_id.expect("first challenge id"))
+        );
+        assert!(
+            store
+                .venue_challenges_by_id
+                .contains_key(&last_challenge_id.expect("last challenge id"))
         );
     }
 
