@@ -10,6 +10,8 @@ use musubi_backend::{
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+const RESPONSE_BODY_LIMIT_BYTES: usize = 1024 * 1024;
+
 #[tokio::test]
 async fn public_proof_challenge_rejects_operator_pin_fallback() {
     let app = build_app(new_state());
@@ -202,7 +204,7 @@ async fn post_json(
         .await
         .expect("app should respond");
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), usize::MAX)
+    let bytes = to_bytes(response.into_body(), RESPONSE_BODY_LIMIT_BYTES)
         .await
         .expect("body must be readable");
     let body = if bytes.is_empty() {

@@ -1,7 +1,10 @@
-use std::{collections::HashMap, fmt::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write as _,
+};
 
 use chrono::{DateTime, Duration, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -15,6 +18,8 @@ const DISPLAY_CODE_WINDOW_SECONDS: i64 = 30;
 const OPERATOR_PIN_TTL_SECONDS: i64 = 60;
 const OPERATOR_PIN_RATE_LIMIT_PER_MINUTE: usize = 3;
 const MAX_CHALLENGE_FAILED_ATTEMPTS: u8 = 3;
+const PROOF_SUBMISSION_RETENTION_SECONDS: i64 = 15 * 60;
+const MAX_RETAINED_PROOF_SUBMISSIONS: usize = 1024;
 
 const KEY_STATUS_ACTIVE: &str = "active";
 const KEY_STATUS_DRAINING: &str = "draining";
@@ -356,6 +361,7 @@ async fn submit_proof_envelope_at(
     received_at: DateTime<Utc>,
 ) -> Result<ProofSubmissionOutcome, HappyRouteError> {
     let mut store = state.proof.write().await;
+    prune_proof_submission_state(&mut store, received_at);
     let replay_key = replay_key(&store.server_secret, &input);
     let replayed_submission_id = store
         .proof_submission_id_by_replay_key
@@ -375,7 +381,7 @@ async fn submit_proof_envelope_at(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| digest_parts(&["device-session", value]));
+        .map(|value| server_keyed_device_session_id_hash(&store.server_secret, value));
     let parsed_fallback_mode = parse_submission_fallback_mode(input.fallback_mode.as_deref());
     let fallback_mode = parsed_fallback_mode
         .map(SubmissionFallbackMode::as_str)
@@ -452,6 +458,7 @@ async fn submit_proof_envelope_at(
             operator_override_case_id: None,
         },
     );
+    prune_proof_submission_state(&mut store, received_at);
 
     Ok(ProofSubmissionOutcome {
         proof_submission_id,
@@ -870,6 +877,10 @@ fn server_keyed_display_code_hash(server_secret: &str, display_code: &str) -> St
     )
 }
 
+fn server_keyed_device_session_id_hash(server_secret: &str, device_session_id: &str) -> String {
+    hmac_sha256_hex(server_secret, &["device-session", device_session_id.trim()])
+}
+
 fn replay_key(server_secret: &str, input: &ProofEnvelopeInput) -> String {
     let subject_account_id = input.subject_account_id.trim().to_owned();
     let challenge_id = canonical_optional(input.challenge_id.as_deref());
@@ -922,14 +933,21 @@ fn canonical_optional(value: Option<&str>) -> String {
     value.map(str::trim).unwrap_or_default().to_owned()
 }
 
+fn canonical_optional_json(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
 fn redacted_payload(
     input: &ProofEnvelopeInput,
     display_code_hash: &Option<String>,
     sanitized_location: &SanitizedCoarseLocationBucket,
 ) -> serde_json::Value {
     serde_json::json!({
-        "challenge_id": input.challenge_id.as_deref(),
-        "venue_id": input.venue_id.as_deref(),
+        "challenge_id": canonical_optional_json(input.challenge_id.as_deref()),
+        "venue_id": canonical_optional_json(input.venue_id.as_deref()),
         "display_code_hash": display_code_hash.as_deref(),
         "key_version": input.key_version,
         "client_nonce_present": input.client_nonce.as_deref().is_some_and(|value| !value.trim().is_empty()),
@@ -942,6 +960,55 @@ fn redacted_payload(
             .unwrap_or(FALLBACK_UNSUPPORTED),
         "operator_pin_present": input.operator_pin.as_deref().is_some_and(|value| !value.trim().is_empty()),
     })
+}
+
+fn prune_proof_submission_state(store: &mut ProofState, now: DateTime<Utc>) {
+    let cutoff = now - Duration::seconds(PROOF_SUBMISSION_RETENTION_SECONDS);
+    let mut expired_submission_ids: HashSet<String> = store
+        .proof_submissions_by_id
+        .iter()
+        .filter_map(|(submission_id, submission)| {
+            (submission.received_at < cutoff).then(|| submission_id.clone())
+        })
+        .collect();
+
+    let mut retained_submissions: Vec<(String, DateTime<Utc>)> = store
+        .proof_submissions_by_id
+        .iter()
+        .filter(|(_, submission)| submission.received_at >= cutoff)
+        .map(|(submission_id, submission)| (submission_id.clone(), submission.received_at))
+        .collect();
+    retained_submissions.sort_by(
+        |(left_id, left_received_at), (right_id, right_received_at)| {
+            left_received_at
+                .cmp(right_received_at)
+                .then_with(|| left_id.cmp(right_id))
+        },
+    );
+
+    let overflow = retained_submissions
+        .len()
+        .saturating_sub(MAX_RETAINED_PROOF_SUBMISSIONS);
+    expired_submission_ids.extend(
+        retained_submissions
+            .into_iter()
+            .take(overflow)
+            .map(|(submission_id, _)| submission_id),
+    );
+
+    if expired_submission_ids.is_empty() {
+        return;
+    }
+
+    store
+        .proof_submissions_by_id
+        .retain(|submission_id, _| !expired_submission_ids.contains(submission_id));
+    store
+        .proof_submission_id_by_replay_key
+        .retain(|_, submission_id| !expired_submission_ids.contains(submission_id));
+    store.proof_verifications_by_id.retain(|_, verification| {
+        !expired_submission_ids.contains(&verification.proof_submission_id)
+    });
 }
 
 fn risk_flags(
@@ -1393,10 +1460,14 @@ mod tests {
             received_at,
         )
         .await;
-        let envelope: ProofEnvelopeInput = valid_envelope(&challenge, code.clone()).into();
+        let envelope: ProofEnvelopeInput = valid_envelope(&challenge, code.clone())
+            .device_session_id("device-replay")
+            .into();
         let plain_display_code_digest = digest_parts(&["display-code", code.trim()]);
+        let plain_device_session_digest = digest_parts(&["device-session", "device-replay"]);
         let plain_replay_digest = digest_parts(&[
             "proof-envelope",
+            envelope.subject_account_id.as_str(),
             envelope.challenge_id.as_deref().unwrap_or_default(),
             envelope.venue_id.as_deref().unwrap_or_default(),
             code.as_str(),
@@ -1429,6 +1500,10 @@ mod tests {
         assert_ne!(
             submission.display_code_hash.as_deref(),
             Some(plain_display_code_digest.as_str())
+        );
+        assert_ne!(
+            submission.device_session_id_hash.as_deref(),
+            Some(plain_device_session_digest.as_str())
         );
         assert!(submission.raw_payload_json["display_code_hash"].is_string());
     }
@@ -2415,6 +2490,168 @@ mod tests {
             store
                 .proof_submissions_by_id
                 .contains_key(&outcome.proof_submission_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn redacted_payload_canonicalizes_request_identifiers() {
+        let state = crate::new_state();
+        let outcome = submit_proof_envelope(
+            &state,
+            ProofEnvelopeInput {
+                subject_account_id: "account-redacted".to_owned(),
+                challenge_id: Some("  challenge-redacted  ".to_owned()),
+                venue_id: Some("  venue-redacted  ".to_owned()),
+                display_code: None,
+                key_version: None,
+                client_nonce: None,
+                observed_at_ms: None,
+                coarse_location_bucket: None,
+                device_session_id: None,
+                fallback_mode: None,
+                operator_pin: None,
+            },
+        )
+        .await
+        .expect("malformed proof should still be recorded");
+
+        let store = state.proof.read().await;
+        let submission = store
+            .proof_submissions_by_id
+            .get(&outcome.proof_submission_id)
+            .expect("submission should be retained");
+        assert_eq!(
+            submission.raw_payload_json["challenge_id"].as_str(),
+            Some("challenge-redacted")
+        );
+        assert_eq!(
+            submission.raw_payload_json["venue_id"].as_str(),
+            Some("venue-redacted")
+        );
+    }
+
+    #[tokio::test]
+    async fn proof_submission_state_prunes_expired_rejected_evidence() {
+        let state = crate::new_state();
+        let base = Utc::now();
+        let old_input = ProofEnvelopeInput {
+            subject_account_id: "account-prune-old".to_owned(),
+            challenge_id: Some("challenge-prune-old".to_owned()),
+            venue_id: Some("venue-prune".to_owned()),
+            display_code: None,
+            key_version: None,
+            client_nonce: None,
+            observed_at_ms: None,
+            coarse_location_bucket: None,
+            device_session_id: None,
+            fallback_mode: None,
+            operator_pin: None,
+        };
+        let old_outcome = submit_proof_envelope_at(&state, old_input.clone(), base)
+            .await
+            .expect("old malformed proof should be recorded");
+
+        let new_input = ProofEnvelopeInput {
+            subject_account_id: "account-prune-new".to_owned(),
+            challenge_id: Some("challenge-prune-new".to_owned()),
+            venue_id: Some("venue-prune".to_owned()),
+            display_code: None,
+            key_version: None,
+            client_nonce: None,
+            observed_at_ms: None,
+            coarse_location_bucket: None,
+            device_session_id: None,
+            fallback_mode: None,
+            operator_pin: None,
+        };
+        let new_outcome = submit_proof_envelope_at(
+            &state,
+            new_input.clone(),
+            base + Duration::seconds(PROOF_SUBMISSION_RETENTION_SECONDS + 1),
+        )
+        .await
+        .expect("new malformed proof should be recorded");
+
+        let store = state.proof.read().await;
+        assert!(
+            !store
+                .proof_submissions_by_id
+                .contains_key(&old_outcome.proof_submission_id)
+        );
+        assert!(
+            store
+                .proof_submissions_by_id
+                .contains_key(&new_outcome.proof_submission_id)
+        );
+        assert_eq!(
+            store
+                .proof_submission_id_by_replay_key
+                .get(&replay_key(&store.server_secret, &old_input)),
+            None
+        );
+        assert!(
+            store
+                .proof_verifications_by_id
+                .values()
+                .all(|verification| verification.proof_submission_id
+                    != old_outcome.proof_submission_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn proof_submission_state_caps_unique_rejected_evidence() {
+        let state = crate::new_state();
+        let base = Utc::now();
+        let mut first_submission_id = None;
+        let mut last_submission_id = None;
+
+        for index in 0..=MAX_RETAINED_PROOF_SUBMISSIONS {
+            let outcome = submit_proof_envelope_at(
+                &state,
+                ProofEnvelopeInput {
+                    subject_account_id: format!("account-cap-{index}"),
+                    challenge_id: Some(format!("challenge-cap-{index}")),
+                    venue_id: Some("venue-cap".to_owned()),
+                    display_code: None,
+                    key_version: None,
+                    client_nonce: None,
+                    observed_at_ms: None,
+                    coarse_location_bucket: None,
+                    device_session_id: None,
+                    fallback_mode: None,
+                    operator_pin: None,
+                },
+                base + Duration::milliseconds(index as i64),
+            )
+            .await
+            .expect("malformed proof should be recorded");
+
+            if index == 0 {
+                first_submission_id = Some(outcome.proof_submission_id.clone());
+            }
+            if index == MAX_RETAINED_PROOF_SUBMISSIONS {
+                last_submission_id = Some(outcome.proof_submission_id.clone());
+            }
+        }
+
+        let store = state.proof.read().await;
+        assert_eq!(
+            store.proof_submissions_by_id.len(),
+            MAX_RETAINED_PROOF_SUBMISSIONS
+        );
+        assert_eq!(
+            store.proof_verifications_by_id.len(),
+            MAX_RETAINED_PROOF_SUBMISSIONS
+        );
+        assert!(
+            !store
+                .proof_submissions_by_id
+                .contains_key(&first_submission_id.expect("first submission id"))
+        );
+        assert!(
+            store
+                .proof_submissions_by_id
+                .contains_key(&last_submission_id.expect("last submission id"))
         );
     }
 

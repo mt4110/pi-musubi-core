@@ -150,12 +150,13 @@ Proof submissions persist:
 - received timestamp
 - optional client observed timestamp
 - sanitized coarse location bucket only
-- hashed device session id
+- server-keyed device session hash
 - canonical fallback mode
 - redacted payload shape
 - verification status
 
 They do not store raw GPS coordinates, exact addresses, oversized location strings, arbitrary fallback-mode strings, exact device fingerprint material, clear display codes, clear operator PINs, or plain digests over low-entropy display-code / operator-PIN material.
+In-memory proof submissions, verifications, and replay material are pruned by TTL and max-entry caps so rejected-envelope evidence does not grow process memory without bound.
 
 ## Residual risk
 
