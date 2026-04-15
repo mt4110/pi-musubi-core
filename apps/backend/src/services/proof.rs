@@ -969,6 +969,7 @@ fn redacted_payload(
 
 fn prune_ephemeral_proof_state(store: &mut ProofState, now: DateTime<Utc>) {
     prune_venue_challenge_state(store, now);
+    prune_venue_key_state(store);
     prune_operator_pin_audit_state(store, now);
     prune_proof_submission_state(store, now);
 }
@@ -1027,6 +1028,63 @@ fn challenge_retention_anchor(challenge: &VenueChallengeRecord) -> DateTime<Utc>
         anchor = operator_pin_expires_at;
     }
     anchor
+}
+
+fn prune_venue_key_state(store: &mut ProofState) {
+    let retained_venues: HashSet<(String, String)> = store
+        .venue_challenges_by_id
+        .values()
+        .map(|challenge| (challenge.realm_id.clone(), challenge.venue_id.clone()))
+        .collect();
+
+    let mut retained_key_ids: HashSet<(String, String, i32)> = store
+        .venue_challenges_by_id
+        .values()
+        .map(|challenge| {
+            (
+                challenge.realm_id.clone(),
+                challenge.venue_id.clone(),
+                challenge.venue_key_version,
+            )
+        })
+        .collect();
+
+    for venue in &retained_venues {
+        if let Some(active_key_version) = store.active_key_version_by_venue.get(venue) {
+            retained_key_ids.insert((venue.0.clone(), venue.1.clone(), *active_key_version));
+        }
+    }
+
+    store
+        .venue_key_versions
+        .retain(|key_id, _| retained_key_ids.contains(key_id));
+
+    let previous_active = std::mem::take(&mut store.active_key_version_by_venue);
+    let mut rebuilt_active = HashMap::new();
+    for venue in retained_venues {
+        if let Some(active_key_version) = previous_active.get(&venue).copied()
+            && store.venue_key_versions.contains_key(&(
+                venue.0.clone(),
+                venue.1.clone(),
+                active_key_version,
+            ))
+        {
+            rebuilt_active.insert(venue, active_key_version);
+            continue;
+        }
+
+        if let Some(fallback_key_version) = store
+            .venue_key_versions
+            .keys()
+            .filter_map(|(realm_id, venue_id, key_version)| {
+                (realm_id == &venue.0 && venue_id == &venue.1).then_some(*key_version)
+            })
+            .max()
+        {
+            rebuilt_active.insert(venue, fallback_key_version);
+        }
+    }
+    store.active_key_version_by_venue = rebuilt_active;
 }
 
 fn prune_operator_pin_audit_state(store: &mut ProofState, now: DateTime<Utc>) {
@@ -2900,6 +2958,89 @@ mod tests {
                 .venue_challenges_by_id
                 .contains_key(&last_challenge_id.expect("last challenge id"))
         );
+    }
+
+    #[tokio::test]
+    async fn challenge_pruning_removes_unused_venue_key_state() {
+        let state = crate::new_state();
+        let first = start_test_challenge(&state, "venue-key-prune", FALLBACK_NONE).await;
+
+        {
+            let mut store = state.proof.write().await;
+            let stale_at = Utc::now() - Duration::seconds(PROOF_CHALLENGE_RETENTION_SECONDS + 1);
+            let challenge = store
+                .venue_challenges_by_id
+                .get_mut(&first.challenge_id)
+                .expect("challenge should exist before pruning");
+            challenge.expires_at = stale_at;
+        }
+
+        let second = start_test_challenge(&state, "venue-key-prune-next", FALLBACK_NONE).await;
+
+        let store = state.proof.read().await;
+        assert!(
+            !store
+                .venue_challenges_by_id
+                .contains_key(&first.challenge_id)
+        );
+        assert!(
+            !store
+                .active_key_version_by_venue
+                .contains_key(&("realm-proof".to_owned(), "venue-key-prune".to_owned()))
+        );
+        assert!(!store.venue_key_versions.contains_key(&(
+            "realm-proof".to_owned(),
+            "venue-key-prune".to_owned(),
+            first.venue_key_version
+        )));
+        assert!(
+            store
+                .active_key_version_by_venue
+                .contains_key(&("realm-proof".to_owned(), second.venue_id.clone()))
+        );
+    }
+
+    #[tokio::test]
+    async fn retained_challenge_keeps_active_rotated_venue_key_state() {
+        let state = crate::new_state();
+        let first = start_test_challenge(&state, "venue-key-retain", FALLBACK_NONE).await;
+        let rotated_key_version = first.venue_key_version + 1;
+        let now = Utc::now();
+
+        {
+            let mut store = state.proof.write().await;
+            store.active_key_version_by_venue.insert(
+                ("realm-proof".to_owned(), "venue-key-retain".to_owned()),
+                rotated_key_version,
+            );
+            let secret_material = venue_secret_material(
+                &store.server_secret,
+                "realm-proof",
+                "venue-key-retain",
+                rotated_key_version,
+            );
+            store.venue_key_versions.insert(
+                (
+                    "realm-proof".to_owned(),
+                    "venue-key-retain".to_owned(),
+                    rotated_key_version,
+                ),
+                VenueKeyVersionRecord {
+                    realm_id: "realm-proof".to_owned(),
+                    venue_id: "venue-key-retain".to_owned(),
+                    key_version: rotated_key_version,
+                    secret_material,
+                    status: KEY_STATUS_ACTIVE.to_owned(),
+                    not_before: now,
+                    not_after: None,
+                    created_at: now,
+                },
+            );
+            prune_ephemeral_proof_state(&mut store, now);
+        }
+
+        let second = start_test_challenge(&state, "venue-key-retain", FALLBACK_NONE).await;
+        assert_eq!(second.venue_key_version, rotated_key_version);
     }
 
     async fn start_test_challenge(
