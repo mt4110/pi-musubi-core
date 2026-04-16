@@ -3,13 +3,14 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use musubi_backend::{build_app, new_state, start_background_outbox_worker};
+use musubi_backend::{build_app, new_test_state, start_background_outbox_worker};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
 
     let initiator = sign_in(&app, "pi-user-a", "musubi-a").await;
     let counterparty = sign_in(&app, "pi-user-b", "musubi-b").await;
@@ -100,11 +101,14 @@ async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
     assert_eq!(funded_view.body["total_funded_minor_units"], 10000);
     assert_eq!(funded_view.body["currency_code"], "PI");
     assert!(funded_view.body["latest_journal_entry_id"].is_string());
+
+    assert_writer_truth_tables(&settlement_case_id).await;
 }
 
 #[tokio::test]
 async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
 
     let duplicate_callback = post_json(
@@ -144,7 +148,8 @@ async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection()
 
 #[tokio::test]
 async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_pending_case(&app).await;
 
     let payload = json!({
@@ -203,7 +208,8 @@ async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
 
 #[tokio::test]
 async fn background_outbox_worker_processes_open_hold_without_http_drain() {
-    let state = new_state();
+    let test_state = new_test_state().await.expect("test database state");
+    let state = test_state.state.clone();
     let worker = start_background_outbox_worker(state.clone());
     let app = build_app(state.clone());
 
@@ -254,7 +260,8 @@ async fn background_outbox_worker_processes_open_hold_without_http_drain() {
 
 #[tokio::test]
 async fn payment_callback_without_status_is_accepted_as_raw_evidence() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_pending_case(&app).await;
 
     let callback = post_json(
@@ -285,7 +292,8 @@ async fn payment_callback_without_status_is_accepted_as_raw_evidence() {
 
 #[tokio::test]
 async fn later_verified_callback_can_fund_after_initial_rejection() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_pending_case(&app).await;
 
     let rejected_callback = post_json(
@@ -346,7 +354,8 @@ async fn later_verified_callback_can_fund_after_initial_rejection() {
 
 #[tokio::test]
 async fn authenticate_pi_requires_matching_access_token_for_existing_account() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
 
     let first_sign_in = sign_in_with_access_token_response(
         &app,
@@ -373,7 +382,8 @@ async fn authenticate_pi_requires_matching_access_token_for_existing_account() {
 
 #[tokio::test]
 async fn re_authentication_rotates_the_prior_session_token() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let counterparty = sign_in(&app, "pi-user-session-b", "session-b").await;
 
     let first_sign_in = sign_in_with_access_token_response(
@@ -436,7 +446,8 @@ async fn re_authentication_rotates_the_prior_session_token() {
 
 #[tokio::test]
 async fn settlement_projection_requires_authenticated_participant() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
     let outsider = sign_in(&app, "pi-user-outsider", "outsider").await;
 
@@ -465,7 +476,8 @@ async fn settlement_projection_requires_authenticated_participant() {
 
 #[tokio::test]
 async fn settlement_projection_accepts_lowercase_bearer_scheme() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
 
     let request = Request::builder()
@@ -492,7 +504,8 @@ async fn settlement_projection_accepts_lowercase_bearer_scheme() {
 
 #[tokio::test]
 async fn promise_intent_rejects_blank_internal_idempotency_key() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let initiator = sign_in(&app, "pi-user-empty-key-a", "empty-key-a").await;
     let counterparty = sign_in(&app, "pi-user-empty-key-b", "empty-key-b").await;
 
@@ -519,7 +532,8 @@ async fn promise_intent_rejects_blank_internal_idempotency_key() {
 
 #[tokio::test]
 async fn promise_intent_idempotency_is_scoped_per_initiator() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let initiator_a = sign_in(&app, "pi-user-scope-a", "scope-a").await;
     let initiator_b = sign_in(&app, "pi-user-scope-b", "scope-b").await;
     let counterparty = sign_in(&app, "pi-user-scope-c", "scope-c").await;
@@ -567,7 +581,8 @@ async fn promise_intent_idempotency_is_scoped_per_initiator() {
 
 #[tokio::test]
 async fn promise_intent_rejects_payload_drift_for_same_initiator_and_key() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let initiator = sign_in(&app, "pi-user-drift-a", "drift-a").await;
     let counterparty_a = sign_in(&app, "pi-user-drift-b", "drift-b").await;
     let counterparty_b = sign_in(&app, "pi-user-drift-c", "drift-c").await;
@@ -609,7 +624,8 @@ async fn promise_intent_rejects_payload_drift_for_same_initiator_and_key() {
 
 #[tokio::test]
 async fn payment_callback_with_non_positive_amount_is_accepted_then_requires_review() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let prepared = prepare_pending_case(&app).await;
 
     let callback = post_json(
@@ -638,7 +654,8 @@ async fn payment_callback_with_non_positive_amount_is_accepted_then_requires_rev
 
 #[tokio::test]
 async fn payment_callback_rejects_oversized_body() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let request = Request::builder()
         .method("POST")
         .uri("/api/payment/callback")
@@ -736,6 +753,55 @@ async fn prepare_funded_case(app: &Router) -> PreparedCase {
     assert_eq!(drain_projection.status, StatusCode::OK);
 
     prepared
+}
+
+async fn assert_writer_truth_tables(settlement_case_id: &str) {
+    let client = test_db_client().await;
+    let row = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*) FROM dao.promise_intent_idempotency_keys) AS idempotency_count,
+                (SELECT count(*) FROM dao.settlement_submissions WHERE provider_submission_id IS NOT NULL) AS submission_mapping_count,
+                (SELECT count(*) FROM core.raw_provider_callbacks) AS raw_callback_count,
+                (SELECT count(*) FROM core.raw_provider_callback_dedupe) AS raw_callback_dedupe_count,
+                (SELECT count(*) FROM core.payment_receipts) AS receipt_count,
+                (SELECT count(*) FROM ledger.journal_entries WHERE settlement_case_id::text = $1) AS journal_count,
+                (SELECT count(*)
+                   FROM ledger.account_postings posting
+                   JOIN ledger.journal_entries journal
+                     ON journal.journal_entry_id = posting.journal_entry_id
+                  WHERE journal.settlement_case_id::text = $1) AS posting_count,
+                (SELECT count(*) FROM projection.settlement_views WHERE settlement_case_id::text = $1) AS settlement_view_count
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("writer truth counts must be queryable");
+
+    assert_eq!(row.get::<_, i64>("idempotency_count"), 1);
+    assert_eq!(row.get::<_, i64>("submission_mapping_count"), 1);
+    assert_eq!(row.get::<_, i64>("raw_callback_count"), 1);
+    assert_eq!(row.get::<_, i64>("raw_callback_dedupe_count"), 1);
+    assert_eq!(row.get::<_, i64>("receipt_count"), 1);
+    assert_eq!(row.get::<_, i64>("journal_count"), 1);
+    assert_eq!(row.get::<_, i64>("posting_count"), 2);
+    assert_eq!(row.get::<_, i64>("settlement_view_count"), 1);
+}
+
+async fn test_db_client() -> tokio_postgres::Client {
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let (client, connection) = tokio_postgres::connect(&database_url, tokio_postgres::NoTls)
+        .await
+        .expect("test database must be reachable");
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            eprintln!("test database connection error: {error}");
+        }
+    });
+    client
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {

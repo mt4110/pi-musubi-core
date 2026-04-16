@@ -46,6 +46,9 @@ cargo run -p musubi_backend
 
 Backend startup connects to the writer DB and checks migration status. When `REQUIRE_LATEST_SCHEMA=true`, startup fails if migration tracking is missing, the DB has an applied migration missing from the local checkout, a migration failed, checksum drift exists, or pending migrations remain.
 
+The happy-route integration tests use `MUSUBI_TEST_DATABASE_URL` as their writer truth database.
+The test harness serializes DB-backed app states, bootstraps / migrates the test DB once per test process, and truncates the happy-route truth, outbox, ledger, and projection tables before each test.
+
 ## Migration Rules
 
 - SQL files live under `apps/backend/migrations/`.

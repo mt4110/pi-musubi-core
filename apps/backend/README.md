@@ -18,8 +18,7 @@ The backend now ships with a minimal local development stack:
 - Redis for future cache / queue / coordination work
 
 Important:
-the current Issue #7 happy-route demo still keeps its authoritative state in an in-memory stand-in.
-PostgreSQL is the target truth boundary for the long-term implementation, but the local Axum happy route has not been fully rewired to it yet.
+the current Issue #21 happy-route path uses PostgreSQL as writer truth for sign-in, Promise / settlement authoring, provider submission mapping, raw callback evidence, receipt idempotency, ledger append, outbox / command-inbox coordination, and the existing settlement-view projection parity path.
 See `docs/happy_route_walkthrough.md` for the exact current boundary.
 
 ### Start local infra
@@ -70,13 +69,13 @@ The Day 1 Pi provider adapter is sandbox-only:
 - `PROVIDER_WEBHOOK_SECRET`
 - `PROVIDER_TIMEOUT_MS=3000`
 
-The adapter records provider idempotency mappings and raw callback dedupe in the current in-memory happy-route store.
+The adapter records provider idempotency mappings and raw callback dedupe in PostgreSQL.
 It reads only `PROVIDER_*` settings, so sandbox and production Pi credentials do not silently mix through legacy `PI_API_*` fallback.
 `POST /api/payment/callback` is intentionally thin: it saves exact raw body bytes plus redacted headers, records callback dedupe, enqueues `INGEST_PROVIDER_CALLBACK`, and returns without mutating settlement final state.
 Normalization, receipt verification, funding, ledger append, and projection refresh run from the orchestration drain / worker side.
 If a valid callback arrives before provider submission mapping is visible, callback processing is retried/deferred before any manual-review parking.
 Callback signature verification is intentionally skipped for Issue #9 until a pinned Pi callback signature / auth contract exists; raw callback records keep `signature_valid = None` as the future slot.
-Those records are shaped as the future PostgreSQL uniqueness boundaries; they are not a production Pi payment integration yet.
+Those records are durable uniqueness boundaries; they are not a production Pi payment integration yet.
 
 ### Run the orchestration contract tests
 
@@ -99,11 +98,12 @@ cargo test
 ## Database skeleton
 
 Issue #3 adds plain SQL migration scaffolding under `migrations/`.
-These files establish the Day 1 `core`, `dao`, `ledger`, `outbox`, and `projection` boundaries without adding runtime DB wiring yet.
+These files establish the Day 1 `core`, `dao`, `ledger`, `outbox`, and `projection` boundaries.
 
 See `docs/schema_skeleton.md` for ownership notes and deferred scope.
 Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
+Issue #21 wires the happy-route writer truth to PostgreSQL while preserving the existing HTTP surface and settlement-view response contract.
 Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 ISSUE-10 adds Day 1 safer venue proof primitives.
 The public HTTP surface supports the normal venue-code path only.

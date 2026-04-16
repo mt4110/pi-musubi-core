@@ -1,6 +1,6 @@
 # Happy Route Walkthrough
 
-This note documents the minimal lawful Day 1 happy route implemented for M1 Issue #7.
+This note documents the minimal lawful Day 1 happy route after Issue #21.
 
 The goal is not broad product UX.
 It is to prove that the backend can show a MUSUBI-shaped flow with visible truth boundaries:
@@ -17,7 +17,9 @@ It is to prove that the backend can show a MUSUBI-shaped flow with visible truth
 
 ### 1. `POST /api/auth/pi`
 
-- Upserts a mutable Ordinary Account envelope in in-memory `core`-like state.
+- Upserts a mutable Ordinary Account envelope in `core.accounts`.
+- Upserts the Pi identity link in `core.pi_account_links`.
+- Rotates the local bearer session in `core.auth_sessions`.
 - Requires a non-empty `access_token` in the request payload.
 - Returns a bearer token and stable account id for the signed-in Pi identity.
 - Existing `pi_uid` reuse is only allowed when the same access-token fingerprint is presented again; production provider identity verification is still deferred.
@@ -61,6 +63,8 @@ For `OPEN_HOLD_INTENT` it:
 - emits `REFRESH_SETTLEMENT_VIEW`
 
 In code, that split now starts at `process_open_hold_intent(...)` and is explicitly separated into a prepare write and a post-I/O persistence write so the future PostgreSQL transaction boundary is easier to replace faithfully.
+The prepare write and post-I/O persistence write are now real PostgreSQL writer transactions.
+The sandbox provider call is outside the authoritative transaction.
 
 Immediate response:
 - processed outbox rows
@@ -125,15 +129,16 @@ Returns the derived read model:
 
 ### Authoritative truth
 
-Written inside the in-memory authoritative store in `src/services/happy_route/`:
+Written in PostgreSQL through `src/services/happy_route/repository.rs`:
 - mutable account/session records
 - Promise coordination records
 - settlement case / intent / submission / observation records
 - payment receipt records
 - append-only ledger journals / postings
 
-This is a Day 1 demo stand-in for PostgreSQL.
-The code is shaped so that the lock boundary plays the role of the authoritative transaction boundary.
+The happy-route writer uses direct `tokio-postgres` writer connections.
+Authoritative writes that enqueue outbox work happen in the same PostgreSQL transaction as their outbox rows.
+Provider I/O and callback normalization / verification are not awaited while holding an authoritative transaction open.
 
 ### Outbox
 
@@ -150,6 +155,9 @@ Outbox rows are explicit `OutboxMessageRecord` values with:
 - delivery status
 - typed command payload
 
+Rows live in `outbox.events`.
+Consumer idempotency lives in `outbox.command_inbox`, with completed rows bounded by retain/prune metadata.
+
 ### Evidence observation
 
 Observed in two places:
@@ -161,8 +169,7 @@ Provider responses are treated as evidence, not business truth.
 
 ### Ledger fact append
 
-The happy route appends receipt-recognition truth in:
-- `append_receipt_recognition_ledger(...)`
+The happy route appends receipt-recognition truth in PostgreSQL when a verified receipt first funds a settlement case.
 
 It creates:
 - one journal entry with `entry_kind = receipt_recognized`
@@ -179,45 +186,44 @@ Projection refresh is handled by outbox consumers:
 
 The settlement view total is rebuilt from authoritative ledger postings, not copied from the callback payload.
 
+`GET /api/projection/settlement-views/:settlement_case_id` keeps the existing response contract, but the row is now rebuilt from writer-owned PostgreSQL facts.
+
 ## What is real vs stubbed
 
 ### Real in this M1 implementation
 
 - explicit Promise -> settlement case authoring
-- transactional-shape truth + outbox boundary
+- PostgreSQL writer truth + outbox boundary
 - separate outbox relay step
-- durable-style command-inbox dedupe
+- durable command-inbox dedupe
 - sandbox Pi provider submission behind `SettlementBackend`
-- provider request hash and idempotency mapping
+- durable provider request hash and idempotency mapping
 - minimal sandbox provider status polling through `reconcile_submission(...)`
 - raw callback first
-- malformed / unmapped callback evidence retention
+- durable malformed / unmapped callback evidence retention
 - thin callback endpoint that accepts raw evidence and schedules provider callback processing
 - out-of-order callback retry while provider submission mapping is still catching up
 - raw callback replay detection
 - provider error classification into retryable, terminal, and manual-review outcomes
-- idempotent payment receipt handling
+- DB-constrained idempotent payment receipt handling
 - append-only ledger journal/posting creation
 - projection rebuilt from authoritative truth
 
 ### Stubbed on purpose
 
-- PostgreSQL runtime wiring
-- actual SQL transaction runner
 - production Pi provider / wallet integration
 - callback signature verification, until a pinned Pi callback signature / auth contract exists
-- real background workers / leases / retries
-- real pruning job execution
+- production worker deployment and retry tuning beyond the local drain / debug worker
+- proof persistence
 
 The backend adapter is sandbox-only, but the truth boundaries are not fake.
 
-## What remains deferred after M1
+## What remains deferred after Issue #21
 
-- replace the in-memory authoritative store with PostgreSQL-backed repositories
-- bind the current record shapes to actual `core` / `dao` / `ledger` / `outbox` / `projection` tables
 - move internal relay endpoint behavior into real workers
-- add bounded retry / quarantine / pruning execution to runtime jobs
 - add reconciliation paths for unknown / contradictory provider results
+- proof persistence
+- #22 read-side expansion: trust read models, Promise read models, freshness metadata, rebuild/backfill API contracts, ranking/scoring exclusions, and broader projection growth
 - add release / refund / compensation happy and unhappy routes beyond initial funding recognition
 
 ## Important Day 1 limitations
