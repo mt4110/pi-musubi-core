@@ -456,8 +456,7 @@ impl HappyRouteStore {
 
         let amount_minor_units = raw_fields
             .and_then(|fields| fields.amount_minor_units)
-            .map(|value| to_i64(value, "callback amount_minor_units"))
-            .transpose()?;
+            .and_then(|value| i64::try_from(value).ok());
         tx.execute(
             "
             INSERT INTO core.raw_provider_callbacks (
@@ -526,7 +525,16 @@ impl HappyRouteStore {
                 WITH claimed AS (
                     SELECT event_id
                     FROM outbox.events
-                    WHERE delivery_status = $1
+                    WHERE (
+                            delivery_status = $1
+                            OR (
+                                delivery_status = $2
+                                AND COALESCE(
+                                    claimed_until,
+                                    last_attempt_at + interval '5 minutes'
+                                ) < CURRENT_TIMESTAMP
+                            )
+                        )
                       AND available_at <= CURRENT_TIMESTAMP
                     ORDER BY causal_order
                     LIMIT 1
@@ -534,6 +542,8 @@ impl HappyRouteStore {
                 )
                 UPDATE outbox.events events
                 SET delivery_status = $2,
+                    claimed_by = $3,
+                    claimed_until = CURRENT_TIMESTAMP + interval '5 minutes',
                     attempt_count = events.attempt_count + 1,
                     last_attempt_at = CURRENT_TIMESTAMP
                 FROM claimed
@@ -554,7 +564,7 @@ impl HappyRouteStore {
                     events.published_at,
                     events.created_at
                 ",
-                &[&OUTBOX_PENDING, &OUTBOX_PROCESSING],
+                &[&OUTBOX_PENDING, &OUTBOX_PROCESSING, &"happy-route-drain"],
             )
             .await
             .map_err(db_error)?;
@@ -595,6 +605,8 @@ impl HappyRouteStore {
                             "
                             UPDATE outbox.events
                             SET delivery_status = $2,
+                                claimed_by = NULL,
+                                claimed_until = NULL,
                                 last_error_class = $3,
                                 last_error_detail = $4,
                                 available_at = CURRENT_TIMESTAMP + ($5::bigint * interval '1 millisecond')
@@ -918,7 +930,7 @@ impl HappyRouteStore {
         observed_amount: &Money,
     ) -> Result<(), HappyRouteError> {
         let raw_callback_id = parse_uuid(raw_callback_id, "raw callback id")?;
-        let amount_minor_units = to_i64(observed_amount.minor_units(), "callback amount")?;
+        let amount_minor_units = i64::try_from(observed_amount.minor_units()).ok();
         let client = self.client.lock().await;
         client
             .execute(
@@ -1789,6 +1801,8 @@ async fn mark_outbox_published_tx(
         "
         UPDATE outbox.events
         SET delivery_status = $2,
+            claimed_by = NULL,
+            claimed_until = NULL,
             published_at = CURRENT_TIMESTAMP,
             retain_until = CURRENT_TIMESTAMP + ($3::bigint * interval '1 minute')
         WHERE event_id = $1
@@ -1813,6 +1827,8 @@ async fn mark_outbox_published_client(
             "
             UPDATE outbox.events
             SET delivery_status = $2,
+                claimed_by = NULL,
+                claimed_until = NULL,
                 published_at = CURRENT_TIMESTAMP,
                 retain_until = CURRENT_TIMESTAMP + ($3::bigint * interval '1 minute')
             WHERE event_id = $1
@@ -1840,6 +1856,8 @@ async fn mark_outbox_terminal_client(
             "
             UPDATE outbox.events
             SET delivery_status = $2,
+                claimed_by = NULL,
+                claimed_until = NULL,
                 last_error_class = $3,
                 last_error_detail = $4,
                 retain_until = NULL

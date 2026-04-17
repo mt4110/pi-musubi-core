@@ -288,6 +288,146 @@ async fn drain_outbox_rejects_mismatched_command_inbox_payloads() {
 }
 
 #[tokio::test]
+async fn drain_outbox_reclaims_stale_processing_events() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let initiator = sign_in(&app, "pi-user-stale-a", "stale-a").await;
+    let counterparty = sign_in(&app, "pi-user-stale-b", "stale-b").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-stale",
+            "realm_id": "realm-stale",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let client = test_db_client().await;
+    let event_id: Uuid = client
+        .query_one(
+            "
+            SELECT event_id
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'OPEN_HOLD_INTENT'
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("open hold event must exist")
+        .get("event_id");
+
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'processing',
+                claimed_by = 'dead-worker',
+                claimed_until = CURRENT_TIMESTAMP - interval '1 minute',
+                last_attempt_at = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("stale processing fixture must update");
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    assert!(
+        drain.body["processed_messages"]
+            .as_array()
+            .expect("processed_messages must be an array")
+            .iter()
+            .any(|message| {
+                message["event_type"] == "OPEN_HOLD_INTENT"
+                    && message["provider_submission_id"].is_string()
+            })
+    );
+}
+
+#[tokio::test]
+async fn oversized_callback_amount_is_retained_as_raw_evidence() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 9_223_372_036_854_775_808_i128,
+            "currency_code": "PI",
+            "txid": "pi-tx-oversized",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+    let raw_callback_id = callback.body["raw_callback_id"]
+        .as_str()
+        .expect("raw_callback_id must exist")
+        .to_owned();
+
+    let drain_callback =
+        post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_callback.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(drain_callback.body["error"], "provider requires review");
+
+    let client = test_db_client().await;
+    let raw_row = client
+        .query_one(
+            "
+            SELECT amount_minor_units, currency_code
+            FROM core.raw_provider_callbacks
+            WHERE raw_callback_id::text = $1
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("raw callback evidence must exist");
+    assert_eq!(raw_row.get::<_, Option<i64>>("amount_minor_units"), None);
+    assert_eq!(
+        raw_row.get::<_, Option<String>>("currency_code").as_deref(),
+        Some("PI")
+    );
+
+    let event_row = client
+        .query_one(
+            "
+            SELECT delivery_status
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ORDER BY causal_order DESC
+            LIMIT 1
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback outbox event must exist");
+    assert_eq!(
+        event_row.get::<_, String>("delivery_status"),
+        "manual_review"
+    );
+}
+
+#[tokio::test]
 async fn background_outbox_worker_processes_open_hold_without_http_drain() {
     let test_state = new_test_state().await.expect("test database state");
     let state = test_state.state.clone();
