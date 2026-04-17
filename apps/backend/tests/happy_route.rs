@@ -3,9 +3,14 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use musubi_backend::{build_app, new_test_state, start_background_outbox_worker};
+use musubi_backend::{
+    build_app, new_test_state,
+    services::happy_route::{self, HappyRouteError},
+    start_background_outbox_worker,
+};
 use serde_json::{Value, json};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn happy_route_flows_through_outbox_evidence_ledger_and_projection() {
@@ -204,6 +209,82 @@ async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
     assert_eq!(settlement_view.status, StatusCode::OK);
     assert_eq!(settlement_view.body["current_settlement_status"], "funded");
     assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
+async fn drain_outbox_rejects_mismatched_command_inbox_payloads() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let initiator = sign_in(&app, "pi-user-mismatch-a", "mismatch-a").await;
+    let counterparty = sign_in(&app, "pi-user-mismatch-b", "mismatch-b").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-mismatch",
+            "realm_id": "realm-mismatch",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let client = test_db_client().await;
+    let row = client
+        .query_one(
+            "
+            SELECT event_id, event_type, schema_version
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'OPEN_HOLD_INTENT'
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("open hold event must exist");
+    let event_id: Uuid = row.get("event_id");
+    let event_type: String = row.get("event_type");
+    let schema_version: i32 = row.get("schema_version");
+
+    client
+        .execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                source_event_id,
+                command_id,
+                payload_checksum,
+                status,
+                command_type,
+                schema_version,
+                received_at,
+                available_at
+            )
+            VALUES ($1, 'settlement-orchestrator', $2, $2, $3, 'processing', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ",
+            &[&Uuid::new_v4(), &event_id, &"bogus-checksum", &event_type, &schema_version],
+        )
+        .await
+        .expect("command inbox corruption fixture must insert");
+
+    let error = happy_route::drain_outbox(&test_state.state)
+        .await
+        .expect_err("corrupt command inbox must fail");
+    assert!(matches!(error, HappyRouteError::Internal(_)));
+    assert_eq!(
+        error.message(),
+        "stored command inbox entry did not match the outbox payload"
+    );
 }
 
 #[tokio::test]

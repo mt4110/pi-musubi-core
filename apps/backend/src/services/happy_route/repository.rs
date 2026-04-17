@@ -963,6 +963,8 @@ impl HappyRouteStore {
                     settlement.case_status,
                     settlement.backend_key,
                     settlement.backend_version,
+                    settlement.created_at AS settlement_created_at,
+                    settlement.updated_at AS settlement_updated_at,
                     promise.realm_id AS promise_realm_id,
                     promise.initiator_account_id,
                     promise.counterparty_account_id,
@@ -970,6 +972,8 @@ impl HappyRouteStore {
                     promise.deposit_amount_minor_units,
                     promise.deposit_currency_code,
                     promise.deposit_scale,
+                    promise.created_at AS promise_created_at,
+                    promise.updated_at AS promise_updated_at,
                     link.pi_uid AS initiator_pi_uid
                 FROM dao.settlement_submissions submission
                 JOIN dao.settlement_cases settlement
@@ -1698,7 +1702,11 @@ async fn begin_command_tx(
     let row = tx
         .query_one(
             "
-            SELECT status
+            SELECT
+                status,
+                payload_checksum,
+                command_type,
+                schema_version
             FROM outbox.command_inbox
             WHERE consumer_name = $1
               AND command_id = $2
@@ -1709,6 +1717,17 @@ async fn begin_command_tx(
         .await
         .map_err(db_error)?;
     let status: String = row.get("status");
+    let stored_payload_checksum: Option<String> = row.get("payload_checksum");
+    let stored_command_type: String = row.get("command_type");
+    let stored_schema_version: i32 = row.get("schema_version");
+    if stored_payload_checksum.as_deref() != Some(payload_checksum.as_str())
+        || stored_command_type != message.event_type
+        || stored_schema_version != message.schema_version
+    {
+        return Err(HappyRouteError::Internal(
+            "stored command inbox entry did not match the outbox payload".to_owned(),
+        ));
+    }
     if status == "completed" {
         Ok(CommandBegin::Completed)
     } else {
@@ -2166,8 +2185,8 @@ fn promise_intent_from_joined_row(
             deposit_scale as u32,
         ),
         intent_status: row.get("intent_status"),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: row.get("promise_created_at"),
+        updated_at: row.get("promise_updated_at"),
     })
 }
 
@@ -2204,8 +2223,8 @@ fn settlement_case_from_joined_row(row: &Row) -> Result<SettlementCaseRecord, Ha
             BackendKey::new(backend_key),
             BackendVersion::new(backend_version),
         ),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: row.get("settlement_created_at"),
+        updated_at: row.get("settlement_updated_at"),
     })
 }
 
