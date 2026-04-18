@@ -227,6 +227,11 @@ async fn concurrent_payment_receipt_insert_replays_race_winner() {
         )
         .await
         .expect("blocked payment receipt must insert");
+    let blocker_pid: i32 = blocker_tx
+        .query_one("SELECT pg_backend_pid() AS pid", &[])
+        .await
+        .expect("blocker backend pid must be queryable")
+        .get("pid");
 
     let app_clone = app.clone();
     let request = tokio::spawn(async move {
@@ -238,7 +243,7 @@ async fn concurrent_payment_receipt_insert_replays_race_winner() {
         )
         .await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_for_backend_lock_contention(blocker_pid).await;
     blocker_tx
         .commit()
         .await
@@ -1316,12 +1321,17 @@ async fn first_time_sign_in_replays_race_winner_instead_of_500() {
         )
         .await
         .expect("blocked pi link must insert");
+    let blocker_pid: i32 = blocker_tx
+        .query_one("SELECT pg_backend_pid() AS pid", &[])
+        .await
+        .expect("blocker backend pid must be queryable")
+        .get("pid");
 
     let app_clone = app.clone();
     let request = tokio::spawn(async move {
         sign_in_with_access_token_response(&app_clone, pi_uid, username, access_token).await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_for_backend_lock_contention(blocker_pid).await;
     blocker_tx
         .commit()
         .await
@@ -1442,6 +1452,26 @@ async fn settlement_projection_requires_authenticated_participant() {
     )
     .await;
     assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn settlement_projection_keeps_invalid_ids_as_not_found() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+
+    let invalid_view = get_json(
+        &app,
+        "/api/projection/settlement-views/not-a-uuid",
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_view.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_view.body["error"],
+        "settlement projection has not been built for that settlement_case_id"
+    );
 }
 
 #[tokio::test]
@@ -1633,6 +1663,11 @@ async fn promise_intent_replays_race_winner_instead_of_500() {
         )
         .await
         .expect("blocked idempotency row must insert");
+    let blocker_pid: i32 = blocker_tx
+        .query_one("SELECT pg_backend_pid() AS pid", &[])
+        .await
+        .expect("blocker backend pid must be queryable")
+        .get("pid");
 
     let app_clone = app.clone();
     let initiator_token = initiator.token.clone();
@@ -1652,7 +1687,7 @@ async fn promise_intent_replays_race_winner_instead_of_500() {
         )
         .await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    wait_for_backend_lock_contention(blocker_pid).await;
     blocker_tx
         .commit()
         .await
@@ -1911,6 +1946,36 @@ async fn test_db_client() -> tokio_postgres::Client {
         }
     });
     client
+}
+
+async fn wait_for_backend_lock_contention(blocking_pid: i32) {
+    let observer = test_db_client().await;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let blocked: bool = observer
+            .query_one(
+                "
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock'
+                      AND $1 = ANY(pg_blocking_pids(pid))
+                ) AS blocked
+                ",
+                &[&blocking_pid],
+            )
+            .await
+            .expect("lock contention must be queryable")
+            .get("blocked");
+        if blocked {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "request never blocked on backend pid {blocking_pid}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 }
 
 fn sha256_hex_test(bytes: &[u8]) -> String {

@@ -1671,7 +1671,13 @@ impl HappyRouteStore {
         settlement_case_id: &str,
         viewer_account_id: &str,
     ) -> Result<SettlementViewSnapshot, HappyRouteError> {
-        let settlement_case_id = parse_uuid(settlement_case_id, "settlement case id")?;
+        let settlement_case_id = match parse_uuid(settlement_case_id, "settlement case id") {
+            Ok(settlement_case_id) => settlement_case_id,
+            Err(HappyRouteError::BadRequest(_)) => {
+                return Err(settlement_projection_not_found());
+            }
+            Err(error) => return Err(error),
+        };
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         let client = self.client.lock().await;
         let row = client
