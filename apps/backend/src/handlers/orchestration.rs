@@ -1,9 +1,13 @@
-use axum::{Json, extract::State};
+use axum::{
+    Json,
+    extract::State,
+    http::HeaderMap,
+};
 use serde::Serialize;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, map_happy_route_error},
+    handlers::{ApiResult, map_happy_route_error, require_internal_bearer_token},
     services::happy_route::drain_outbox as drain_outbox_service,
 };
 
@@ -22,7 +26,11 @@ pub struct ProcessedOutboxMessageResponse {
     pub already_processed: bool,
 }
 
-pub async fn drain_outbox(State(state): State<SharedState>) -> ApiResult<DrainOutboxResponse> {
+pub async fn drain_outbox(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> ApiResult<DrainOutboxResponse> {
+    require_internal_bearer_token(&headers)?;
     let outcome = drain_outbox_service(&state)
         .await
         .map_err(map_happy_route_error)?;

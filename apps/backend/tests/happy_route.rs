@@ -243,6 +243,25 @@ async fn projection_read_models_expose_freshness_and_bounded_trust() {
             .iter()
             .any(|code| code.as_str() == Some("proof_unavailable"))
     );
+
+    let counterparty_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.counterparty_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(counterparty_trust.status, StatusCode::OK);
+    assert_eq!(counterparty_trust.body["funded_settlement_count_90d"], 1);
+    assert!(
+        counterparty_trust.body["reason_codes"]
+            .as_array()
+            .expect("counterparty reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("deposit_backed_promise_funded"))
+    );
 }
 
 #[tokio::test]
@@ -285,19 +304,19 @@ async fn projection_rebuild_restores_read_models_from_writer_truth() {
     let rebuilt = rebuild.body["rebuilt"]
         .as_array()
         .expect("rebuilt items must be an array");
-    assert_eq!(rebuilt.len(), 4);
-    assert!(rebuilt.iter().any(|item| {
-        item["projection_name"] == "promise_views" && item["projection_row_count"] == 1
-    }));
-    assert!(rebuilt.iter().any(|item| {
-        item["projection_name"] == "settlement_views" && item["projection_row_count"] == 1
-    }));
-    assert!(rebuilt.iter().any(|item| {
-        item["projection_name"] == "trust_snapshots" && item["projection_row_count"] == 2
-    }));
-    assert!(rebuilt.iter().any(|item| {
-        item["projection_name"] == "realm_trust_snapshots" && item["projection_row_count"] == 2
-    }));
+    let matching_rebuilt_count = |projection_name: &str, projection_row_count: i64| {
+        rebuilt
+            .iter()
+            .filter(|item| {
+                item["projection_name"] == projection_name
+                    && item["projection_row_count"].as_i64() == Some(projection_row_count)
+            })
+            .count()
+    };
+    assert_eq!(matching_rebuilt_count("promise_views", 1), 1);
+    assert_eq!(matching_rebuilt_count("settlement_views", 1), 1);
+    assert_eq!(matching_rebuilt_count("trust_snapshots", 2), 1);
+    assert_eq!(matching_rebuilt_count("realm_trust_snapshots", 2), 1);
 
     let rebuilt_promise = get_json(
         &app,
@@ -506,13 +525,14 @@ async fn duplicate_projector_input_is_safe_for_projection_rows() {
 
     let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain.status, StatusCode::OK);
+    let event_id_text = event_id.to_string();
     assert!(
         drain.body["processed_messages"]
             .as_array()
             .expect("processed messages must be an array")
             .iter()
             .any(|message| {
-                message["event_id"].as_str() == Some(event_id.to_string().as_str())
+                message["event_id"].as_str() == Some(event_id_text.as_str())
                     && message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
                     && message["already_processed"].as_bool() == Some(true)
             })
@@ -1878,7 +1898,7 @@ async fn re_authentication_rotates_the_prior_session_token() {
 }
 
 #[tokio::test]
-async fn settlement_projection_requires_authenticated_participant() {
+async fn projection_reads_require_authenticated_participant() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
@@ -1895,6 +1915,17 @@ async fn settlement_projection_requires_authenticated_participant() {
     .await;
     assert_eq!(anonymous_view.status, StatusCode::UNAUTHORIZED);
 
+    let anonymous_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(anonymous_promise.status, StatusCode::UNAUTHORIZED);
+
     let outsider_view = get_json(
         &app,
         &format!(
@@ -1905,10 +1936,21 @@ async fn settlement_projection_requires_authenticated_participant() {
     )
     .await;
     assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
+
+    let outsider_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_promise.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn settlement_projection_keeps_invalid_ids_as_not_found() {
+async fn projection_reads_keep_invalid_ids_as_not_found() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
@@ -1924,6 +1966,48 @@ async fn settlement_projection_keeps_invalid_ids_as_not_found() {
     assert_eq!(
         invalid_view.body["error"],
         "settlement projection has not been built for that settlement_case_id"
+    );
+
+    let invalid_promise = get_json(
+        &app,
+        "/api/projection/promise-views/not-a-uuid",
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_promise.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_promise.body["error"],
+        "promise projection has not been built for that promise_intent_id"
+    );
+
+    let invalid_trust = get_json(
+        &app,
+        "/api/projection/trust-snapshots/not-a-uuid",
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_trust.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_trust.body["error"],
+        "trust projection is not visible for that account"
+    );
+
+    let invalid_realm_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/not-a-uuid",
+            prepared.realm_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_realm_trust.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_realm_trust.body["error"],
+        "trust projection is not visible for that account"
     );
 }
 

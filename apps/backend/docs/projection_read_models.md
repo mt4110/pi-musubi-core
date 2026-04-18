@@ -65,7 +65,8 @@ The internal rebuild path is:
 - `POST /api/internal/projection/rebuild`
 
 It is mounted under the same internal/debug gate as the orchestration drain.
-The rebuild deletes projection rows only, then regenerates them from writer-owned facts in one writer transaction.
+In release builds, internal routes also require `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`.
+The rebuild clears projection rows only, then regenerates them from writer-owned facts in one writer transaction.
 It also updates `projection.projection_meta` with row counts, source fact counts, watermarks, lag, and the rebuild generation.
 
 ## Trust Boundary

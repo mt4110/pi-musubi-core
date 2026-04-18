@@ -8,8 +8,8 @@ Current local HTTP surface:
 - `POST /api/payment/callback`
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
-- `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`
-- `POST /api/internal/projection/rebuild` under the same internal/debug gate
+- `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true` and the request includes `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`
+- `POST /api/internal/projection/rebuild` under the same internal/debug gate and release-time internal bearer-token requirement
 - `GET /api/projection/settlement-views/{settlement_case_id}` for authenticated participants only
 - `GET /api/projection/settlement-views/{settlement_case_id}/expanded` for authenticated participants only
 - `GET /api/projection/promise-views/{promise_intent_id}` for authenticated participants only

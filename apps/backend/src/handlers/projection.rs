@@ -8,7 +8,9 @@ use serde::Serialize;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, map_happy_route_error, require_bearer_token},
+    handlers::{
+        ApiResult, map_happy_route_error, require_bearer_token, require_internal_bearer_token,
+    },
     services::happy_route::{
         ExpandedSettlementViewSnapshot, ProjectionProvenance, PromiseProjectionSnapshot,
         TrustSnapshot, authorize_account,
@@ -209,7 +211,9 @@ pub async fn get_realm_trust_snapshot(
 
 pub async fn rebuild_projection_read_models(
     State(state): State<SharedState>,
+    headers: HeaderMap,
 ) -> ApiResult<ProjectionRebuildResponse> {
+    require_internal_bearer_token(&headers)?;
     let outcome = rebuild_projection_read_models_service(&state)
         .await
         .map_err(map_happy_route_error)?;

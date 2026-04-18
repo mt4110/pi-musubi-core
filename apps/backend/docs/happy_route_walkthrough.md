@@ -50,6 +50,7 @@ Immediate response:
 This is the explicit demo relay for the local happy route.
 It makes the asynchronous boundary visible instead of hiding provider work inside the request that created truth.
 The route is mounted in debug builds by default, and in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`.
+Release-time internal routes also require `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`.
 
 For `OPEN_HOLD_INTENT` it:
 - claims the outbox row

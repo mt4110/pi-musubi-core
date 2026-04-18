@@ -1647,23 +1647,49 @@ impl HappyRouteStore {
         promise_intent_id: &str,
         viewer_account_id: &str,
     ) -> Result<PromiseProjectionSnapshot, HappyRouteError> {
-        let promise_intent_id = parse_uuid(promise_intent_id, "promise intent id")?;
+        let promise_intent_id = match parse_uuid(promise_intent_id, "promise intent id") {
+            Ok(promise_intent_id) => promise_intent_id,
+            Err(HappyRouteError::BadRequest(_)) => {
+                return Err(promise_projection_not_found());
+            }
+            Err(error) => return Err(error),
+        };
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         let client = self.client.lock().await;
         let row = client
             .query_opt(
                 "
-                SELECT *
-                FROM projection.promise_views
-                WHERE promise_intent_id = $1
+                SELECT
+                    view.promise_intent_id,
+                    view.realm_id,
+                    view.initiator_account_id,
+                    view.counterparty_account_id,
+                    view.current_intent_status,
+                    view.deposit_amount_minor_units,
+                    view.currency_code,
+                    view.deposit_scale,
+                    view.latest_settlement_case_id,
+                    view.latest_settlement_status,
+                    view.source_watermark_at,
+                    view.source_fact_count,
+                    view.freshness_checked_at,
+                    view.projection_lag_ms,
+                    view.last_projected_at,
+                    view.rebuild_generation,
+                    promise.initiator_account_id AS writer_initiator_account_id,
+                    promise.counterparty_account_id AS writer_counterparty_account_id
+                FROM projection.promise_views view
+                JOIN dao.promise_intents promise
+                    ON promise.promise_intent_id = view.promise_intent_id
+                WHERE view.promise_intent_id = $1
                 ",
                 &[&promise_intent_id],
             )
             .await
             .map_err(db_error)?
             .ok_or_else(promise_projection_not_found)?;
-        let initiator: Uuid = row.get("initiator_account_id");
-        let counterparty: Uuid = row.get("counterparty_account_id");
+        let initiator: Uuid = row.get("writer_initiator_account_id");
+        let counterparty: Uuid = row.get("writer_counterparty_account_id");
         if viewer_account_id != initiator && viewer_account_id != counterparty {
             return Err(promise_projection_not_found());
         }
@@ -1716,7 +1742,13 @@ impl HappyRouteStore {
         account_id: &str,
         viewer_account_id: &str,
     ) -> Result<TrustSnapshot, HappyRouteError> {
-        let account_id = parse_uuid(account_id, "account id")?;
+        let account_id = match parse_uuid(account_id, "account id") {
+            Ok(account_id) => account_id,
+            Err(HappyRouteError::BadRequest(_)) => {
+                return Err(trust_projection_not_found());
+            }
+            Err(error) => return Err(error),
+        };
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         if account_id != viewer_account_id {
             return Err(trust_projection_not_found());
@@ -1750,7 +1782,13 @@ impl HappyRouteStore {
                 "realm_id is required".to_owned(),
             ));
         }
-        let account_id = parse_uuid(account_id, "account id")?;
+        let account_id = match parse_uuid(account_id, "account id") {
+            Ok(account_id) => account_id,
+            Err(HappyRouteError::BadRequest(_)) => {
+                return Err(trust_projection_not_found());
+            }
+            Err(error) => return Err(error),
+        };
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         if account_id != viewer_account_id {
             return Err(trust_projection_not_found());
@@ -1781,11 +1819,12 @@ impl HappyRouteStore {
         let tx = client.transaction().await.map_err(db_error)?;
         tx.batch_execute(
             "
-            DELETE FROM projection.projection_meta;
-            DELETE FROM projection.realm_trust_snapshots;
-            DELETE FROM projection.trust_snapshots;
-            DELETE FROM projection.settlement_views;
-            DELETE FROM projection.promise_views;
+            TRUNCATE TABLE
+                projection.projection_meta,
+                projection.realm_trust_snapshots,
+                projection.trust_snapshots,
+                projection.settlement_views,
+                projection.promise_views;
             ",
         )
         .await
@@ -1822,13 +1861,8 @@ impl HappyRouteStore {
             .map_err(db_error)?;
         for row in settlement_rows {
             let settlement_case_id: Uuid = row.get("settlement_case_id");
-            let promise_intent_id = refresh_settlement_projection_tx(
-                &tx,
-                &settlement_case_id,
-                Some(rebuild_generation),
-            )
-            .await?;
-            refresh_trust_for_promise_tx(&tx, &promise_intent_id, Some(rebuild_generation)).await?;
+            refresh_settlement_projection_tx(&tx, &settlement_case_id, Some(rebuild_generation))
+                .await?;
         }
 
         let rebuilt_at = tx
@@ -2719,8 +2753,7 @@ async fn refresh_global_trust_snapshot_tx(
                     WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
                 )::integer AS promise_participation_count_90d,
                 count(*) FILTER (
-                    WHERE initiator_account_id = $1
-                      AND case_status = 'funded'
+                    WHERE case_status = 'funded'
                       AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
                 )::integer AS funded_settlement_count_90d,
                 count(settlement_case_id)::integer AS settlement_count,
@@ -2888,8 +2921,7 @@ async fn refresh_realm_trust_snapshot_tx(
                     WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
                 )::integer AS promise_participation_count_90d,
                 count(*) FILTER (
-                    WHERE initiator_account_id = $1
-                      AND case_status = 'funded'
+                    WHERE case_status = 'funded'
                       AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
                 )::integer AS funded_settlement_count_90d,
                 count(settlement_case_id)::integer AS settlement_count,
@@ -3020,29 +3052,29 @@ async fn upsert_projection_meta_tx(
             WITH meta AS (
                 SELECT
                     'promise_views'::text AS projection_name,
-                    count(*)::integer AS projection_row_count,
-                    COALESCE(sum(source_fact_count), 0)::integer AS source_fact_count,
+                    count(*)::bigint AS projection_row_count,
+                    COALESCE(sum(source_fact_count), 0)::bigint AS source_fact_count,
                     COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP) AS source_watermark_at
                 FROM projection.promise_views
                 UNION ALL
                 SELECT
                     'settlement_views',
-                    count(*)::integer,
-                    COALESCE(sum(source_fact_count), 0)::integer,
+                    count(*)::bigint,
+                    COALESCE(sum(source_fact_count), 0)::bigint,
                     COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
                 FROM projection.settlement_views
                 UNION ALL
                 SELECT
                     'trust_snapshots',
-                    count(*)::integer,
-                    COALESCE(sum(source_fact_count), 0)::integer,
+                    count(*)::bigint,
+                    COALESCE(sum(source_fact_count), 0)::bigint,
                     COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
                 FROM projection.trust_snapshots
                 UNION ALL
                 SELECT
                     'realm_trust_snapshots',
-                    count(*)::integer,
-                    COALESCE(sum(source_fact_count), 0)::integer,
+                    count(*)::bigint,
+                    COALESCE(sum(source_fact_count), 0)::bigint,
                     COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
                 FROM projection.realm_trust_snapshots
             ),
@@ -3098,8 +3130,8 @@ async fn upsert_projection_meta_tx(
         .into_iter()
         .map(|row| ProjectionRebuildItem {
             projection_name: row.get("projection_name"),
-            projection_row_count: i64::from(row.get::<_, i32>("projection_row_count")),
-            source_fact_count: i64::from(row.get::<_, i32>("source_fact_count")),
+            projection_row_count: row.get("projection_row_count"),
+            source_fact_count: row.get("source_fact_count"),
             source_watermark_at: row.get("source_watermark_at"),
             projection_lag_ms: row.get("projection_lag_ms"),
         })
