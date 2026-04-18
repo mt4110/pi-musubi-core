@@ -111,6 +111,16 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
                 }
             }
         }
+        HappyRouteError::Database {
+            message, retryable, ..
+        } => {
+            eprintln!("database happy route error: {message}");
+            if retryable {
+                service_unavailable("temporarily unavailable")
+            } else {
+                internal_server_error("internal server error")
+            }
+        }
         HappyRouteError::Internal(message) => {
             eprintln!("internal happy route error: {message}");
             internal_server_error("internal server error")

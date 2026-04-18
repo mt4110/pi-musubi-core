@@ -543,7 +543,7 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
     let event_row = client
         .query_one(
             "
-            SELECT delivery_status
+            SELECT event_id, delivery_status
             FROM outbox.events
             WHERE aggregate_id::text = $1
               AND event_type = 'INGEST_PROVIDER_CALLBACK'
@@ -554,10 +554,68 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
         )
         .await
         .expect("callback outbox event must exist");
+    let callback_event_id: Uuid = event_row.get("event_id");
     assert_eq!(
         event_row.get::<_, String>("delivery_status"),
         "manual_review"
     );
+
+    let command_row = client
+        .query_one(
+            "
+            SELECT status, claimed_by, claimed_until, retain_until
+            FROM outbox.command_inbox
+            WHERE consumer_name = 'provider-callback-consumer'
+              AND command_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("callback command inbox row must exist");
+    assert_eq!(command_row.get::<_, String>("status"), "quarantined");
+    assert_eq!(command_row.get::<_, Option<String>>("claimed_by"), None);
+    assert_eq!(
+        command_row.get::<_, Option<chrono::DateTime<chrono::Utc>>>("claimed_until"),
+        None
+    );
+    assert!(
+        command_row
+            .get::<_, Option<chrono::DateTime<chrono::Utc>>>("retain_until")
+            .is_some()
+    );
+
+    client
+        .execute(
+            "
+            UPDATE outbox.command_inbox
+            SET retain_until = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE consumer_name = 'provider-callback-consumer'
+              AND command_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("expired terminal command row must be updateable");
+
+    let prune = happy_route::drain_outbox(&test_state.state)
+        .await
+        .expect("expired terminal command row must prune cleanly");
+    assert!(prune.processed_messages.is_empty());
+
+    let pruned_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = 'provider-callback-consumer'
+              AND command_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("terminal command row count must be queryable")
+        .get("count");
+    assert_eq!(pruned_count, 0);
 }
 
 #[tokio::test]
@@ -614,6 +672,35 @@ async fn drain_outbox_prunes_expired_published_events() {
         .expect("outbox count after prune")
         .get::<_, i64>("count");
     assert_eq!(after, 0);
+}
+
+#[tokio::test]
+async fn completed_command_inbox_rows_clear_claim_metadata() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+
+    let row = client
+        .query_one(
+            "
+            SELECT inbox.status, inbox.claimed_by, inbox.claimed_until
+            FROM outbox.command_inbox inbox
+            JOIN outbox.events events ON events.event_id = inbox.command_id
+            WHERE inbox.consumer_name = 'settlement-orchestrator'
+              AND events.aggregate_id::text = $1
+              AND events.event_type = 'OPEN_HOLD_INTENT'
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("completed open-hold command row must exist");
+    assert_eq!(row.get::<_, String>("status"), "completed");
+    assert_eq!(row.get::<_, Option<String>>("claimed_by"), None);
+    assert_eq!(
+        row.get::<_, Option<chrono::DateTime<chrono::Utc>>>("claimed_until"),
+        None
+    );
 }
 
 #[tokio::test]

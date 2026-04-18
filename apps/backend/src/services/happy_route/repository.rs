@@ -9,7 +9,7 @@ use musubi_settlement_domain::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, Row};
+use tokio_postgres::{Client, Row, error::SqlState};
 use uuid::Uuid;
 
 use super::{
@@ -21,9 +21,10 @@ use super::{
         LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND, LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
         LEDGER_DIRECTION_CREDIT, LEDGER_DIRECTION_DEBIT, OUTBOX_MANUAL_REVIEW, OUTBOX_PENDING,
         OUTBOX_PROCESSING, OUTBOX_PUBLISHED, OUTBOX_QUARANTINED, OUTBOX_RETRY_BACKOFF_MILLIS,
-        PI_CURRENCY_CODE, PROJECTION_BUILDER, PROMISE_INTENT_PROPOSED, PROVIDER_KEY,
-        RECEIPT_STATUS_MANUAL_REVIEW, RECEIPT_STATUS_REJECTED, RECEIPT_STATUS_VERIFIED,
-        SETTLEMENT_CASE_FUNDED, SETTLEMENT_CASE_PENDING_FUNDING, SETTLEMENT_ORCHESTRATOR,
+        PI_CURRENCY_CODE, PROJECTION_BUILDER, PROMISE_INTENT_PROPOSED, PROVIDER_CALLBACK_CONSUMER,
+        PROVIDER_KEY, RECEIPT_STATUS_MANUAL_REVIEW, RECEIPT_STATUS_REJECTED,
+        RECEIPT_STATUS_VERIFIED, SETTLEMENT_CASE_FUNDED, SETTLEMENT_CASE_PENDING_FUNDING,
+        SETTLEMENT_ORCHESTRATOR,
     },
     state::{
         OutboxCommand, OutboxMessageRecord, ProviderAttemptRecord, RawProviderCallbackRecord,
@@ -710,65 +711,87 @@ impl HappyRouteStore {
         error: &HappyRouteError,
     ) -> Result<(), HappyRouteError> {
         let event_id = parse_uuid(&message.event_id, "outbox event id")?;
-        let client = self.client.lock().await;
+        let consumer_name = command_consumer_name(message);
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
         match error.provider_error_class() {
             Some(super::types::ProviderErrorClass::Retryable) | None => {
                 if provider_callback_mapping_retry_window_exhausted(message, error) {
-                    mark_outbox_terminal_client(
-                        &client,
+                    mark_outbox_terminal_tx(
+                        &tx,
                         &event_id,
                         OUTBOX_MANUAL_REVIEW,
                         "deferred",
                         error.message(),
                     )
-                    .await
+                    .await?;
+                    mark_command_terminal_tx(
+                        &tx,
+                        consumer_name,
+                        message,
+                        "deferred",
+                        error.message(),
+                    )
+                    .await?;
                 } else {
-                    client
-                        .execute(
-                            "
-                            UPDATE outbox.events
-                            SET delivery_status = $2,
-                                claimed_by = NULL,
-                                claimed_until = NULL,
-                                last_error_class = $3,
-                                last_error_detail = $4,
-                                available_at = CURRENT_TIMESTAMP + ($5::bigint * interval '1 millisecond')
-                            WHERE event_id = $1
-                            ",
-                            &[
-                                &event_id,
-                                &OUTBOX_PENDING,
-                                &"transient",
-                                &error.message(),
-                                &OUTBOX_RETRY_BACKOFF_MILLIS,
-                            ],
-                        )
-                        .await
-                        .map_err(db_error)?;
-                    Ok(())
+                    mark_command_retry_pending_tx(
+                        &tx,
+                        consumer_name,
+                        message,
+                        "transient",
+                        error.message(),
+                    )
+                    .await?;
+                    tx.execute(
+                        "
+                        UPDATE outbox.events
+                        SET delivery_status = $2,
+                            claimed_by = NULL,
+                            claimed_until = NULL,
+                            last_error_class = $3,
+                            last_error_detail = $4,
+                            available_at = CURRENT_TIMESTAMP + ($5::bigint * interval '1 millisecond')
+                        WHERE event_id = $1
+                        ",
+                        &[
+                            &event_id,
+                            &OUTBOX_PENDING,
+                            &"transient",
+                            &error.message(),
+                            &OUTBOX_RETRY_BACKOFF_MILLIS,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?;
                 }
             }
             Some(super::types::ProviderErrorClass::ManualReview) => {
-                mark_outbox_terminal_client(
-                    &client,
+                mark_outbox_terminal_tx(
+                    &tx,
                     &event_id,
                     OUTBOX_MANUAL_REVIEW,
                     "deferred",
                     error.message(),
                 )
-                .await
+                .await?;
+                mark_command_terminal_tx(&tx, consumer_name, message, "deferred", error.message())
+                    .await?;
             }
             Some(super::types::ProviderErrorClass::Terminal) => {
-                mark_outbox_terminal_client(
-                    &client,
+                mark_outbox_terminal_tx(
+                    &tx,
                     &event_id,
                     OUTBOX_QUARANTINED,
                     "permanent",
                     error.message(),
                 )
-                .await
+                .await?;
+                mark_command_terminal_tx(&tx, consumer_name, message, "permanent", error.message())
+                    .await?;
             }
         }
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
     }
 
     pub(super) async fn prune_processed_command_inbox(&self) -> Result<(), HappyRouteError> {
@@ -777,11 +800,11 @@ impl HappyRouteStore {
             .execute(
                 "
                 DELETE FROM outbox.command_inbox
-                WHERE status = 'completed'
-                  AND completed_at IS NOT NULL
-                  AND completed_at < CURRENT_TIMESTAMP - ($1::bigint * interval '1 minute')
+                WHERE status IN ('completed', 'quarantined')
+                  AND retain_until IS NOT NULL
+                  AND retain_until < CURRENT_TIMESTAMP
                 ",
-                &[&COMMAND_INBOX_RETENTION_MINUTES],
+                &[],
             )
             .await
             .map_err(db_error)?;
@@ -1931,6 +1954,8 @@ async fn complete_command_tx(
         "
         UPDATE outbox.command_inbox
         SET status = 'completed',
+            claimed_by = NULL,
+            claimed_until = NULL,
             processed_at = CURRENT_TIMESTAMP,
             completed_at = CURRENT_TIMESTAMP,
             result_type = $3,
@@ -2003,36 +2028,210 @@ async fn mark_outbox_published_client(
     Ok(())
 }
 
-async fn mark_outbox_terminal_client(
-    client: &Client,
+async fn mark_outbox_terminal_tx(
+    tx: &tokio_postgres::Transaction<'_>,
     event_id: &Uuid,
     status: &str,
     error_class: &str,
     error_message: &str,
 ) -> Result<(), HappyRouteError> {
-    client
-        .execute(
-            "
-            UPDATE outbox.events
-            SET delivery_status = $2,
-                claimed_by = NULL,
-                claimed_until = NULL,
-                last_error_class = $3,
-                last_error_detail = $4,
-                retain_until = CURRENT_TIMESTAMP + ($5::bigint * interval '1 minute')
-            WHERE event_id = $1
-            ",
-            &[
-                event_id,
-                &status,
-                &error_class,
-                &error_message,
-                &COMMAND_INBOX_RETENTION_MINUTES,
-            ],
-        )
-        .await
-        .map_err(db_error)?;
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = $2,
+            claimed_by = NULL,
+            claimed_until = NULL,
+            last_error_class = $3,
+            last_error_detail = $4,
+            retain_until = CURRENT_TIMESTAMP + ($5::bigint * interval '1 minute')
+        WHERE event_id = $1
+        ",
+        &[
+            event_id,
+            &status,
+            &error_class,
+            &error_message,
+            &COMMAND_INBOX_RETENTION_MINUTES,
+        ],
+    )
+    .await
+    .map_err(db_error)?;
     Ok(())
+}
+
+async fn mark_command_terminal_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    consumer_name: &str,
+    message: &OutboxMessageRecord,
+    error_class: &str,
+    error_message: &str,
+) -> Result<(), HappyRouteError> {
+    let command_id = parse_uuid(&message.event_id, "outbox event id")?;
+    let payload = command_payload(&message.command);
+    let payload_checksum = sha256_hex(payload.to_string().as_bytes());
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            source_event_id,
+            command_id,
+            payload_checksum,
+            status,
+            command_type,
+            schema_version,
+            received_at,
+            available_at,
+            completed_at,
+            last_error_class,
+            last_error_detail,
+            retain_until
+        )
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $3,
+            $4,
+            'quarantined',
+            $5,
+            $6,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP,
+            $7,
+            $8,
+            CURRENT_TIMESTAMP + ($9::bigint * interval '1 minute')
+        )
+        ON CONFLICT (consumer_name, command_id) DO UPDATE
+        SET status = 'quarantined',
+            claimed_by = NULL,
+            claimed_until = NULL,
+            completed_at = CURRENT_TIMESTAMP,
+            last_error_class = EXCLUDED.last_error_class,
+            last_error_detail = EXCLUDED.last_error_detail,
+            retain_until = EXCLUDED.retain_until
+        ",
+        &[
+            &Uuid::new_v4(),
+            &consumer_name,
+            &command_id,
+            &payload_checksum,
+            &message.event_type,
+            &message.schema_version,
+            &error_class,
+            &error_message,
+            &COMMAND_INBOX_RETENTION_MINUTES,
+        ],
+    )
+    .await
+    .map_err(db_error)?;
+    Ok(())
+}
+
+async fn mark_command_retry_pending_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    consumer_name: &str,
+    message: &OutboxMessageRecord,
+    error_class: &str,
+    error_message: &str,
+) -> Result<(), HappyRouteError> {
+    let command_id = parse_uuid(&message.event_id, "outbox event id")?;
+    let payload = command_payload(&message.command);
+    let payload_checksum = sha256_hex(payload.to_string().as_bytes());
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            source_event_id,
+            command_id,
+            payload_checksum,
+            status,
+            command_type,
+            schema_version,
+            received_at,
+            available_at,
+            last_error_class,
+            last_error_detail
+        )
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $3,
+            $4,
+            'pending',
+            $5,
+            $6,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP + ($7::bigint * interval '1 millisecond'),
+            $8,
+            $9
+        )
+        ON CONFLICT (consumer_name, command_id) DO UPDATE
+        SET status = 'pending',
+            claimed_by = NULL,
+            claimed_until = NULL,
+            last_error_class = EXCLUDED.last_error_class,
+            last_error_detail = EXCLUDED.last_error_detail,
+            available_at = EXCLUDED.available_at
+        ",
+        &[
+            &Uuid::new_v4(),
+            &consumer_name,
+            &command_id,
+            &payload_checksum,
+            &message.event_type,
+            &message.schema_version,
+            &OUTBOX_RETRY_BACKOFF_MILLIS,
+            &error_class,
+            &error_message,
+        ],
+    )
+    .await
+    .map_err(db_error)?;
+    Ok(())
+}
+
+fn command_consumer_name(message: &OutboxMessageRecord) -> &'static str {
+    match &message.command {
+        OutboxCommand::OpenHoldIntent { .. } => SETTLEMENT_ORCHESTRATOR,
+        OutboxCommand::IngestProviderCallback { .. } => PROVIDER_CALLBACK_CONSUMER,
+        OutboxCommand::RefreshPromiseView { .. } | OutboxCommand::RefreshSettlementView { .. } => {
+            PROJECTION_BUILDER
+        }
+    }
+}
+
+fn settlement_projection_not_found() -> HappyRouteError {
+    HappyRouteError::NotFound(
+        "settlement projection has not been built for that settlement_case_id".to_owned(),
+    )
+}
+
+fn db_error(error: tokio_postgres::Error) -> HappyRouteError {
+    let message = format!("database operation failed: {error}");
+    if let Some(db_error) = error.as_db_error() {
+        let code = db_error.code().code().to_owned();
+        let retryable = matches!(
+            db_error.code(),
+            &SqlState::T_R_SERIALIZATION_FAILURE | &SqlState::T_R_DEADLOCK_DETECTED
+        );
+        return HappyRouteError::Database {
+            message,
+            code: Some(code),
+            constraint: db_error.constraint().map(str::to_owned),
+            retryable,
+        };
+    }
+
+    HappyRouteError::Database {
+        message,
+        code: None,
+        constraint: None,
+        retryable: true,
+    }
 }
 
 async fn update_submission_status_tx(
@@ -2665,14 +2864,4 @@ fn parse_or_new_uuid(value: &str) -> Uuid {
 fn to_i64(value: i128, label: &str) -> Result<i64, HappyRouteError> {
     i64::try_from(value)
         .map_err(|_| HappyRouteError::BadRequest(format!("{label} exceeds BIGINT range")))
-}
-
-fn settlement_projection_not_found() -> HappyRouteError {
-    HappyRouteError::NotFound(
-        "settlement projection has not been built for that settlement_case_id".to_owned(),
-    )
-}
-
-fn db_error(error: tokio_postgres::Error) -> HappyRouteError {
-    HappyRouteError::Internal(format!("database operation failed: {error}"))
 }

@@ -245,6 +245,19 @@ impl SettlementBackend for PiSettlementBackend {
                 return Err(BackendError::IdempotencyMappingFailed);
             }
         } else {
+            if self
+                .state
+                .happy_route
+                .find_provider_attempt_by_ref_or_submission(
+                    attempt.provider_reference.as_deref(),
+                    &attempt.settlement_submission_id,
+                )
+                .await
+                .map_err(store_error_to_backend_error)?
+                .is_some()
+            {
+                return Err(BackendError::IdempotencyMappingFailed);
+            }
             self.state
                 .happy_route
                 .insert_provider_attempt(&attempt)
@@ -540,14 +553,24 @@ fn store_error_to_backend_error(error: HappyRouteError) -> BackendError {
         HappyRouteError::BadRequest(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::Unauthorized(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::ProviderCallbackMappingDeferred(_) => BackendError::TemporarilyUnavailable,
-        HappyRouteError::Provider { .. } => BackendError::InvalidProviderResponse,
-        HappyRouteError::Internal(message) => {
-            if message.starts_with("database operation failed:") {
+        HappyRouteError::Database {
+            code,
+            constraint,
+            retryable,
+            ..
+        } => {
+            if retryable {
                 BackendError::TemporarilyUnavailable
+            } else if code.as_deref() == Some("23505")
+                && constraint.as_deref() == Some("provider_attempts_provider_reference_key")
+            {
+                BackendError::IdempotencyMappingFailed
             } else {
                 BackendError::InvalidProviderResponse
             }
         }
+        HappyRouteError::Provider { .. } => BackendError::InvalidProviderResponse,
+        HappyRouteError::Internal(_) => BackendError::InvalidProviderResponse,
     }
 }
 
@@ -787,11 +810,38 @@ mod tests {
 
     #[test]
     fn database_store_failures_map_to_retryable_backend_errors() {
-        let error = store_error_to_backend_error(HappyRouteError::Internal(
-            "database operation failed: writer disconnected".to_owned(),
-        ));
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: writer disconnected".to_owned(),
+            code: None,
+            constraint: None,
+            retryable: true,
+        });
 
         assert_eq!(error, BackendError::TemporarilyUnavailable);
+    }
+
+    #[test]
+    fn permanent_database_store_failures_fail_closed() {
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: check constraint".to_owned(),
+            code: Some("23514".to_owned()),
+            constraint: Some("outbox_events_last_error_class_check".to_owned()),
+            retryable: false,
+        });
+
+        assert_eq!(error, BackendError::InvalidProviderResponse);
+    }
+
+    #[test]
+    fn provider_reference_uniqueness_maps_to_idempotency_failure() {
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: duplicate key value".to_owned(),
+            code: Some("23505".to_owned()),
+            constraint: Some("provider_attempts_provider_reference_key".to_owned()),
+            retryable: false,
+        });
+
+        assert_eq!(error, BackendError::IdempotencyMappingFailed);
     }
 
     #[test]
