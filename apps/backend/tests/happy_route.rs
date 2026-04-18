@@ -371,7 +371,7 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
         json!({
             "payment_id": prepared.payment_id,
             "payer_pi_uid": prepared.initiator_pi_uid,
-            "amount_minor_units": 9_223_372_036_854_775_808_i128,
+            "amount_minor_units": 9_223_372_036_854_775_808_u64,
             "currency_code": "PI",
             "txid": "pi-tx-oversized",
             "status": "completed"
@@ -425,6 +425,242 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
         event_row.get::<_, String>("delivery_status"),
         "manual_review"
     );
+}
+
+#[tokio::test]
+async fn drain_outbox_prunes_expired_published_events() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let initiator = sign_in(&app, "pi-user-prune-a", "prune-a").await;
+    let counterparty = sign_in(&app, "pi-user-prune-b", "prune-b").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-prune",
+            "realm_id": "realm-prune",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let client = test_db_client().await;
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'published',
+                retain_until = CURRENT_TIMESTAMP - interval '1 minute'
+            ",
+            &[],
+        )
+        .await
+        .expect("published prune fixture must update");
+
+    let before = client
+        .query_one("SELECT count(*) AS count FROM outbox.events", &[])
+        .await
+        .expect("outbox count before prune")
+        .get::<_, i64>("count");
+    assert!(before > 0);
+
+    let outcome = happy_route::drain_outbox(&test_state.state)
+        .await
+        .expect("drain should prune expired published rows");
+    assert!(outcome.processed_messages.is_empty());
+
+    let after = client
+        .query_one("SELECT count(*) AS count FROM outbox.events", &[])
+        .await
+        .expect("outbox count after prune")
+        .get::<_, i64>("count");
+    assert_eq!(after, 0);
+}
+
+#[tokio::test]
+async fn completed_provider_callback_command_replays_without_new_observations() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-completed-replay",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+    let raw_callback_id = callback.body["raw_callback_id"]
+        .as_str()
+        .expect("raw_callback_id must exist")
+        .to_owned();
+    let event_id = callback.body["outbox_event_ids"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|value| value.as_str())
+        .expect("callback outbox event id must exist")
+        .to_owned();
+
+    let client = test_db_client().await;
+    let observation_count_before = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM dao.settlement_observations
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("baseline observation count")
+        .get::<_, i64>("count");
+
+    let case_row = client
+        .query_one(
+            "
+            SELECT promise_intent_id
+            FROM dao.settlement_cases
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement case must exist");
+    let promise_intent_id: Uuid = case_row.get("promise_intent_id");
+    let event_row = client
+        .query_one(
+            "
+            SELECT
+                event_type,
+                schema_version,
+                payload_hash
+            FROM outbox.events
+            WHERE event_id::text = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("callback outbox event must exist");
+    let event_uuid = Uuid::parse_str(&event_id).expect("event id must be uuid");
+    let raw_callback_uuid =
+        Uuid::parse_str(&raw_callback_id).expect("raw callback id must be uuid");
+    let payment_receipt_id = Uuid::new_v4();
+    let payload_checksum: String = event_row.get("payload_hash");
+    let event_type: String = event_row.get("event_type");
+    let schema_version: i32 = event_row.get("schema_version");
+
+    client
+        .execute(
+            "
+            INSERT INTO core.payment_receipts (
+                payment_receipt_id,
+                provider_key,
+                external_payment_id,
+                settlement_case_id,
+                promise_intent_id,
+                amount_minor_units,
+                currency_code,
+                amount_scale,
+                receipt_status,
+                raw_callback_id
+            )
+            VALUES ($1, 'pi', $2, $3, $4, 10000, 'PI', 3, 'verified', $5)
+            ",
+            &[
+                &payment_receipt_id,
+                &prepared.payment_id,
+                &Uuid::parse_str(&prepared.settlement_case_id)
+                    .expect("settlement case id must be uuid"),
+                &promise_intent_id,
+                &raw_callback_uuid,
+            ],
+        )
+        .await
+        .expect("receipt replay fixture must insert");
+    client
+        .execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                source_event_id,
+                command_id,
+                payload_checksum,
+                status,
+                command_type,
+                schema_version,
+                received_at,
+                available_at,
+                processed_at,
+                completed_at
+            )
+            VALUES (
+                $1,
+                'provider-callback-consumer',
+                $2,
+                $2,
+                $3,
+                'completed',
+                $4,
+                $5,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+            ",
+            &[
+                &Uuid::new_v4(),
+                &event_uuid,
+                &payload_checksum,
+                &event_type,
+                &schema_version,
+            ],
+        )
+        .await
+        .expect("completed command fixture must insert");
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    assert!(
+        drain.body["processed_messages"]
+            .as_array()
+            .expect("processed_messages must be an array")
+            .iter()
+            .any(|message| {
+                message["event_id"].as_str() == Some(event_id.as_str())
+                    && message["event_type"] == "INGEST_PROVIDER_CALLBACK"
+                    && message["already_processed"].as_bool() == Some(true)
+            })
+    );
+
+    let observation_count_after = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM dao.settlement_observations
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("observation count after replay")
+        .get::<_, i64>("count");
+    assert_eq!(observation_count_after, observation_count_before);
 }
 
 #[tokio::test]

@@ -665,6 +665,27 @@ impl HappyRouteStore {
         Ok(())
     }
 
+    pub(super) async fn prune_terminal_outbox_events(&self) -> Result<(), HappyRouteError> {
+        let client = self.client.lock().await;
+        client
+            .execute(
+                "
+                DELETE FROM outbox.events
+                WHERE delivery_status IN ($1, $2, $3)
+                  AND retain_until IS NOT NULL
+                  AND retain_until < CURRENT_TIMESTAMP
+                ",
+                &[
+                    &OUTBOX_PUBLISHED,
+                    &OUTBOX_QUARANTINED,
+                    &OUTBOX_MANUAL_REVIEW,
+                ],
+            )
+            .await
+            .map_err(db_error)?;
+        Ok(())
+    }
+
     pub(super) async fn prepare_open_hold_intent(
         &self,
         message: &OutboxMessageRecord,
@@ -1123,7 +1144,22 @@ impl HappyRouteStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
 
-        begin_command_tx(&tx, super::constants::PROVIDER_CALLBACK_CONSUMER, message).await?;
+        if begin_command_tx(&tx, super::constants::PROVIDER_CALLBACK_CONSUMER, message).await?
+            == CommandBegin::Completed
+        {
+            mark_outbox_published_tx(&tx, &event_id).await?;
+            tx.commit().await.map_err(db_error)?;
+            drop(client);
+            return self
+                .payment_callback_replay_outcome(context)
+                .await?
+                .ok_or_else(|| {
+                    HappyRouteError::Internal(
+                        "completed provider callback command was missing receipt outcome"
+                            .to_owned(),
+                    )
+                });
+        }
         append_normalized_observations_tx(
             &tx,
             &settlement_case_id,

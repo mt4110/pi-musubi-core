@@ -9,6 +9,7 @@ use super::{
 
 pub async fn drain_outbox(state: &SharedState) -> Result<DrainOutboxOutcome, HappyRouteError> {
     let mut processed_messages = Vec::new();
+    state.happy_route.prune_terminal_outbox_events().await?;
     state.happy_route.prune_processed_command_inbox().await?;
 
     loop {

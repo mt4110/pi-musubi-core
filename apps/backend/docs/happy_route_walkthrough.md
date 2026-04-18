@@ -62,7 +62,7 @@ For `OPEN_HOLD_INTENT` it:
 - persists submission acceptance + normalized observation in a fresh write
 - emits `REFRESH_SETTLEMENT_VIEW`
 
-In code, that split now starts at `process_open_hold_intent(...)` and is explicitly separated into a prepare write and a post-I/O persistence write so the future PostgreSQL transaction boundary is easier to replace faithfully.
+In code, that split now starts at `process_open_hold_intent(...)` and is explicitly separated into a prepare write and a post-I/O persistence write so the PostgreSQL transaction boundary is explicit and easier to reason about.
 The prepare write and post-I/O persistence write are now real PostgreSQL writer transactions.
 The sandbox provider call is outside the authoritative transaction.
 
