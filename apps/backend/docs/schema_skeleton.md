@@ -65,11 +65,15 @@ Must not own:
 Owns:
 - rebuildable Promise read models
 - rebuildable settlement read models
+- rebuildable bounded trust read models
+- freshness, lag, watermark, and rebuild metadata for projections
 
 Must not own:
 - authoritative write decisions
 - raw PII
 - append-only ledger truth
+- raw callback payloads
+- ranking, leaderboard, popularity, or recommendation truth
 
 ## Foundation alignment
 

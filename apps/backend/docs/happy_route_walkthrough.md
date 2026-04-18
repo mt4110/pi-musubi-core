@@ -187,6 +187,7 @@ Projection refresh is handled by outbox consumers:
 The settlement view total is rebuilt from authoritative ledger postings, not copied from the callback payload.
 
 `GET /api/projection/settlement-views/:settlement_case_id` keeps the existing response contract, but the row is now rebuilt from writer-owned PostgreSQL facts.
+Issue #22 adds expanded projection endpoints, bounded trust snapshots, and provenance metadata without changing this baseline response contract.
 
 ## What is real vs stubbed
 
@@ -208,6 +209,8 @@ The settlement view total is rebuilt from authoritative ledger postings, not cop
 - DB-constrained idempotent payment receipt handling
 - append-only ledger journal/posting creation
 - projection rebuilt from authoritative truth
+- Promise, expanded settlement, and bounded trust read models derived from writer-owned facts
+- full projection rebuild from writer-owned facts with freshness / lag metadata
 
 ### Stubbed on purpose
 
@@ -223,7 +226,7 @@ The backend adapter is sandbox-only, but the truth boundaries are not fake.
 - move internal relay endpoint behavior into real workers
 - add reconciliation paths for unknown / contradictory provider results
 - proof persistence
-- #22 read-side expansion: trust read models, Promise read models, freshness metadata, rebuild/backfill API contracts, ranking/scoring exclusions, and broader projection growth
+- broader read-side growth beyond #22 baseline derived Promise, settlement, and bounded trust projections
 - add release / refund / compensation happy and unhappy routes beyond initial funding recognition
 
 ## Important Day 1 limitations

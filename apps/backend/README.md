@@ -9,7 +9,12 @@ Current local HTTP surface:
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true`
+- `POST /api/internal/projection/rebuild` under the same internal/debug gate
 - `GET /api/projection/settlement-views/{settlement_case_id}` for authenticated participants only
+- `GET /api/projection/settlement-views/{settlement_case_id}/expanded` for authenticated participants only
+- `GET /api/projection/promise-views/{promise_intent_id}` for authenticated participants only
+- `GET /api/projection/trust-snapshots/{account_id}` self-scoped
+- `GET /api/projection/realm-trust-snapshots/{realm_id}/{account_id}` self-scoped and realm-local
 
 ## Local infra
 
@@ -104,6 +109,7 @@ See `docs/schema_skeleton.md` for ownership notes and deferred scope.
 Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
 Issue #21 wires the happy-route writer truth to PostgreSQL while preserving the existing HTTP surface and settlement-view response contract.
+Issue #22 adds derived Promise, expanded settlement, and bounded trust read models with rebuild and freshness metadata.
 Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 ISSUE-10 adds Day 1 safer venue proof primitives.
 The public HTTP surface supports the normal venue-code path only.
@@ -119,6 +125,7 @@ These proof records are input facts only; they are not settlement truth or final
 - `docs/schema_skeleton.md`: physical truth boundaries
 - `docs/settlement_domain_types.md`: settlement-domain contract
 - `docs/orchestration_runtime.md`: outbox/inbox runtime rules
+- `docs/projection_read_models.md`: derived read-side contracts, rebuild path, and bounded trust boundary
 - `docs/guardrails.md`: executable architectural guardrails
 - `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path

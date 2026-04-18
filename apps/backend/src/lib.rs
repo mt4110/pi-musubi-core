@@ -117,6 +117,22 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/projection/settlement-views/{settlement_case_id}",
             get(handlers::projection::get_settlement_view),
+        )
+        .route(
+            "/api/projection/settlement-views/{settlement_case_id}/expanded",
+            get(handlers::projection::get_expanded_settlement_view),
+        )
+        .route(
+            "/api/projection/promise-views/{promise_intent_id}",
+            get(handlers::projection::get_promise_projection),
+        )
+        .route(
+            "/api/projection/trust-snapshots/{account_id}",
+            get(handlers::projection::get_trust_snapshot),
+        )
+        .route(
+            "/api/projection/realm-trust-snapshots/{realm_id}/{account_id}",
+            get(handlers::projection::get_realm_trust_snapshot),
         );
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(
@@ -130,6 +146,10 @@ pub fn build_app(state: SharedState) -> Router {
         app.route(
             "/api/internal/orchestration/drain",
             post(handlers::orchestration::drain_outbox),
+        )
+        .route(
+            "/api/internal/projection/rebuild",
+            post(handlers::projection::rebuild_projection_read_models),
         )
     } else {
         app

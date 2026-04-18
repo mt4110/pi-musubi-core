@@ -31,11 +31,12 @@ use super::{
         SettlementCaseRecord,
     },
     types::{
-        AuthenticatedAccount, AuthenticationInput, CallbackContext, HappyRouteError,
-        OpenHoldIntentPersistResult, OpenHoldIntentPrepareOutcome, ParsedPaymentCallback,
-        PaymentCallbackInput, PaymentCallbackOutcome, PromiseIntentInput, PromiseIntentOutcome,
-        RawPaymentCallbackFields, SettlementViewSnapshot, SubmissionPreparation,
-        processed_outbox_message,
+        AuthenticatedAccount, AuthenticationInput, CallbackContext, ExpandedSettlementViewSnapshot,
+        HappyRouteError, OpenHoldIntentPersistResult, OpenHoldIntentPrepareOutcome,
+        ParsedPaymentCallback, PaymentCallbackInput, PaymentCallbackOutcome, ProjectionProvenance,
+        ProjectionRebuildItem, ProjectionRebuildOutcome, PromiseIntentInput, PromiseIntentOutcome,
+        PromiseProjectionSnapshot, RawPaymentCallbackFields, SettlementViewSnapshot,
+        SubmissionPreparation, TrustSnapshot, processed_outbox_message,
     },
 };
 
@@ -58,6 +59,9 @@ impl HappyRouteStore {
             .batch_execute(
                 "
                 TRUNCATE
+                    projection.projection_meta,
+                    projection.realm_trust_snapshots,
+                    projection.trust_snapshots,
                     projection.settlement_views,
                     projection.promise_views,
                     ledger.account_postings,
@@ -1534,41 +1538,8 @@ impl HappyRouteStore {
             ));
         }
 
-        tx.execute(
-            "
-            INSERT INTO projection.promise_views (
-                promise_intent_id,
-                realm_id,
-                initiator_account_id,
-                counterparty_account_id,
-                current_intent_status,
-                latest_settlement_case_id,
-                last_projected_at
-            )
-            SELECT
-                promise.promise_intent_id,
-                promise.realm_id,
-                promise.initiator_account_id,
-                promise.counterparty_account_id,
-                promise.intent_status,
-                settlement.settlement_case_id,
-                CURRENT_TIMESTAMP
-            FROM dao.promise_intents promise
-            LEFT JOIN dao.settlement_cases settlement
-                ON settlement.promise_intent_id = promise.promise_intent_id
-            WHERE promise.promise_intent_id = $1
-            ON CONFLICT (promise_intent_id) DO UPDATE
-            SET realm_id = EXCLUDED.realm_id,
-                initiator_account_id = EXCLUDED.initiator_account_id,
-                counterparty_account_id = EXCLUDED.counterparty_account_id,
-                current_intent_status = EXCLUDED.current_intent_status,
-                latest_settlement_case_id = EXCLUDED.latest_settlement_case_id,
-                last_projected_at = CURRENT_TIMESTAMP
-            ",
-            &[&promise_intent_id],
-        )
-        .await
-        .map_err(db_error)?;
+        refresh_promise_projection_tx(&tx, &promise_intent_id, None).await?;
+        refresh_trust_for_promise_tx(&tx, &promise_intent_id, None).await?;
         complete_command_tx(&tx, PROJECTION_BUILDER, &event_id, None).await?;
         mark_outbox_published_tx(&tx, &event_id).await?;
         tx.commit().await.map_err(db_error)?;
@@ -1600,61 +1571,9 @@ impl HappyRouteStore {
             ));
         }
 
-        tx.execute(
-            "
-            INSERT INTO projection.settlement_views (
-                settlement_case_id,
-                realm_id,
-                promise_intent_id,
-                latest_journal_entry_id,
-                current_settlement_status,
-                total_funded_minor_units,
-                currency_code,
-                last_projected_at
-            )
-            SELECT
-                settlement.settlement_case_id,
-                settlement.realm_id,
-                settlement.promise_intent_id,
-                (
-                    SELECT journal_entry_id
-                    FROM ledger.journal_entries journal
-                    WHERE journal.settlement_case_id = settlement.settlement_case_id
-                    ORDER BY journal.created_at DESC, journal.journal_entry_id DESC
-                    LIMIT 1
-                ),
-                settlement.case_status,
-                COALESCE((
-                    SELECT SUM(posting.amount_minor_units)
-                    FROM ledger.journal_entries journal
-                    JOIN ledger.account_postings posting
-                        ON posting.journal_entry_id = journal.journal_entry_id
-                    WHERE journal.settlement_case_id = settlement.settlement_case_id
-                      AND posting.ledger_account_code = $2
-                      AND posting.direction = $3
-                ), 0),
-                $4,
-                CURRENT_TIMESTAMP
-            FROM dao.settlement_cases settlement
-            WHERE settlement.settlement_case_id = $1
-            ON CONFLICT (settlement_case_id) DO UPDATE
-            SET realm_id = EXCLUDED.realm_id,
-                promise_intent_id = EXCLUDED.promise_intent_id,
-                latest_journal_entry_id = EXCLUDED.latest_journal_entry_id,
-                current_settlement_status = EXCLUDED.current_settlement_status,
-                total_funded_minor_units = EXCLUDED.total_funded_minor_units,
-                currency_code = EXCLUDED.currency_code,
-                last_projected_at = CURRENT_TIMESTAMP
-            ",
-            &[
-                &settlement_case_id,
-                &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
-                &LEDGER_DIRECTION_CREDIT,
-                &PI_CURRENCY_CODE,
-            ],
-        )
-        .await
-        .map_err(db_error)?;
+        let promise_intent_id =
+            refresh_settlement_projection_tx(&tx, &settlement_case_id, None).await?;
+        refresh_trust_for_promise_tx(&tx, &promise_intent_id, None).await?;
         complete_command_tx(&tx, PROJECTION_BUILDER, &event_id, None).await?;
         mark_outbox_published_tx(&tx, &event_id).await?;
         tx.commit().await.map_err(db_error)?;
@@ -1720,6 +1639,210 @@ impl HappyRouteStore {
             total_funded_minor_units: i128::from(total_funded),
             currency_code: row.get("currency_code"),
             latest_journal_entry_id: latest_journal_entry_id.map(|id| id.to_string()),
+        })
+    }
+
+    pub(super) async fn get_promise_projection(
+        &self,
+        promise_intent_id: &str,
+        viewer_account_id: &str,
+    ) -> Result<PromiseProjectionSnapshot, HappyRouteError> {
+        let promise_intent_id = parse_uuid(promise_intent_id, "promise intent id")?;
+        let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "
+                SELECT *
+                FROM projection.promise_views
+                WHERE promise_intent_id = $1
+                ",
+                &[&promise_intent_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(promise_projection_not_found)?;
+        let initiator: Uuid = row.get("initiator_account_id");
+        let counterparty: Uuid = row.get("counterparty_account_id");
+        if viewer_account_id != initiator && viewer_account_id != counterparty {
+            return Err(promise_projection_not_found());
+        }
+
+        promise_projection_from_row(&row)
+    }
+
+    pub(super) async fn get_expanded_settlement_view(
+        &self,
+        settlement_case_id: &str,
+        viewer_account_id: &str,
+    ) -> Result<ExpandedSettlementViewSnapshot, HappyRouteError> {
+        let settlement_case_id = match parse_uuid(settlement_case_id, "settlement case id") {
+            Ok(settlement_case_id) => settlement_case_id,
+            Err(HappyRouteError::BadRequest(_)) => {
+                return Err(settlement_projection_not_found());
+            }
+            Err(error) => return Err(error),
+        };
+        let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "
+                SELECT
+                    view.*,
+                    promise.initiator_account_id,
+                    promise.counterparty_account_id
+                FROM projection.settlement_views view
+                JOIN dao.promise_intents promise
+                    ON promise.promise_intent_id = view.promise_intent_id
+                WHERE view.settlement_case_id = $1
+                ",
+                &[&settlement_case_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(settlement_projection_not_found)?;
+        let initiator: Uuid = row.get("initiator_account_id");
+        let counterparty: Uuid = row.get("counterparty_account_id");
+        if viewer_account_id != initiator && viewer_account_id != counterparty {
+            return Err(settlement_projection_not_found());
+        }
+
+        expanded_settlement_projection_from_row(&row)
+    }
+
+    pub(super) async fn get_trust_snapshot(
+        &self,
+        account_id: &str,
+        viewer_account_id: &str,
+    ) -> Result<TrustSnapshot, HappyRouteError> {
+        let account_id = parse_uuid(account_id, "account id")?;
+        let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
+        if account_id != viewer_account_id {
+            return Err(trust_projection_not_found());
+        }
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "
+                SELECT *
+                FROM projection.trust_snapshots
+                WHERE account_id = $1
+                ",
+                &[&account_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(trust_projection_not_found)?;
+
+        trust_snapshot_from_row(&row, None)
+    }
+
+    pub(super) async fn get_realm_trust_snapshot(
+        &self,
+        realm_id: &str,
+        account_id: &str,
+        viewer_account_id: &str,
+    ) -> Result<TrustSnapshot, HappyRouteError> {
+        let realm_id = realm_id.trim();
+        if realm_id.is_empty() {
+            return Err(HappyRouteError::BadRequest(
+                "realm_id is required".to_owned(),
+            ));
+        }
+        let account_id = parse_uuid(account_id, "account id")?;
+        let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
+        if account_id != viewer_account_id {
+            return Err(trust_projection_not_found());
+        }
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "
+                SELECT *
+                FROM projection.realm_trust_snapshots
+                WHERE account_id = $1
+                  AND realm_id = $2
+                ",
+                &[&account_id, &realm_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(trust_projection_not_found)?;
+
+        trust_snapshot_from_row(&row, Some(realm_id.to_owned()))
+    }
+
+    pub(super) async fn rebuild_projection_read_models(
+        &self,
+    ) -> Result<ProjectionRebuildOutcome, HappyRouteError> {
+        let rebuild_generation = Uuid::new_v4();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        tx.batch_execute(
+            "
+            DELETE FROM projection.projection_meta;
+            DELETE FROM projection.realm_trust_snapshots;
+            DELETE FROM projection.trust_snapshots;
+            DELETE FROM projection.settlement_views;
+            DELETE FROM projection.promise_views;
+            ",
+        )
+        .await
+        .map_err(db_error)?;
+
+        let promise_rows = tx
+            .query(
+                "
+                SELECT promise_intent_id
+                FROM dao.promise_intents
+                ORDER BY created_at, promise_intent_id
+                ",
+                &[],
+            )
+            .await
+            .map_err(db_error)?;
+        for row in promise_rows {
+            let promise_intent_id: Uuid = row.get("promise_intent_id");
+            refresh_promise_projection_tx(&tx, &promise_intent_id, Some(rebuild_generation))
+                .await?;
+            refresh_trust_for_promise_tx(&tx, &promise_intent_id, Some(rebuild_generation)).await?;
+        }
+
+        let settlement_rows = tx
+            .query(
+                "
+                SELECT settlement_case_id
+                FROM dao.settlement_cases
+                ORDER BY created_at, settlement_case_id
+                ",
+                &[],
+            )
+            .await
+            .map_err(db_error)?;
+        for row in settlement_rows {
+            let settlement_case_id: Uuid = row.get("settlement_case_id");
+            let promise_intent_id = refresh_settlement_projection_tx(
+                &tx,
+                &settlement_case_id,
+                Some(rebuild_generation),
+            )
+            .await?;
+            refresh_trust_for_promise_tx(&tx, &promise_intent_id, Some(rebuild_generation)).await?;
+        }
+
+        let rebuilt_at = tx
+            .query_one("SELECT CURRENT_TIMESTAMP AS rebuilt_at", &[])
+            .await
+            .map_err(db_error)?
+            .get("rebuilt_at");
+        let rebuilt = upsert_projection_meta_tx(&tx, rebuild_generation).await?;
+        tx.commit().await.map_err(db_error)?;
+
+        Ok(ProjectionRebuildOutcome {
+            rebuild_generation: rebuild_generation.to_string(),
+            rebuilt_at,
+            rebuilt,
         })
     }
 
@@ -2254,6 +2377,735 @@ fn settlement_projection_not_found() -> HappyRouteError {
     )
 }
 
+fn promise_projection_not_found() -> HappyRouteError {
+    HappyRouteError::NotFound(
+        "promise projection has not been built for that promise_intent_id".to_owned(),
+    )
+}
+
+fn trust_projection_not_found() -> HappyRouteError {
+    HappyRouteError::NotFound("trust projection is not visible for that account".to_owned())
+}
+
+async fn refresh_promise_projection_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    promise_intent_id: &Uuid,
+    rebuild_generation: Option<Uuid>,
+) -> Result<(), HappyRouteError> {
+    tx.execute(
+        "
+        WITH source AS (
+            SELECT
+                promise.promise_intent_id,
+                promise.realm_id,
+                promise.initiator_account_id,
+                promise.counterparty_account_id,
+                promise.intent_status,
+                promise.deposit_amount_minor_units,
+                promise.deposit_currency_code,
+                promise.deposit_scale,
+                settlement.settlement_case_id,
+                settlement.case_status AS settlement_status,
+                GREATEST(
+                    promise.updated_at,
+                    COALESCE(settlement.updated_at, promise.updated_at)
+                ) AS source_watermark_at,
+                (
+                    1
+                    + CASE WHEN settlement.settlement_case_id IS NULL THEN 0 ELSE 1 END
+                )::integer AS source_fact_count
+            FROM dao.promise_intents promise
+            LEFT JOIN dao.settlement_cases settlement
+                ON settlement.promise_intent_id = promise.promise_intent_id
+            WHERE promise.promise_intent_id = $1
+        )
+        INSERT INTO projection.promise_views (
+            promise_intent_id,
+            realm_id,
+            initiator_account_id,
+            counterparty_account_id,
+            current_intent_status,
+            deposit_amount_minor_units,
+            currency_code,
+            deposit_scale,
+            latest_settlement_case_id,
+            latest_settlement_status,
+            source_watermark_at,
+            source_fact_count,
+            freshness_checked_at,
+            projection_lag_ms,
+            last_projected_at,
+            rebuild_generation
+        )
+        SELECT
+            source.promise_intent_id,
+            source.realm_id,
+            source.initiator_account_id,
+            source.counterparty_account_id,
+            source.intent_status,
+            source.deposit_amount_minor_units,
+            source.deposit_currency_code,
+            source.deposit_scale,
+            source.settlement_case_id,
+            source.settlement_status,
+            source.source_watermark_at,
+            source.source_fact_count,
+            CURRENT_TIMESTAMP,
+            GREATEST(
+                0::bigint,
+                (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source.source_watermark_at)) * 1000)::bigint
+            ),
+            CURRENT_TIMESTAMP,
+            $2
+        FROM source
+        ON CONFLICT (promise_intent_id) DO UPDATE
+        SET realm_id = EXCLUDED.realm_id,
+            initiator_account_id = EXCLUDED.initiator_account_id,
+            counterparty_account_id = EXCLUDED.counterparty_account_id,
+            current_intent_status = EXCLUDED.current_intent_status,
+            deposit_amount_minor_units = EXCLUDED.deposit_amount_minor_units,
+            currency_code = EXCLUDED.currency_code,
+            deposit_scale = EXCLUDED.deposit_scale,
+            latest_settlement_case_id = EXCLUDED.latest_settlement_case_id,
+            latest_settlement_status = EXCLUDED.latest_settlement_status,
+            source_watermark_at = EXCLUDED.source_watermark_at,
+            source_fact_count = EXCLUDED.source_fact_count,
+            freshness_checked_at = EXCLUDED.freshness_checked_at,
+            projection_lag_ms = EXCLUDED.projection_lag_ms,
+            last_projected_at = EXCLUDED.last_projected_at,
+            rebuild_generation = EXCLUDED.rebuild_generation
+        ",
+        &[promise_intent_id, &rebuild_generation],
+    )
+    .await
+    .map_err(db_error)?;
+    Ok(())
+}
+
+async fn refresh_settlement_projection_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    settlement_case_id: &Uuid,
+    rebuild_generation: Option<Uuid>,
+) -> Result<Uuid, HappyRouteError> {
+    let row = tx
+        .query_one(
+            "
+            WITH source AS (
+                SELECT
+                    settlement.settlement_case_id,
+                    settlement.realm_id,
+                    settlement.promise_intent_id,
+                    settlement.case_status,
+                    latest_journal.latest_journal_entry_id,
+                    COALESCE(funded.total_funded_minor_units, 0) AS total_funded_minor_units,
+                    COALESCE(funded.currency_code, promise.deposit_currency_code, $4) AS currency_code,
+                    GREATEST(
+                        settlement.updated_at,
+                        promise.updated_at,
+                        COALESCE(journal_facts.latest_created_at, settlement.updated_at),
+                        COALESCE(receipt_facts.latest_updated_at, settlement.updated_at),
+                        COALESCE(observation_facts.latest_observed_at, settlement.updated_at)
+                    ) AS source_watermark_at,
+                    (
+                        2
+                        + COALESCE(journal_facts.journal_count, 0)
+                        + COALESCE(journal_facts.posting_count, 0)
+                        + COALESCE(receipt_facts.receipt_count, 0)
+                        + COALESCE(observation_facts.observation_count, 0)
+                    )::integer AS source_fact_count
+                FROM dao.settlement_cases settlement
+                JOIN dao.promise_intents promise
+                    ON promise.promise_intent_id = settlement.promise_intent_id
+                LEFT JOIN LATERAL (
+                    SELECT journal_entry_id AS latest_journal_entry_id
+                    FROM ledger.journal_entries journal
+                    WHERE journal.settlement_case_id = settlement.settlement_case_id
+                    ORDER BY journal.created_at DESC, journal.journal_entry_id DESC
+                    LIMIT 1
+                ) latest_journal ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        count(*)::integer AS journal_count,
+                        max(created_at) AS latest_created_at,
+                        (
+                            SELECT count(*)::integer
+                            FROM ledger.account_postings posting
+                            JOIN ledger.journal_entries posting_journal
+                                ON posting_journal.journal_entry_id = posting.journal_entry_id
+                            WHERE posting_journal.settlement_case_id = settlement.settlement_case_id
+                        ) AS posting_count
+                    FROM ledger.journal_entries journal
+                    WHERE journal.settlement_case_id = settlement.settlement_case_id
+                ) journal_facts ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        SUM(posting.amount_minor_units) AS total_funded_minor_units,
+                        max(posting.currency_code) AS currency_code
+                    FROM ledger.journal_entries journal
+                    JOIN ledger.account_postings posting
+                        ON posting.journal_entry_id = journal.journal_entry_id
+                    WHERE journal.settlement_case_id = settlement.settlement_case_id
+                      AND posting.ledger_account_code = $2
+                      AND posting.direction = $3
+                ) funded ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        count(*)::integer AS receipt_count,
+                        max(updated_at) AS latest_updated_at
+                    FROM core.payment_receipts receipt
+                    WHERE receipt.settlement_case_id = settlement.settlement_case_id
+                ) receipt_facts ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        count(*)::integer AS observation_count,
+                        max(observed_at) AS latest_observed_at
+                    FROM dao.settlement_observations observation
+                    WHERE observation.settlement_case_id = settlement.settlement_case_id
+                ) observation_facts ON TRUE
+                WHERE settlement.settlement_case_id = $1
+            ),
+            upserted AS (
+                INSERT INTO projection.settlement_views (
+                    settlement_case_id,
+                    realm_id,
+                    promise_intent_id,
+                    latest_journal_entry_id,
+                    current_settlement_status,
+                    total_funded_minor_units,
+                    currency_code,
+                    source_watermark_at,
+                    source_fact_count,
+                    freshness_checked_at,
+                    projection_lag_ms,
+                    proof_status,
+                    proof_signal_count,
+                    last_projected_at,
+                    rebuild_generation
+                )
+                SELECT
+                    source.settlement_case_id,
+                    source.realm_id,
+                    source.promise_intent_id,
+                    source.latest_journal_entry_id,
+                    source.case_status,
+                    source.total_funded_minor_units,
+                    source.currency_code,
+                    source.source_watermark_at,
+                    source.source_fact_count,
+                    CURRENT_TIMESTAMP,
+                    GREATEST(
+                        0::bigint,
+                        (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source.source_watermark_at)) * 1000)::bigint
+                    ),
+                    'unavailable',
+                    0,
+                    CURRENT_TIMESTAMP,
+                    $5
+                FROM source
+                ON CONFLICT (settlement_case_id) DO UPDATE
+                SET realm_id = EXCLUDED.realm_id,
+                    promise_intent_id = EXCLUDED.promise_intent_id,
+                    latest_journal_entry_id = EXCLUDED.latest_journal_entry_id,
+                    current_settlement_status = EXCLUDED.current_settlement_status,
+                    total_funded_minor_units = EXCLUDED.total_funded_minor_units,
+                    currency_code = EXCLUDED.currency_code,
+                    source_watermark_at = EXCLUDED.source_watermark_at,
+                    source_fact_count = EXCLUDED.source_fact_count,
+                    freshness_checked_at = EXCLUDED.freshness_checked_at,
+                    projection_lag_ms = EXCLUDED.projection_lag_ms,
+                    proof_status = EXCLUDED.proof_status,
+                    proof_signal_count = EXCLUDED.proof_signal_count,
+                    last_projected_at = EXCLUDED.last_projected_at,
+                    rebuild_generation = EXCLUDED.rebuild_generation
+                RETURNING promise_intent_id
+            )
+            SELECT promise_intent_id
+            FROM upserted
+            ",
+            &[
+                settlement_case_id,
+                &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
+                &LEDGER_DIRECTION_CREDIT,
+                &PI_CURRENCY_CODE,
+                &rebuild_generation,
+            ],
+        )
+        .await
+        .map_err(db_error)
+        .map_err(|error| match error {
+            HappyRouteError::Database { .. } => error,
+            other => other,
+        })?;
+    Ok(row.get("promise_intent_id"))
+}
+
+async fn refresh_trust_for_promise_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    promise_intent_id: &Uuid,
+    rebuild_generation: Option<Uuid>,
+) -> Result<(), HappyRouteError> {
+    let rows = tx
+        .query(
+            "
+            SELECT DISTINCT account_id, realm_id
+            FROM (
+                SELECT initiator_account_id AS account_id, realm_id
+                FROM dao.promise_intents
+                WHERE promise_intent_id = $1
+                UNION ALL
+                SELECT counterparty_account_id AS account_id, realm_id
+                FROM dao.promise_intents
+                WHERE promise_intent_id = $1
+            ) participants
+            ",
+            &[promise_intent_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    for row in rows {
+        let account_id: Uuid = row.get("account_id");
+        let realm_id: String = row.get("realm_id");
+        refresh_global_trust_snapshot_tx(tx, &account_id, rebuild_generation).await?;
+        refresh_realm_trust_snapshot_tx(tx, &account_id, &realm_id, rebuild_generation).await?;
+    }
+
+    Ok(())
+}
+
+async fn refresh_global_trust_snapshot_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    account_id: &Uuid,
+    rebuild_generation: Option<Uuid>,
+) -> Result<(), HappyRouteError> {
+    tx.execute(
+        "
+        WITH account_promises AS (
+            SELECT
+                promise.promise_intent_id,
+                promise.realm_id,
+                promise.initiator_account_id,
+                promise.counterparty_account_id,
+                promise.updated_at AS promise_updated_at,
+                settlement.settlement_case_id,
+                settlement.case_status,
+                settlement.updated_at AS settlement_updated_at
+            FROM dao.promise_intents promise
+            LEFT JOIN dao.settlement_cases settlement
+                ON settlement.promise_intent_id = promise.promise_intent_id
+            WHERE promise.initiator_account_id = $1
+               OR promise.counterparty_account_id = $1
+        ),
+        receipt_facts AS (
+            SELECT
+                count(*)::integer AS receipt_count,
+                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::integer AS manual_review_count,
+                max(receipt.updated_at) AS latest_receipt_at
+            FROM account_promises promise
+            JOIN core.payment_receipts receipt
+                ON receipt.promise_intent_id = promise.promise_intent_id
+        ),
+        observation_facts AS (
+            SELECT
+                count(*)::integer AS observation_count,
+                max(observation.observed_at) AS latest_observation_at
+            FROM account_promises promise
+            JOIN dao.settlement_observations observation
+                ON observation.settlement_case_id = promise.settlement_case_id
+        ),
+        facts AS (
+            SELECT
+                count(*) FILTER (
+                    WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
+                )::integer AS promise_participation_count_90d,
+                count(*) FILTER (
+                    WHERE initiator_account_id = $1
+                      AND case_status = 'funded'
+                      AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
+                )::integer AS funded_settlement_count_90d,
+                count(settlement_case_id)::integer AS settlement_count,
+                max(promise_updated_at) AS latest_promise_at,
+                max(settlement_updated_at) AS latest_settlement_at
+            FROM account_promises
+        ),
+        source AS (
+            SELECT
+                facts.promise_participation_count_90d,
+                facts.funded_settlement_count_90d,
+                COALESCE(receipt_facts.manual_review_count, 0) AS manual_review_count,
+                (
+                    COALESCE((SELECT count(*) FROM account_promises), 0)
+                    + COALESCE(facts.settlement_count, 0)
+                    + COALESCE(receipt_facts.receipt_count, 0)
+                    + COALESCE(observation_facts.observation_count, 0)
+                )::integer AS source_fact_count,
+                GREATEST(
+                    COALESCE(facts.latest_promise_at, 'epoch'::timestamptz),
+                    COALESCE(facts.latest_settlement_at, 'epoch'::timestamptz),
+                    COALESCE(receipt_facts.latest_receipt_at, 'epoch'::timestamptz),
+                    COALESCE(observation_facts.latest_observation_at, 'epoch'::timestamptz)
+                ) AS source_watermark_at
+            FROM facts
+            CROSS JOIN receipt_facts
+            CROSS JOIN observation_facts
+        ),
+        shaped AS (
+            SELECT
+                CASE
+                    WHEN manual_review_count > 0 THEN 'review_attention_needed'
+                    WHEN funded_settlement_count_90d > 0 THEN 'bounded_reliability_observed'
+                    ELSE 'insufficient_authoritative_facts'
+                END AS trust_posture,
+                (
+                    SELECT COALESCE(jsonb_agg(code ORDER BY code), '[]'::jsonb)
+                    FROM (
+                        VALUES
+                            ('deposit_backed_promise_funded', funded_settlement_count_90d > 0),
+                            ('manual_review_bucket_nonzero', manual_review_count > 0),
+                            ('promise_participation_observed', promise_participation_count_90d > 0),
+                            ('proof_unavailable', TRUE)
+                    ) AS reasons(code, include_reason)
+                    WHERE include_reason
+                ) AS reason_codes,
+                promise_participation_count_90d,
+                funded_settlement_count_90d,
+                CASE
+                    WHEN manual_review_count = 0 THEN 'none'
+                    WHEN manual_review_count <= 2 THEN 'some'
+                    ELSE 'multiple'
+                END AS manual_review_case_bucket,
+                CASE
+                    WHEN source_watermark_at = 'epoch'::timestamptz THEN CURRENT_TIMESTAMP
+                    ELSE source_watermark_at
+                END AS source_watermark_at,
+                source_fact_count
+            FROM source
+        )
+        INSERT INTO projection.trust_snapshots (
+            account_id,
+            trust_posture,
+            reason_codes,
+            promise_participation_count_90d,
+            funded_settlement_count_90d,
+            manual_review_case_bucket,
+            proof_status,
+            proof_signal_count,
+            source_watermark_at,
+            source_fact_count,
+            freshness_checked_at,
+            projection_lag_ms,
+            last_projected_at,
+            rebuild_generation
+        )
+        SELECT
+            $1,
+            shaped.trust_posture,
+            shaped.reason_codes,
+            shaped.promise_participation_count_90d,
+            shaped.funded_settlement_count_90d,
+            shaped.manual_review_case_bucket,
+            'unavailable',
+            0,
+            shaped.source_watermark_at,
+            shaped.source_fact_count,
+            CURRENT_TIMESTAMP,
+            GREATEST(
+                0::bigint,
+                (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - shaped.source_watermark_at)) * 1000)::bigint
+            ),
+            CURRENT_TIMESTAMP,
+            $2
+        FROM shaped
+        ON CONFLICT (account_id) DO UPDATE
+        SET trust_posture = EXCLUDED.trust_posture,
+            reason_codes = EXCLUDED.reason_codes,
+            promise_participation_count_90d = EXCLUDED.promise_participation_count_90d,
+            funded_settlement_count_90d = EXCLUDED.funded_settlement_count_90d,
+            manual_review_case_bucket = EXCLUDED.manual_review_case_bucket,
+            proof_status = EXCLUDED.proof_status,
+            proof_signal_count = EXCLUDED.proof_signal_count,
+            source_watermark_at = EXCLUDED.source_watermark_at,
+            source_fact_count = EXCLUDED.source_fact_count,
+            freshness_checked_at = EXCLUDED.freshness_checked_at,
+            projection_lag_ms = EXCLUDED.projection_lag_ms,
+            last_projected_at = EXCLUDED.last_projected_at,
+            rebuild_generation = EXCLUDED.rebuild_generation
+        ",
+        &[account_id, &rebuild_generation],
+    )
+    .await
+    .map_err(db_error)?;
+    Ok(())
+}
+
+async fn refresh_realm_trust_snapshot_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    account_id: &Uuid,
+    realm_id: &str,
+    rebuild_generation: Option<Uuid>,
+) -> Result<(), HappyRouteError> {
+    tx.execute(
+        "
+        WITH account_promises AS (
+            SELECT
+                promise.promise_intent_id,
+                promise.realm_id,
+                promise.initiator_account_id,
+                promise.counterparty_account_id,
+                promise.updated_at AS promise_updated_at,
+                settlement.settlement_case_id,
+                settlement.case_status,
+                settlement.updated_at AS settlement_updated_at
+            FROM dao.promise_intents promise
+            LEFT JOIN dao.settlement_cases settlement
+                ON settlement.promise_intent_id = promise.promise_intent_id
+            WHERE promise.realm_id = $2
+              AND (
+                    promise.initiator_account_id = $1
+                 OR promise.counterparty_account_id = $1
+              )
+        ),
+        receipt_facts AS (
+            SELECT
+                count(*)::integer AS receipt_count,
+                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::integer AS manual_review_count,
+                max(receipt.updated_at) AS latest_receipt_at
+            FROM account_promises promise
+            JOIN core.payment_receipts receipt
+                ON receipt.promise_intent_id = promise.promise_intent_id
+        ),
+        observation_facts AS (
+            SELECT
+                count(*)::integer AS observation_count,
+                max(observation.observed_at) AS latest_observation_at
+            FROM account_promises promise
+            JOIN dao.settlement_observations observation
+                ON observation.settlement_case_id = promise.settlement_case_id
+        ),
+        facts AS (
+            SELECT
+                count(*) FILTER (
+                    WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
+                )::integer AS promise_participation_count_90d,
+                count(*) FILTER (
+                    WHERE initiator_account_id = $1
+                      AND case_status = 'funded'
+                      AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
+                )::integer AS funded_settlement_count_90d,
+                count(settlement_case_id)::integer AS settlement_count,
+                max(promise_updated_at) AS latest_promise_at,
+                max(settlement_updated_at) AS latest_settlement_at
+            FROM account_promises
+        ),
+        source AS (
+            SELECT
+                facts.promise_participation_count_90d,
+                facts.funded_settlement_count_90d,
+                COALESCE(receipt_facts.manual_review_count, 0) AS manual_review_count,
+                (
+                    COALESCE((SELECT count(*) FROM account_promises), 0)
+                    + COALESCE(facts.settlement_count, 0)
+                    + COALESCE(receipt_facts.receipt_count, 0)
+                    + COALESCE(observation_facts.observation_count, 0)
+                )::integer AS source_fact_count,
+                GREATEST(
+                    COALESCE(facts.latest_promise_at, 'epoch'::timestamptz),
+                    COALESCE(facts.latest_settlement_at, 'epoch'::timestamptz),
+                    COALESCE(receipt_facts.latest_receipt_at, 'epoch'::timestamptz),
+                    COALESCE(observation_facts.latest_observation_at, 'epoch'::timestamptz)
+                ) AS source_watermark_at
+            FROM facts
+            CROSS JOIN receipt_facts
+            CROSS JOIN observation_facts
+        ),
+        shaped AS (
+            SELECT
+                CASE
+                    WHEN manual_review_count > 0 THEN 'review_attention_needed'
+                    WHEN funded_settlement_count_90d > 0 THEN 'bounded_reliability_observed'
+                    ELSE 'insufficient_authoritative_facts'
+                END AS trust_posture,
+                (
+                    SELECT COALESCE(jsonb_agg(code ORDER BY code), '[]'::jsonb)
+                    FROM (
+                        VALUES
+                            ('deposit_backed_promise_funded', funded_settlement_count_90d > 0),
+                            ('manual_review_bucket_nonzero', manual_review_count > 0),
+                            ('promise_participation_observed', promise_participation_count_90d > 0),
+                            ('proof_unavailable', TRUE),
+                            ('realm_scoped', TRUE)
+                    ) AS reasons(code, include_reason)
+                    WHERE include_reason
+                ) AS reason_codes,
+                promise_participation_count_90d,
+                funded_settlement_count_90d,
+                CASE
+                    WHEN manual_review_count = 0 THEN 'none'
+                    WHEN manual_review_count <= 2 THEN 'some'
+                    ELSE 'multiple'
+                END AS manual_review_case_bucket,
+                CASE
+                    WHEN source_watermark_at = 'epoch'::timestamptz THEN CURRENT_TIMESTAMP
+                    ELSE source_watermark_at
+                END AS source_watermark_at,
+                source_fact_count
+            FROM source
+        )
+        INSERT INTO projection.realm_trust_snapshots (
+            account_id,
+            realm_id,
+            trust_posture,
+            reason_codes,
+            promise_participation_count_90d,
+            funded_settlement_count_90d,
+            manual_review_case_bucket,
+            proof_status,
+            proof_signal_count,
+            source_watermark_at,
+            source_fact_count,
+            freshness_checked_at,
+            projection_lag_ms,
+            last_projected_at,
+            rebuild_generation
+        )
+        SELECT
+            $1,
+            $2,
+            shaped.trust_posture,
+            shaped.reason_codes,
+            shaped.promise_participation_count_90d,
+            shaped.funded_settlement_count_90d,
+            shaped.manual_review_case_bucket,
+            'unavailable',
+            0,
+            shaped.source_watermark_at,
+            shaped.source_fact_count,
+            CURRENT_TIMESTAMP,
+            GREATEST(
+                0::bigint,
+                (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - shaped.source_watermark_at)) * 1000)::bigint
+            ),
+            CURRENT_TIMESTAMP,
+            $3
+        FROM shaped
+        ON CONFLICT (account_id, realm_id) DO UPDATE
+        SET trust_posture = EXCLUDED.trust_posture,
+            reason_codes = EXCLUDED.reason_codes,
+            promise_participation_count_90d = EXCLUDED.promise_participation_count_90d,
+            funded_settlement_count_90d = EXCLUDED.funded_settlement_count_90d,
+            manual_review_case_bucket = EXCLUDED.manual_review_case_bucket,
+            proof_status = EXCLUDED.proof_status,
+            proof_signal_count = EXCLUDED.proof_signal_count,
+            source_watermark_at = EXCLUDED.source_watermark_at,
+            source_fact_count = EXCLUDED.source_fact_count,
+            freshness_checked_at = EXCLUDED.freshness_checked_at,
+            projection_lag_ms = EXCLUDED.projection_lag_ms,
+            last_projected_at = EXCLUDED.last_projected_at,
+            rebuild_generation = EXCLUDED.rebuild_generation
+        ",
+        &[account_id, &realm_id, &rebuild_generation],
+    )
+    .await
+    .map_err(db_error)?;
+    Ok(())
+}
+
+async fn upsert_projection_meta_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    rebuild_generation: Uuid,
+) -> Result<Vec<ProjectionRebuildItem>, HappyRouteError> {
+    let rows = tx
+        .query(
+            "
+            WITH meta AS (
+                SELECT
+                    'promise_views'::text AS projection_name,
+                    count(*)::integer AS projection_row_count,
+                    COALESCE(sum(source_fact_count), 0)::integer AS source_fact_count,
+                    COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP) AS source_watermark_at
+                FROM projection.promise_views
+                UNION ALL
+                SELECT
+                    'settlement_views',
+                    count(*)::integer,
+                    COALESCE(sum(source_fact_count), 0)::integer,
+                    COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
+                FROM projection.settlement_views
+                UNION ALL
+                SELECT
+                    'trust_snapshots',
+                    count(*)::integer,
+                    COALESCE(sum(source_fact_count), 0)::integer,
+                    COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
+                FROM projection.trust_snapshots
+                UNION ALL
+                SELECT
+                    'realm_trust_snapshots',
+                    count(*)::integer,
+                    COALESCE(sum(source_fact_count), 0)::integer,
+                    COALESCE(max(source_watermark_at), CURRENT_TIMESTAMP)
+                FROM projection.realm_trust_snapshots
+            ),
+            upserted AS (
+                INSERT INTO projection.projection_meta (
+                    projection_name,
+                    last_rebuilt_at,
+                    source_watermark_at,
+                    source_fact_count,
+                    projection_row_count,
+                    projection_lag_ms,
+                    rebuild_generation,
+                    updated_at
+                )
+                SELECT
+                    meta.projection_name,
+                    CURRENT_TIMESTAMP,
+                    meta.source_watermark_at,
+                    meta.source_fact_count,
+                    meta.projection_row_count,
+                    GREATEST(
+                        0::bigint,
+                        (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - meta.source_watermark_at)) * 1000)::bigint
+                    ),
+                    $1,
+                    CURRENT_TIMESTAMP
+                FROM meta
+                ON CONFLICT (projection_name) DO UPDATE
+                SET last_rebuilt_at = EXCLUDED.last_rebuilt_at,
+                    source_watermark_at = EXCLUDED.source_watermark_at,
+                    source_fact_count = EXCLUDED.source_fact_count,
+                    projection_row_count = EXCLUDED.projection_row_count,
+                    projection_lag_ms = EXCLUDED.projection_lag_ms,
+                    rebuild_generation = EXCLUDED.rebuild_generation,
+                    updated_at = EXCLUDED.updated_at
+                RETURNING
+                    projection_name,
+                    projection_row_count,
+                    source_fact_count,
+                    source_watermark_at,
+                    projection_lag_ms
+            )
+            SELECT *
+            FROM upserted
+            ORDER BY projection_name
+            ",
+            &[&rebuild_generation],
+        )
+        .await
+        .map_err(db_error)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| ProjectionRebuildItem {
+            projection_name: row.get("projection_name"),
+            projection_row_count: i64::from(row.get::<_, i32>("projection_row_count")),
+            source_fact_count: i64::from(row.get::<_, i32>("source_fact_count")),
+            source_watermark_at: row.get("source_watermark_at"),
+            projection_lag_ms: row.get("projection_lag_ms"),
+        })
+        .collect())
+}
+
 fn db_error(error: tokio_postgres::Error) -> HappyRouteError {
     let message = format!("database operation failed: {error}");
     if let Some(db_error) = error.as_db_error() {
@@ -2652,6 +3504,97 @@ fn settlement_case_from_joined_row(row: &Row) -> Result<SettlementCaseRecord, Ha
         created_at: row.get("settlement_created_at"),
         updated_at: row.get("settlement_updated_at"),
     })
+}
+
+fn promise_projection_from_row(row: &Row) -> Result<PromiseProjectionSnapshot, HappyRouteError> {
+    let promise_intent_id: Uuid = row.get("promise_intent_id");
+    let initiator_account_id: Uuid = row.get("initiator_account_id");
+    let counterparty_account_id: Uuid = row.get("counterparty_account_id");
+    let latest_settlement_case_id: Option<Uuid> = row.get("latest_settlement_case_id");
+    let amount_minor_units: i64 = row.get("deposit_amount_minor_units");
+    Ok(PromiseProjectionSnapshot {
+        promise_intent_id: promise_intent_id.to_string(),
+        realm_id: row.get("realm_id"),
+        initiator_account_id: initiator_account_id.to_string(),
+        counterparty_account_id: counterparty_account_id.to_string(),
+        current_intent_status: row.get("current_intent_status"),
+        deposit_amount_minor_units: i128::from(amount_minor_units),
+        currency_code: row.get("currency_code"),
+        deposit_scale: row.get("deposit_scale"),
+        latest_settlement_case_id: latest_settlement_case_id.map(|id| id.to_string()),
+        latest_settlement_status: row.get("latest_settlement_status"),
+        provenance: projection_provenance_from_row(row),
+    })
+}
+
+fn expanded_settlement_projection_from_row(
+    row: &Row,
+) -> Result<ExpandedSettlementViewSnapshot, HappyRouteError> {
+    let settlement_case_id: Uuid = row.get("settlement_case_id");
+    let promise_intent_id: Uuid = row.get("promise_intent_id");
+    let latest_journal_entry_id: Option<Uuid> = row.get("latest_journal_entry_id");
+    let total_funded: i64 = row.get("total_funded_minor_units");
+    let proof_signal_count: i32 = row.get("proof_signal_count");
+    Ok(ExpandedSettlementViewSnapshot {
+        settlement_case_id: settlement_case_id.to_string(),
+        promise_intent_id: promise_intent_id.to_string(),
+        realm_id: row.get("realm_id"),
+        current_settlement_status: row.get("current_settlement_status"),
+        total_funded_minor_units: i128::from(total_funded),
+        currency_code: row.get("currency_code"),
+        latest_journal_entry_id: latest_journal_entry_id.map(|id| id.to_string()),
+        proof_status: row.get("proof_status"),
+        proof_signal_count: i64::from(proof_signal_count),
+        provenance: projection_provenance_from_row(row),
+    })
+}
+
+fn trust_snapshot_from_row(
+    row: &Row,
+    realm_id: Option<String>,
+) -> Result<TrustSnapshot, HappyRouteError> {
+    let account_id: Uuid = row.get("account_id");
+    let promise_participation_count: i32 = row.get("promise_participation_count_90d");
+    let funded_settlement_count: i32 = row.get("funded_settlement_count_90d");
+    let proof_signal_count: i32 = row.get("proof_signal_count");
+    let reason_codes: Value = row.get("reason_codes");
+    Ok(TrustSnapshot {
+        account_id: account_id.to_string(),
+        realm_id,
+        trust_posture: row.get("trust_posture"),
+        reason_codes: reason_codes_from_json(&reason_codes),
+        promise_participation_count_90d: i64::from(promise_participation_count),
+        funded_settlement_count_90d: i64::from(funded_settlement_count),
+        manual_review_case_bucket: row.get("manual_review_case_bucket"),
+        proof_status: row.get("proof_status"),
+        proof_signal_count: i64::from(proof_signal_count),
+        provenance: projection_provenance_from_row(row),
+    })
+}
+
+fn projection_provenance_from_row(row: &Row) -> ProjectionProvenance {
+    let rebuild_generation: Option<Uuid> = row.get("rebuild_generation");
+    let source_fact_count: i32 = row.get("source_fact_count");
+    ProjectionProvenance {
+        source_watermark_at: row.get("source_watermark_at"),
+        source_fact_count: i64::from(source_fact_count),
+        freshness_checked_at: row.get("freshness_checked_at"),
+        projection_lag_ms: row.get("projection_lag_ms"),
+        last_projected_at: row.get("last_projected_at"),
+        rebuild_generation: rebuild_generation.map(|id| id.to_string()),
+    }
+}
+
+fn reason_codes_from_json(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn raw_callback_from_row(row: &Row) -> Result<RawProviderCallbackRecord, HappyRouteError> {

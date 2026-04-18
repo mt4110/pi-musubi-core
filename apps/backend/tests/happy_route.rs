@@ -153,6 +153,335 @@ async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection()
 }
 
 #[tokio::test]
+async fn projection_read_models_expose_freshness_and_bounded_trust() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+
+    let promise_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(promise_view.status, StatusCode::OK);
+    assert_eq!(
+        promise_view.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(promise_view.body["realm_id"], prepared.realm_id);
+    assert_eq!(
+        promise_view.body["counterparty_account_id"],
+        prepared.counterparty_account_id
+    );
+    assert_eq!(promise_view.body["current_intent_status"], "proposed");
+    assert_eq!(promise_view.body["deposit_amount_minor_units"], 10000);
+    assert_eq!(promise_view.body["latest_settlement_status"], "funded");
+    assert!(
+        promise_view.body["provenance"]["source_fact_count"]
+            .as_i64()
+            .expect("promise source fact count must be numeric")
+            >= 2
+    );
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_eq!(
+        expanded_settlement.body["settlement_case_id"],
+        prepared.settlement_case_id
+    );
+    assert_eq!(
+        expanded_settlement.body["current_settlement_status"],
+        "funded"
+    );
+    assert_eq!(expanded_settlement.body["proof_status"], "unavailable");
+    assert_eq!(expanded_settlement.body["proof_signal_count"], 0);
+    assert!(
+        expanded_settlement.body["provenance"]["source_fact_count"]
+            .as_i64()
+            .expect("settlement source fact count must be numeric")
+            >= 5
+    );
+
+    let trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(trust.status, StatusCode::OK);
+    assert_eq!(trust.body["realm_id"], Value::Null);
+    assert_eq!(trust.body["trust_posture"], "bounded_reliability_observed");
+    assert_eq!(trust.body["funded_settlement_count_90d"], 1);
+    assert_eq!(trust.body["proof_status"], "unavailable");
+    assert!(trust.body.get("trust_score").is_none());
+    assert!(trust.body.get("rank").is_none());
+    let reason_codes = trust.body["reason_codes"]
+        .as_array()
+        .expect("reason_codes must be an array");
+    assert!(
+        reason_codes
+            .iter()
+            .any(|code| { code.as_str() == Some("deposit_backed_promise_funded") })
+    );
+    assert!(
+        reason_codes
+            .iter()
+            .any(|code| code.as_str() == Some("proof_unavailable"))
+    );
+}
+
+#[tokio::test]
+async fn projection_rebuild_restores_read_models_from_writer_truth() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    client
+        .batch_execute(
+            "
+            DELETE FROM projection.projection_meta;
+            DELETE FROM projection.realm_trust_snapshots;
+            DELETE FROM projection.trust_snapshots;
+            DELETE FROM projection.settlement_views;
+            DELETE FROM projection.promise_views;
+            ",
+        )
+        .await
+        .expect("projection rows must be deletable");
+
+    let missing_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(missing_view.status, StatusCode::NOT_FOUND);
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    let rebuild_generation = rebuild.body["rebuild_generation"]
+        .as_str()
+        .expect("rebuild generation must exist")
+        .to_owned();
+    let rebuilt = rebuild.body["rebuilt"]
+        .as_array()
+        .expect("rebuilt items must be an array");
+    assert_eq!(rebuilt.len(), 4);
+    assert!(rebuilt.iter().any(|item| {
+        item["projection_name"] == "promise_views" && item["projection_row_count"] == 1
+    }));
+    assert!(rebuilt.iter().any(|item| {
+        item["projection_name"] == "settlement_views" && item["projection_row_count"] == 1
+    }));
+    assert!(rebuilt.iter().any(|item| {
+        item["projection_name"] == "trust_snapshots" && item["projection_row_count"] == 2
+    }));
+    assert!(rebuilt.iter().any(|item| {
+        item["projection_name"] == "realm_trust_snapshots" && item["projection_row_count"] == 2
+    }));
+
+    let rebuilt_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(rebuilt_promise.status, StatusCode::OK);
+    assert_eq!(
+        rebuilt_promise.body["provenance"]["rebuild_generation"],
+        rebuild_generation
+    );
+
+    let rebuilt_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(rebuilt_trust.status, StatusCode::OK);
+    assert_eq!(
+        rebuilt_trust.body["provenance"]["rebuild_generation"],
+        rebuild_generation
+    );
+}
+
+#[tokio::test]
+async fn duplicate_projector_input_is_safe_for_projection_rows() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    let event_row = client
+        .query_one(
+            "
+            SELECT event_id
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'REFRESH_SETTLEMENT_VIEW'
+            ORDER BY created_at DESC
+            LIMIT 1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement projection event must exist");
+    let event_id: Uuid = event_row.get("event_id");
+    let before = client
+        .query_one(
+            "
+            SELECT last_projected_at
+            FROM projection.settlement_views
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement view must exist before duplicate input");
+    let before_projected_at: chrono::DateTime<chrono::Utc> = before.get("last_projected_at");
+
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'pending',
+                published_at = NULL,
+                retain_until = NULL,
+                available_at = CURRENT_TIMESTAMP
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("projection event must be requeueable for duplicate input test");
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    assert!(
+        drain.body["processed_messages"]
+            .as_array()
+            .expect("processed messages must be an array")
+            .iter()
+            .any(|message| {
+                message["event_id"].as_str() == Some(event_id.to_string().as_str())
+                    && message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
+                    && message["already_processed"].as_bool() == Some(true)
+            })
+    );
+
+    let after = client
+        .query_one(
+            "
+            SELECT
+                last_projected_at,
+                (SELECT count(*) FROM projection.settlement_views) AS settlement_view_count,
+                (SELECT count(*) FROM projection.trust_snapshots) AS trust_snapshot_count
+            FROM projection.settlement_views
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement view must remain after duplicate input");
+    let after_projected_at: chrono::DateTime<chrono::Utc> = after.get("last_projected_at");
+    assert_eq!(after_projected_at, before_projected_at);
+    assert_eq!(after.get::<_, i64>("settlement_view_count"), 1);
+    assert_eq!(after.get::<_, i64>("trust_snapshot_count"), 2);
+}
+
+#[tokio::test]
+async fn trust_visibility_is_self_scoped_and_realm_local_separated() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+
+    let global = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(global.status, StatusCode::OK);
+    assert_eq!(global.body["realm_id"], Value::Null);
+    assert!(
+        global.body["reason_codes"]
+            .as_array()
+            .expect("global reason codes must be an array")
+            .iter()
+            .all(|code| code.as_str() != Some("realm_scoped"))
+    );
+
+    let realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/{}",
+            prepared.realm_id, prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(realm.status, StatusCode::OK);
+    assert_eq!(realm.body["realm_id"], prepared.realm_id);
+    assert!(
+        realm.body["reason_codes"]
+            .as_array()
+            .expect("realm reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("realm_scoped"))
+    );
+
+    let cross_account = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(cross_account.status, StatusCode::NOT_FOUND);
+
+    let wrong_realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/other-realm/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(wrong_realm.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn concurrent_payment_receipt_insert_replays_race_winner() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1823,10 +2152,15 @@ struct SignedInUser {
 }
 
 struct PreparedCase {
+    promise_intent_id: String,
     settlement_case_id: String,
+    realm_id: String,
     payment_id: String,
+    initiator_account_id: String,
     initiator_pi_uid: String,
     initiator_token: String,
+    counterparty_account_id: String,
+    counterparty_token: String,
 }
 
 async fn prepare_pending_case(app: &Router) -> PreparedCase {
@@ -1852,6 +2186,10 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         .as_str()
         .expect("settlement_case_id must exist")
         .to_owned();
+    let promise_intent_id = create_promise.body["promise_intent_id"]
+        .as_str()
+        .expect("promise_intent_id must exist")
+        .to_owned();
 
     let drain_outbox = post_json(app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_outbox.status, StatusCode::OK);
@@ -1866,10 +2204,15 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         .to_owned();
 
     PreparedCase {
+        promise_intent_id,
         settlement_case_id,
+        realm_id: "realm-prepare".to_owned(),
         payment_id,
+        initiator_account_id: initiator.account_id,
         initiator_pi_uid: initiator.pi_uid,
         initiator_token: initiator.token,
+        counterparty_account_id: counterparty.account_id,
+        counterparty_token: counterparty.token,
     }
 }
 
