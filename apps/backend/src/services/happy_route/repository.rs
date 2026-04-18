@@ -1479,6 +1479,18 @@ impl HappyRouteStore {
             let effects = apply_verified_receipt_side_effects_tx(&tx, &settlement_case_id).await?;
             ledger_journal_id = effects.0;
             outbox_event_ids = effects.1;
+        } else if !duplicate_receipt {
+            let settlement_refresh_event_id = insert_outbox_message_tx(
+                &tx,
+                "settlement_case",
+                settlement_case_id,
+                EVENT_REFRESH_SETTLEMENT_VIEW,
+                &OutboxCommand::RefreshSettlementView {
+                    settlement_case_id: settlement_case_id.to_string(),
+                },
+            )
+            .await?;
+            outbox_event_ids.push(settlement_refresh_event_id);
         }
         complete_command_tx(
             &tx,
@@ -1845,7 +1857,6 @@ impl HappyRouteStore {
             let promise_intent_id: Uuid = row.get("promise_intent_id");
             refresh_promise_projection_tx(&tx, &promise_intent_id, Some(rebuild_generation))
                 .await?;
-            refresh_trust_for_promise_tx(&tx, &promise_intent_id, Some(rebuild_generation)).await?;
         }
 
         let settlement_rows = tx
@@ -1863,6 +1874,57 @@ impl HappyRouteStore {
             let settlement_case_id: Uuid = row.get("settlement_case_id");
             refresh_settlement_projection_tx(&tx, &settlement_case_id, Some(rebuild_generation))
                 .await?;
+        }
+
+        let trust_account_rows = tx
+            .query(
+                "
+                SELECT DISTINCT account_id
+                FROM (
+                    SELECT initiator_account_id AS account_id
+                    FROM dao.promise_intents
+                    UNION ALL
+                    SELECT counterparty_account_id AS account_id
+                    FROM dao.promise_intents
+                ) participants
+                ORDER BY account_id
+                ",
+                &[],
+            )
+            .await
+            .map_err(db_error)?;
+        for row in trust_account_rows {
+            let account_id: Uuid = row.get("account_id");
+            refresh_global_trust_snapshot_tx(&tx, &account_id, Some(rebuild_generation)).await?;
+        }
+
+        let trust_realm_rows = tx
+            .query(
+                "
+                SELECT DISTINCT account_id, realm_id
+                FROM (
+                    SELECT initiator_account_id AS account_id, realm_id
+                    FROM dao.promise_intents
+                    UNION ALL
+                    SELECT counterparty_account_id AS account_id, realm_id
+                    FROM dao.promise_intents
+                ) participants
+                ORDER BY account_id, realm_id
+                ",
+                &[],
+            )
+            .await
+            .map_err(db_error)?;
+        for row in trust_realm_rows {
+            let account_id: Uuid = row.get("account_id");
+            let realm_id: String = row.get("realm_id");
+            refresh_realm_trust_snapshot_tx(
+                &tx,
+                &account_id,
+                &realm_id,
+                Some(rebuild_generation),
+            )
+            .await?;
         }
 
         let rebuilt_at = tx
@@ -2447,7 +2509,7 @@ async fn refresh_promise_projection_tx(
                 (
                     1
                     + CASE WHEN settlement.settlement_case_id IS NULL THEN 0 ELSE 1 END
-                )::integer AS source_fact_count
+                )::bigint AS source_fact_count
             FROM dao.promise_intents promise
             LEFT JOIN dao.settlement_cases settlement
                 ON settlement.promise_intent_id = promise.promise_intent_id
@@ -2546,7 +2608,7 @@ async fn refresh_settlement_projection_tx(
                         + COALESCE(journal_facts.posting_count, 0)
                         + COALESCE(receipt_facts.receipt_count, 0)
                         + COALESCE(observation_facts.observation_count, 0)
-                    )::integer AS source_fact_count
+                    )::bigint AS source_fact_count
                 FROM dao.settlement_cases settlement
                 JOIN dao.promise_intents promise
                     ON promise.promise_intent_id = settlement.promise_intent_id
@@ -2559,10 +2621,10 @@ async fn refresh_settlement_projection_tx(
                 ) latest_journal ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT
-                        count(*)::integer AS journal_count,
+                        count(*)::bigint AS journal_count,
                         max(created_at) AS latest_created_at,
                         (
-                            SELECT count(*)::integer
+                            SELECT count(*)::bigint
                             FROM ledger.account_postings posting
                             JOIN ledger.journal_entries posting_journal
                                 ON posting_journal.journal_entry_id = posting.journal_entry_id
@@ -2584,14 +2646,14 @@ async fn refresh_settlement_projection_tx(
                 ) funded ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT
-                        count(*)::integer AS receipt_count,
+                        count(*)::bigint AS receipt_count,
                         max(updated_at) AS latest_updated_at
                     FROM core.payment_receipts receipt
                     WHERE receipt.settlement_case_id = settlement.settlement_case_id
                 ) receipt_facts ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT
-                        count(*)::integer AS observation_count,
+                        count(*)::bigint AS observation_count,
                         max(observed_at) AS latest_observed_at
                     FROM dao.settlement_observations observation
                     WHERE observation.settlement_case_id = settlement.settlement_case_id
@@ -2732,8 +2794,8 @@ async fn refresh_global_trust_snapshot_tx(
         ),
         receipt_facts AS (
             SELECT
-                count(*)::integer AS receipt_count,
-                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::integer AS manual_review_count,
+                count(*)::bigint AS receipt_count,
+                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::bigint AS manual_review_count,
                 max(receipt.updated_at) AS latest_receipt_at
             FROM account_promises promise
             JOIN core.payment_receipts receipt
@@ -2741,7 +2803,7 @@ async fn refresh_global_trust_snapshot_tx(
         ),
         observation_facts AS (
             SELECT
-                count(*)::integer AS observation_count,
+                count(*)::bigint AS observation_count,
                 max(observation.observed_at) AS latest_observation_at
             FROM account_promises promise
             JOIN dao.settlement_observations observation
@@ -2751,12 +2813,12 @@ async fn refresh_global_trust_snapshot_tx(
             SELECT
                 count(*) FILTER (
                     WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
-                )::integer AS promise_participation_count_90d,
+                )::bigint AS promise_participation_count_90d,
                 count(*) FILTER (
                     WHERE case_status = 'funded'
                       AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
-                )::integer AS funded_settlement_count_90d,
-                count(settlement_case_id)::integer AS settlement_count,
+                )::bigint AS funded_settlement_count_90d,
+                count(settlement_case_id)::bigint AS settlement_count,
                 max(promise_updated_at) AS latest_promise_at,
                 max(settlement_updated_at) AS latest_settlement_at
             FROM account_promises
@@ -2771,7 +2833,7 @@ async fn refresh_global_trust_snapshot_tx(
                     + COALESCE(facts.settlement_count, 0)
                     + COALESCE(receipt_facts.receipt_count, 0)
                     + COALESCE(observation_facts.observation_count, 0)
-                )::integer AS source_fact_count,
+                )::bigint AS source_fact_count,
                 GREATEST(
                     COALESCE(facts.latest_promise_at, 'epoch'::timestamptz),
                     COALESCE(facts.latest_settlement_at, 'epoch'::timestamptz),
@@ -2900,8 +2962,8 @@ async fn refresh_realm_trust_snapshot_tx(
         ),
         receipt_facts AS (
             SELECT
-                count(*)::integer AS receipt_count,
-                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::integer AS manual_review_count,
+                count(*)::bigint AS receipt_count,
+                count(*) FILTER (WHERE receipt.receipt_status = 'manual_review')::bigint AS manual_review_count,
                 max(receipt.updated_at) AS latest_receipt_at
             FROM account_promises promise
             JOIN core.payment_receipts receipt
@@ -2909,7 +2971,7 @@ async fn refresh_realm_trust_snapshot_tx(
         ),
         observation_facts AS (
             SELECT
-                count(*)::integer AS observation_count,
+                count(*)::bigint AS observation_count,
                 max(observation.observed_at) AS latest_observation_at
             FROM account_promises promise
             JOIN dao.settlement_observations observation
@@ -2919,12 +2981,12 @@ async fn refresh_realm_trust_snapshot_tx(
             SELECT
                 count(*) FILTER (
                     WHERE promise_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
-                )::integer AS promise_participation_count_90d,
+                )::bigint AS promise_participation_count_90d,
                 count(*) FILTER (
                     WHERE case_status = 'funded'
                       AND settlement_updated_at >= CURRENT_TIMESTAMP - interval '90 days'
-                )::integer AS funded_settlement_count_90d,
-                count(settlement_case_id)::integer AS settlement_count,
+                )::bigint AS funded_settlement_count_90d,
+                count(settlement_case_id)::bigint AS settlement_count,
                 max(promise_updated_at) AS latest_promise_at,
                 max(settlement_updated_at) AS latest_settlement_at
             FROM account_promises
@@ -2939,7 +3001,7 @@ async fn refresh_realm_trust_snapshot_tx(
                     + COALESCE(facts.settlement_count, 0)
                     + COALESCE(receipt_facts.receipt_count, 0)
                     + COALESCE(observation_facts.observation_count, 0)
-                )::integer AS source_fact_count,
+                )::bigint AS source_fact_count,
                 GREATEST(
                     COALESCE(facts.latest_promise_at, 'epoch'::timestamptz),
                     COALESCE(facts.latest_settlement_at, 'epoch'::timestamptz),
@@ -3586,8 +3648,8 @@ fn trust_snapshot_from_row(
     realm_id: Option<String>,
 ) -> Result<TrustSnapshot, HappyRouteError> {
     let account_id: Uuid = row.get("account_id");
-    let promise_participation_count: i32 = row.get("promise_participation_count_90d");
-    let funded_settlement_count: i32 = row.get("funded_settlement_count_90d");
+    let promise_participation_count: i64 = row.get("promise_participation_count_90d");
+    let funded_settlement_count: i64 = row.get("funded_settlement_count_90d");
     let proof_signal_count: i32 = row.get("proof_signal_count");
     let reason_codes: Value = row.get("reason_codes");
     Ok(TrustSnapshot {
@@ -3595,8 +3657,8 @@ fn trust_snapshot_from_row(
         realm_id,
         trust_posture: row.get("trust_posture"),
         reason_codes: reason_codes_from_json(&reason_codes),
-        promise_participation_count_90d: i64::from(promise_participation_count),
-        funded_settlement_count_90d: i64::from(funded_settlement_count),
+        promise_participation_count_90d: promise_participation_count,
+        funded_settlement_count_90d: funded_settlement_count,
         manual_review_case_bucket: row.get("manual_review_case_bucket"),
         proof_status: row.get("proof_status"),
         proof_signal_count: i64::from(proof_signal_count),
@@ -3606,10 +3668,9 @@ fn trust_snapshot_from_row(
 
 fn projection_provenance_from_row(row: &Row) -> ProjectionProvenance {
     let rebuild_generation: Option<Uuid> = row.get("rebuild_generation");
-    let source_fact_count: i32 = row.get("source_fact_count");
     ProjectionProvenance {
         source_watermark_at: row.get("source_watermark_at"),
-        source_fact_count: i64::from(source_fact_count),
+        source_fact_count: row.get("source_fact_count"),
         freshness_checked_at: row.get("freshness_checked_at"),
         projection_lag_ms: row.get("projection_lag_ms"),
         last_projected_at: row.get("last_projected_at"),

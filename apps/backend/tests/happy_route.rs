@@ -1658,6 +1658,93 @@ async fn payment_callback_without_status_is_accepted_as_raw_evidence() {
 }
 
 #[tokio::test]
+async fn ambiguous_callback_refreshes_trust_snapshots_for_manual_review() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let before_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(before_trust.status, StatusCode::OK);
+    assert_eq!(
+        before_trust.body["trust_posture"],
+        "insufficient_authoritative_facts"
+    );
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-ambiguous-review",
+            "status": "provider-new-state"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    let processed_messages = drain.body["processed_messages"]
+        .as_array()
+        .expect("processed_messages must be an array");
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "INGEST_PROVIDER_CALLBACK"
+            && message["provider_submission_id"].as_str() == Some(prepared.payment_id.as_str())
+    }));
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
+            && message["aggregate_id"].as_str() == Some(prepared.settlement_case_id.as_str())
+    }));
+
+    let initiator_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(initiator_trust.status, StatusCode::OK);
+    assert_eq!(initiator_trust.body["trust_posture"], "review_attention_needed");
+    assert_eq!(initiator_trust.body["manual_review_case_bucket"], "some");
+    assert!(
+        initiator_trust.body["reason_codes"]
+            .as_array()
+            .expect("reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("manual_review_bucket_nonzero"))
+    );
+
+    let counterparty_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.counterparty_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(counterparty_trust.status, StatusCode::OK);
+    assert_eq!(
+        counterparty_trust.body["trust_posture"],
+        "review_attention_needed"
+    );
+}
+
+#[tokio::test]
 async fn later_verified_callback_can_fund_after_initial_rejection() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
