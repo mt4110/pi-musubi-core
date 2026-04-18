@@ -605,58 +605,94 @@ impl HappyRouteStore {
         &self,
     ) -> Result<Option<OutboxMessageRecord>, HappyRouteError> {
         let mut client = self.client.lock().await;
-        let tx = client.transaction().await.map_err(db_error)?;
-        let row = tx
-            .query_opt(
-                "
-                WITH claimed AS (
-                    SELECT event_id
-                    FROM outbox.events
-                    WHERE (
-                            delivery_status = $1
-                            OR (
-                                delivery_status = $2
-                                AND COALESCE(
-                                    claimed_until,
-                                    last_attempt_at + interval '5 minutes'
-                                ) < CURRENT_TIMESTAMP
+        loop {
+            let tx = client.transaction().await.map_err(db_error)?;
+            let row = tx
+                .query_opt(
+                    "
+                    WITH claimed AS (
+                        SELECT event_id
+                        FROM outbox.events
+                        WHERE (
+                                delivery_status = $1
+                                OR (
+                                    delivery_status = $2
+                                    AND COALESCE(
+                                        claimed_until,
+                                        last_attempt_at + interval '5 minutes'
+                                    ) < CURRENT_TIMESTAMP
+                                )
                             )
-                        )
-                      AND available_at <= CURRENT_TIMESTAMP
-                    ORDER BY causal_order
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
+                          AND available_at <= CURRENT_TIMESTAMP
+                        ORDER BY causal_order
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE outbox.events events
+                    SET delivery_status = $2,
+                        claimed_by = $3,
+                        claimed_until = CURRENT_TIMESTAMP + interval '5 minutes',
+                        attempt_count = events.attempt_count + 1,
+                        last_attempt_at = CURRENT_TIMESTAMP
+                    FROM claimed
+                    WHERE events.event_id = claimed.event_id
+                    RETURNING
+                        events.event_id,
+                        events.idempotency_key,
+                        events.aggregate_type,
+                        events.aggregate_id,
+                        events.event_type,
+                        events.schema_version,
+                        events.payload_json,
+                        events.delivery_status,
+                        events.attempt_count,
+                        events.last_error_class,
+                        events.last_error_detail,
+                        events.available_at,
+                        events.published_at,
+                        events.created_at
+                    ",
+                    &[&OUTBOX_PENDING, &OUTBOX_PROCESSING, &"happy-route-drain"],
                 )
-                UPDATE outbox.events events
-                SET delivery_status = $2,
-                    claimed_by = $3,
-                    claimed_until = CURRENT_TIMESTAMP + interval '5 minutes',
-                    attempt_count = events.attempt_count + 1,
-                    last_attempt_at = CURRENT_TIMESTAMP
-                FROM claimed
-                WHERE events.event_id = claimed.event_id
-                RETURNING
-                    events.event_id,
-                    events.idempotency_key,
-                    events.aggregate_type,
-                    events.aggregate_id,
-                    events.event_type,
-                    events.schema_version,
-                    events.payload_json,
-                    events.delivery_status,
-                    events.attempt_count,
-                    events.last_error_class,
-                    events.last_error_detail,
-                    events.available_at,
-                    events.published_at,
-                    events.created_at
-                ",
-                &[&OUTBOX_PENDING, &OUTBOX_PROCESSING, &"happy-route-drain"],
-            )
-            .await
-            .map_err(db_error)?;
-        tx.commit().await.map_err(db_error)?;
-        row.map(|row| outbox_message_from_row(&row)).transpose()
+                .await
+                .map_err(db_error)?;
+            let Some(row) = row else {
+                tx.commit().await.map_err(db_error)?;
+                return Ok(None);
+            };
+
+            match outbox_message_from_row(&row) {
+                Ok(message) => {
+                    tx.commit().await.map_err(db_error)?;
+                    return Ok(Some(message));
+                }
+                Err(error) => {
+                    let event_id: Uuid = row.get("event_id");
+                    tx.execute(
+                        "
+                        UPDATE outbox.events
+                        SET delivery_status = $2,
+                            claimed_by = NULL,
+                            claimed_until = NULL,
+                            last_error_class = $3,
+                            last_error_detail = $4,
+                            retain_until = CURRENT_TIMESTAMP + ($5::bigint * interval '1 minute')
+                        WHERE event_id = $1
+                        ",
+                        &[
+                            &event_id,
+                            &OUTBOX_QUARANTINED,
+                            &"permanent",
+                            &error.message(),
+                            &COMMAND_INBOX_RETENTION_MINUTES,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?;
+                    tx.commit().await.map_err(db_error)?;
+                }
+            }
+        }
     }
 
     pub(super) async fn mark_outbox_published(
@@ -1983,10 +2019,16 @@ async fn mark_outbox_terminal_client(
                 claimed_until = NULL,
                 last_error_class = $3,
                 last_error_detail = $4,
-                retain_until = NULL
+                retain_until = CURRENT_TIMESTAMP + ($5::bigint * interval '1 minute')
             WHERE event_id = $1
             ",
-            &[event_id, &status, &error_class, &error_message],
+            &[
+                event_id,
+                &status,
+                &error_class,
+                &error_message,
+                &COMMAND_INBOX_RETENTION_MINUTES,
+            ],
         )
         .await
         .map_err(db_error)?;

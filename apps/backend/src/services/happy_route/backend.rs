@@ -540,8 +540,13 @@ fn store_error_to_backend_error(error: HappyRouteError) -> BackendError {
         HappyRouteError::BadRequest(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::Unauthorized(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::ProviderCallbackMappingDeferred(_) => BackendError::TemporarilyUnavailable,
-        HappyRouteError::Provider { .. } | HappyRouteError::Internal(_) => {
-            BackendError::InvalidProviderResponse
+        HappyRouteError::Provider { .. } => BackendError::InvalidProviderResponse,
+        HappyRouteError::Internal(message) => {
+            if message.starts_with("database operation failed:") {
+                BackendError::TemporarilyUnavailable
+            } else {
+                BackendError::InvalidProviderResponse
+            }
         }
     }
 }
@@ -778,6 +783,24 @@ mod tests {
         assert_eq!(ProviderPollStatus::Finalized.as_str(), "finalized");
         assert_eq!(ProviderPollStatus::Failed.as_str(), "failed");
         assert_eq!(ProviderPollStatus::Unknown.as_str(), "unknown");
+    }
+
+    #[test]
+    fn database_store_failures_map_to_retryable_backend_errors() {
+        let error = store_error_to_backend_error(HappyRouteError::Internal(
+            "database operation failed: writer disconnected".to_owned(),
+        ));
+
+        assert_eq!(error, BackendError::TemporarilyUnavailable);
+    }
+
+    #[test]
+    fn non_database_internal_failures_still_fail_closed() {
+        let error = store_error_to_backend_error(HappyRouteError::Internal(
+            "stored provider attempt was missing request key".to_owned(),
+        ));
+
+        assert_eq!(error, BackendError::InvalidProviderResponse);
     }
 
     #[tokio::test]

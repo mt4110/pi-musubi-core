@@ -360,6 +360,138 @@ async fn drain_outbox_reclaims_stale_processing_events() {
 }
 
 #[tokio::test]
+async fn drain_outbox_quarantines_invalid_payloads_and_continues() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let invalid_event_id = Uuid::new_v4();
+    let invalid_idempotency_key = Uuid::new_v4();
+    let invalid_aggregate_id = Uuid::new_v4();
+    let invalid_payload = json!({ "wrong_field": "missing settlement_case_id" });
+    let invalid_payload_hash = sha256_hex_test(invalid_payload.to_string().as_bytes());
+    let invalid_stream_key = format!("settlement_case:{invalid_aggregate_id}");
+
+    client
+        .execute(
+            "
+            INSERT INTO outbox.events (
+                event_id,
+                idempotency_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                stream_key,
+                delivery_status
+            )
+            VALUES ($1, $2, 'settlement_case', $3, 'OPEN_HOLD_INTENT', 1, $4, $5, $6, 'pending')
+            ",
+            &[
+                &invalid_event_id,
+                &invalid_idempotency_key,
+                &invalid_aggregate_id,
+                &invalid_payload,
+                &invalid_payload_hash,
+                &invalid_stream_key,
+            ],
+        )
+        .await
+        .expect("invalid outbox payload fixture must insert");
+
+    let initiator = sign_in(&app, "pi-user-invalid-outbox-a", "invalid-outbox-a").await;
+    let counterparty = sign_in(&app, "pi-user-invalid-outbox-b", "invalid-outbox-b").await;
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-invalid-outbox",
+            "realm_id": "realm-invalid-outbox",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let outcome = happy_route::drain_outbox(&test_state.state)
+        .await
+        .expect("invalid outbox payload must quarantine instead of failing");
+    assert!(
+        outcome
+            .processed_messages
+            .iter()
+            .any(|message| message.event_type == "OPEN_HOLD_INTENT")
+    );
+
+    let row = client
+        .query_one(
+            "
+            SELECT
+                delivery_status,
+                last_error_class,
+                last_error_detail,
+                claimed_by,
+                claimed_until,
+                retain_until
+            FROM outbox.events
+            WHERE event_id = $1
+            ",
+            &[&invalid_event_id],
+        )
+        .await
+        .expect("invalid outbox row must remain queryable");
+    assert_eq!(row.get::<_, String>("delivery_status"), "quarantined");
+    assert_eq!(
+        row.get::<_, Option<String>>("last_error_class"),
+        Some("permanent".to_owned())
+    );
+    assert_eq!(
+        row.get::<_, Option<String>>("last_error_detail"),
+        Some("outbox payload for OPEN_HOLD_INTENT is missing settlement_case_id".to_owned())
+    );
+    assert_eq!(row.get::<_, Option<String>>("claimed_by"), None);
+    assert_eq!(
+        row.get::<_, Option<chrono::DateTime<chrono::Utc>>>("claimed_until"),
+        None
+    );
+    assert!(
+        row.get::<_, Option<chrono::DateTime<chrono::Utc>>>("retain_until")
+            .is_some()
+    );
+
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET retain_until = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE event_id = $1
+            ",
+            &[&invalid_event_id],
+        )
+        .await
+        .expect("quarantined event must allow prune-fixture update");
+
+    let second_outcome = happy_route::drain_outbox(&test_state.state)
+        .await
+        .expect("expired quarantined row must prune cleanly");
+    assert!(second_outcome.processed_messages.is_empty());
+
+    let pruned_count: i64 = client
+        .query_one(
+            "SELECT count(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&invalid_event_id],
+        )
+        .await
+        .expect("invalid outbox row count must be queryable")
+        .get("count");
+    assert_eq!(pruned_count, 0);
+}
+
+#[tokio::test]
 async fn oversized_callback_amount_is_retained_as_raw_evidence() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
