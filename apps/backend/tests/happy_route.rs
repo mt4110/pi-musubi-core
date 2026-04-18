@@ -153,6 +153,128 @@ async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection()
 }
 
 #[tokio::test]
+async fn concurrent_payment_receipt_insert_replays_race_winner() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-receipt-race",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+    let raw_callback_id = callback.body["raw_callback_id"]
+        .as_str()
+        .expect("raw_callback_id must exist")
+        .to_owned();
+
+    let client = test_db_client().await;
+    let promise_intent_id: Uuid = client
+        .query_one(
+            "
+            SELECT promise_intent_id
+            FROM dao.settlement_cases
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement case must expose promise intent id")
+        .get("promise_intent_id");
+    let raw_callback_uuid =
+        Uuid::parse_str(&raw_callback_id).expect("raw callback id must parse as uuid");
+    let blocked_receipt_id = Uuid::new_v4();
+    let mut blocker_client = test_db_client().await;
+    let blocker_tx = blocker_client
+        .transaction()
+        .await
+        .expect("blocker transaction must start");
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO core.payment_receipts (
+                payment_receipt_id,
+                provider_key,
+                external_payment_id,
+                settlement_case_id,
+                promise_intent_id,
+                amount_minor_units,
+                currency_code,
+                amount_scale,
+                receipt_status,
+                raw_callback_id
+            )
+            VALUES ($1, 'pi', $2, $3, $4, 10000, 'PI', 3, 'verified', $5)
+            ",
+            &[
+                &blocked_receipt_id,
+                &prepared.payment_id,
+                &Uuid::parse_str(&prepared.settlement_case_id)
+                    .expect("settlement case id must parse as uuid"),
+                &promise_intent_id,
+                &raw_callback_uuid,
+            ],
+        )
+        .await
+        .expect("blocked payment receipt must insert");
+
+    let app_clone = app.clone();
+    let request = tokio::spawn(async move {
+        post_json(
+            &app_clone,
+            "/api/internal/orchestration/drain",
+            None,
+            json!({}),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    blocker_tx
+        .commit()
+        .await
+        .expect("blocker transaction must commit");
+
+    let response = request.await.expect("drain request must join");
+    assert_eq!(response.status, StatusCode::OK);
+    assert!(
+        response.body["processed_messages"]
+            .as_array()
+            .expect("processed_messages must be an array")
+            .iter()
+            .any(|message| {
+                message["event_type"] == "INGEST_PROVIDER_CALLBACK"
+                    && message["provider_submission_id"].as_str()
+                        == Some(prepared.payment_id.as_str())
+            })
+    );
+
+    let receipt_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM core.payment_receipts
+            WHERE provider_key = 'pi'
+              AND external_payment_id = $1
+            ",
+            &[&prepared.payment_id],
+        )
+        .await
+        .expect("payment receipt count must be queryable")
+        .get("count");
+    assert_eq!(receipt_count, 1);
+}
+
+#[tokio::test]
 async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -178,6 +300,65 @@ async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
         replayed_callback.body["raw_callback_id"],
         first_callback.body["raw_callback_id"]
     );
+    let replayed_raw_callback_id = replayed_callback.body["raw_callback_id"]
+        .as_str()
+        .expect("replayed raw_callback_id must exist")
+        .to_owned();
+    let client = test_db_client().await;
+    let replay_row = client
+        .query_one(
+            "
+            SELECT event_id, payload_hash, event_type, schema_version
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&replayed_raw_callback_id],
+        )
+        .await
+        .expect("replayed callback event must exist");
+    let replay_event_id: Uuid = replay_row.get("event_id");
+    let replay_payload_hash: String = replay_row.get("payload_hash");
+    let replay_event_type: String = replay_row.get("event_type");
+    let replay_schema_version: i32 = replay_row.get("schema_version");
+    client
+        .execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                source_event_id,
+                command_id,
+                payload_checksum,
+                status,
+                command_type,
+                schema_version,
+                received_at,
+                available_at
+            )
+            VALUES (
+                $1,
+                'provider-callback-consumer',
+                $2,
+                $2,
+                $3,
+                'pending',
+                $4,
+                $5,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+            ",
+            &[
+                &Uuid::new_v4(),
+                &replay_event_id,
+                &replay_payload_hash,
+                &replay_event_type,
+                &replay_schema_version,
+            ],
+        )
+        .await
+        .expect("replayed callback command fixture must insert");
 
     let drain_after_replay =
         post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
@@ -196,6 +377,24 @@ async fn exact_provider_callback_replay_keeps_the_existing_receipt() {
         callback_messages
             .iter()
             .any(|message| { message["already_processed"].as_bool() == Some(true) })
+    );
+    let replay_command = client
+        .query_one(
+            "
+            SELECT status, claimed_by, claimed_until
+            FROM outbox.command_inbox
+            WHERE consumer_name = 'provider-callback-consumer'
+              AND command_id = $1
+            ",
+            &[&replay_event_id],
+        )
+        .await
+        .expect("replayed callback command row must exist");
+    assert_eq!(replay_command.get::<_, String>("status"), "completed");
+    assert_eq!(replay_command.get::<_, Option<String>>("claimed_by"), None);
+    assert_eq!(
+        replay_command.get::<_, Option<chrono::DateTime<chrono::Utc>>>("claimed_until"),
+        None
     );
 
     let settlement_view = get_json(
@@ -286,6 +485,19 @@ async fn drain_outbox_rejects_mismatched_command_inbox_payloads() {
         error.message(),
         "stored command inbox entry did not match the outbox payload"
     );
+    let stored = client
+        .query_one(
+            "
+            SELECT
+                (SELECT delivery_status FROM outbox.events WHERE event_id = $1) AS delivery_status,
+                (SELECT status FROM outbox.command_inbox WHERE consumer_name = 'settlement-orchestrator' AND command_id = $1) AS inbox_status
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("terminalized corruption rows must remain queryable");
+    assert_eq!(stored.get::<_, String>("delivery_status"), "quarantined");
+    assert_eq!(stored.get::<_, String>("inbox_status"), "quarantined");
 }
 
 #[tokio::test]

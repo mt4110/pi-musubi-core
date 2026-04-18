@@ -696,13 +696,31 @@ impl HappyRouteStore {
         }
     }
 
-    pub(super) async fn mark_outbox_published(
+    pub(super) async fn finalize_provider_callback_replay(
         &self,
-        event_id: &str,
+        message: &OutboxMessageRecord,
+        outcome: &PaymentCallbackOutcome,
     ) -> Result<(), HappyRouteError> {
-        let event_id = parse_uuid(event_id, "outbox event id")?;
-        let client = self.client.lock().await;
-        mark_outbox_published_client(&client, &event_id).await
+        let event_id = parse_uuid(&message.event_id, "outbox event id")?;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        if begin_command_tx(&tx, PROVIDER_CALLBACK_CONSUMER, message).await?
+            == CommandBegin::Started
+        {
+            complete_command_tx(
+                &tx,
+                PROVIDER_CALLBACK_CONSUMER,
+                &event_id,
+                Some(json!({
+                    "payment_receipt_id": outcome.payment_receipt_id,
+                    "duplicate_receipt": outcome.duplicate_receipt
+                })),
+            )
+            .await?;
+        }
+        mark_outbox_published_tx(&tx, &event_id).await?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
     }
 
     pub(super) async fn record_outbox_failure(
@@ -715,7 +733,7 @@ impl HappyRouteStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         match error.provider_error_class() {
-            Some(super::types::ProviderErrorClass::Retryable) | None => {
+            Some(super::types::ProviderErrorClass::Retryable) => {
                 if provider_callback_mapping_retry_window_exhausted(message, error) {
                     mark_outbox_terminal_tx(
                         &tx,
@@ -777,7 +795,7 @@ impl HappyRouteStore {
                 mark_command_terminal_tx(&tx, consumer_name, message, "deferred", error.message())
                     .await?;
             }
-            Some(super::types::ProviderErrorClass::Terminal) => {
+            Some(super::types::ProviderErrorClass::Terminal) | None => {
                 mark_outbox_terminal_tx(
                     &tx,
                     &event_id,
@@ -1336,7 +1354,7 @@ impl HappyRouteStore {
             .map_err(db_error)?;
 
         let mut duplicate_receipt = false;
-        let payment_receipt_id = existing
+        let mut payment_receipt_id = existing
             .as_ref()
             .map(|row| row.get::<_, Uuid>("payment_receipt_id"))
             .unwrap_or_else(Uuid::new_v4);
@@ -1372,8 +1390,9 @@ impl HappyRouteStore {
                 should_apply_verified_effects = false;
             }
         } else {
-            tx.execute(
-                "
+            let inserted = tx
+                .execute(
+                    "
                 INSERT INTO core.payment_receipts (
                     payment_receipt_id,
                     provider_key,
@@ -1387,22 +1406,67 @@ impl HappyRouteStore {
                     raw_callback_id
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (provider_key, external_payment_id) DO NOTHING
                 ",
-                &[
-                    &payment_receipt_id,
-                    &PROVIDER_KEY,
-                    &context.provider_submission_id,
-                    &settlement_case_id,
-                    &promise_intent_id,
-                    &amount_minor_units,
-                    &observed_amount.currency().as_str(),
-                    &(observed_amount.scale() as i32),
-                    &receipt_status,
-                    &raw_callback_id,
-                ],
-            )
-            .await
-            .map_err(db_error)?;
+                    &[
+                        &payment_receipt_id,
+                        &PROVIDER_KEY,
+                        &context.provider_submission_id,
+                        &settlement_case_id,
+                        &promise_intent_id,
+                        &amount_minor_units,
+                        &observed_amount.currency().as_str(),
+                        &(observed_amount.scale() as i32),
+                        &receipt_status,
+                        &raw_callback_id,
+                    ],
+                )
+                .await
+                .map_err(db_error)?;
+            if inserted == 0 {
+                let row = tx
+                    .query_one(
+                        "
+                        SELECT payment_receipt_id, receipt_status
+                        FROM core.payment_receipts
+                        WHERE provider_key = $1
+                          AND external_payment_id = $2
+                        FOR UPDATE
+                        ",
+                        &[&PROVIDER_KEY, &context.provider_submission_id],
+                    )
+                    .await
+                    .map_err(db_error)?;
+                payment_receipt_id = row.get("payment_receipt_id");
+                let existing_status: String = row.get("receipt_status");
+                if should_upgrade_existing_receipt(&existing_status, &receipt_status) {
+                    tx.execute(
+                        "
+                        UPDATE core.payment_receipts
+                        SET amount_minor_units = $2,
+                            currency_code = $3,
+                            amount_scale = $4,
+                            receipt_status = $5,
+                            raw_callback_id = $6,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE payment_receipt_id = $1
+                        ",
+                        &[
+                            &payment_receipt_id,
+                            &amount_minor_units,
+                            &observed_amount.currency().as_str(),
+                            &(observed_amount.scale() as i32),
+                            &receipt_status,
+                            &raw_callback_id,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?;
+                } else {
+                    duplicate_receipt = true;
+                    should_apply_verified_effects = false;
+                }
+            }
         }
 
         let mut ledger_journal_id = None;
@@ -1999,32 +2063,6 @@ async fn mark_outbox_published_tx(
     )
     .await
     .map_err(db_error)?;
-    Ok(())
-}
-
-async fn mark_outbox_published_client(
-    client: &Client,
-    event_id: &Uuid,
-) -> Result<(), HappyRouteError> {
-    client
-        .execute(
-            "
-            UPDATE outbox.events
-            SET delivery_status = $2,
-                claimed_by = NULL,
-                claimed_until = NULL,
-                published_at = CURRENT_TIMESTAMP,
-                retain_until = CURRENT_TIMESTAMP + ($3::bigint * interval '1 minute')
-            WHERE event_id = $1
-            ",
-            &[
-                event_id,
-                &OUTBOX_PUBLISHED,
-                &COMMAND_INBOX_RETENTION_MINUTES,
-            ],
-        )
-        .await
-        .map_err(db_error)?;
     Ok(())
 }
 

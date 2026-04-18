@@ -89,7 +89,7 @@ pub(super) async fn process_provider_callback(
         {
             state
                 .happy_route
-                .mark_outbox_published(&message.event_id)
+                .finalize_provider_callback_replay(&message, &outcome)
                 .await?;
             return Ok(processed_provider_callback_message(
                 &message,
