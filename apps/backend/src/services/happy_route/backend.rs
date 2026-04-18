@@ -21,6 +21,7 @@ use crate::SharedState;
 use super::{
     constants::{PROVIDER_KEY, PROVIDER_VERSION},
     state::{ProviderAttemptRecord, RawProviderCallbackRecord},
+    types::HappyRouteError,
 };
 
 const PROVIDER_MODE_SANDBOX: &str = "sandbox";
@@ -65,12 +66,11 @@ impl PiSettlementBackend {
         &self,
         raw_callback_ref: &ProviderCallbackId,
     ) -> Result<RawProviderCallbackRecord, BackendError> {
-        let store = self.state.happy_route.read().await;
-        store
-            .raw_provider_callbacks_by_id
-            .get(raw_callback_ref.as_str())
-            .cloned()
-            .ok_or(BackendError::InvalidProviderPayload)
+        self.state
+            .happy_route
+            .load_raw_callback(raw_callback_ref.as_str())
+            .await
+            .map_err(store_error_to_backend_error)
     }
 }
 
@@ -185,35 +185,32 @@ impl SettlementBackend for PiSettlementBackend {
             self.provider_idempotency_key(&cmd.internal_idempotency_key)?;
         let request_hash = provider_request_hash(&cmd);
 
-        if let Some(existing_submission_result) = {
-            let store = self.state.happy_route.read().await;
-            store
-                .provider_attempt_id_by_request_key
-                .get(provider_idempotency_key.as_str())
-                .and_then(|attempt_id| store.provider_attempts_by_id.get(attempt_id))
-                .map(|attempt| {
-                    if attempt.request_hash != request_hash {
-                        return Err(BackendError::IdempotencyMappingFailed);
-                    }
+        if let Some(attempt) = self
+            .state
+            .happy_route
+            .find_provider_attempt_by_request_key(provider_idempotency_key.as_str())
+            .await
+            .map_err(store_error_to_backend_error)?
+        {
+            if attempt.request_hash != request_hash {
+                return Err(BackendError::IdempotencyMappingFailed);
+            }
 
-                    Ok(SubmissionResult::Accepted {
-                        provider_ref: attempt.provider_reference.clone().map(ProviderRef::new),
-                        provider_submission_id: attempt
-                            .provider_submission_id
-                            .clone()
-                            .map(ProviderSubmissionId::new),
-                        provider_idempotency_key: ProviderIdempotencyKey::new(
-                            attempt.provider_request_key.clone(),
-                        ),
-                        tx_hash: None,
-                        observations: vec![provider_observation(
-                            NormalizedObservationKind::SubmissionAccepted,
-                            attempt.provider_reference.clone().map(ProviderRef::new),
-                        )],
-                    })
-                })
-        } {
-            return existing_submission_result;
+            return Ok(SubmissionResult::Accepted {
+                provider_ref: attempt.provider_reference.clone().map(ProviderRef::new),
+                provider_submission_id: attempt
+                    .provider_submission_id
+                    .clone()
+                    .map(ProviderSubmissionId::new),
+                provider_idempotency_key: ProviderIdempotencyKey::new(
+                    attempt.provider_request_key.clone(),
+                ),
+                tx_hash: None,
+                observations: vec![provider_observation(
+                    NormalizedObservationKind::SubmissionAccepted,
+                    attempt.provider_reference.clone().map(ProviderRef::new),
+                )],
+            });
         }
 
         let response = self
@@ -237,41 +234,35 @@ impl SettlementBackend for PiSettlementBackend {
             last_observed_at: now,
         };
 
+        if let Some(existing_attempt) = self
+            .state
+            .happy_route
+            .find_provider_attempt_by_request_key(&attempt.provider_request_key)
+            .await
+            .map_err(store_error_to_backend_error)?
         {
-            let mut store = self.state.happy_route.write().await;
-            if let Some(existing_attempt_id) = store
-                .provider_attempt_id_by_request_key
-                .get(&attempt.provider_request_key)
-                .cloned()
-            {
-                let existing_attempt = store
-                    .provider_attempts_by_id
-                    .get(&existing_attempt_id)
-                    .ok_or(BackendError::IdempotencyMappingFailed)?;
-                if existing_attempt.request_hash != attempt.request_hash {
-                    return Err(BackendError::IdempotencyMappingFailed);
-                }
-            } else {
-                if let Some(existing_attempt_id) = store
-                    .provider_attempt_id_by_provider_ref
-                    .get(response.provider_ref.as_str())
-                {
-                    if existing_attempt_id != &attempt.provider_attempt_id {
-                        return Err(BackendError::IdempotencyMappingFailed);
-                    }
-                }
-                store.provider_attempt_id_by_request_key.insert(
-                    attempt.provider_request_key.clone(),
-                    attempt.provider_attempt_id.clone(),
-                );
-                store.provider_attempt_id_by_provider_ref.insert(
-                    response.provider_ref.as_str().to_owned(),
-                    attempt.provider_attempt_id.clone(),
-                );
-                store
-                    .provider_attempts_by_id
-                    .insert(attempt.provider_attempt_id.clone(), attempt);
+            if existing_attempt.request_hash != attempt.request_hash {
+                return Err(BackendError::IdempotencyMappingFailed);
             }
+        } else {
+            if self
+                .state
+                .happy_route
+                .find_provider_attempt_by_ref_or_submission(
+                    attempt.provider_reference.as_deref(),
+                    &attempt.settlement_submission_id,
+                )
+                .await
+                .map_err(store_error_to_backend_error)?
+                .is_some()
+            {
+                return Err(BackendError::IdempotencyMappingFailed);
+            }
+            self.state
+                .happy_route
+                .insert_provider_attempt(&attempt)
+                .await
+                .map_err(store_error_to_backend_error)?;
         }
 
         Ok(SubmissionResult::Accepted {
@@ -297,22 +288,15 @@ impl SettlementBackend for PiSettlementBackend {
             )));
         }
 
-        let attempt = {
-            let store = self.state.happy_route.read().await;
-            if let Some(provider_ref) = cmd.provider_ref.as_ref() {
-                store
-                    .provider_attempt_id_by_provider_ref
-                    .get(provider_ref.as_str())
-                    .and_then(|attempt_id| store.provider_attempts_by_id.get(attempt_id))
-                    .cloned()
-            } else {
-                store
-                    .provider_attempts_by_id
-                    .values()
-                    .find(|attempt| attempt.settlement_submission_id == cmd.submission_id.as_str())
-                    .cloned()
-            }
-        };
+        let attempt = self
+            .state
+            .happy_route
+            .find_provider_attempt_by_ref_or_submission(
+                cmd.provider_ref.as_ref().map(|value| value.as_str()),
+                cmd.submission_id.as_str(),
+            )
+            .await
+            .map_err(store_error_to_backend_error)?;
 
         let Some(attempt) = attempt else {
             return Ok(ReconcileResult::NotFound {
@@ -330,16 +314,14 @@ impl SettlementBackend for PiSettlementBackend {
             .ok_or(BackendError::InvalidProviderResponse)?;
 
         let poll_response = self.client.poll_status(provider_ref.clone()).await?;
-        {
-            let mut store = self.state.happy_route.write().await;
-            if let Some(existing_attempt) = store
-                .provider_attempts_by_id
-                .get_mut(&attempt.provider_attempt_id)
-            {
-                existing_attempt.last_observed_at = chrono::Utc::now();
-                existing_attempt.attempt_status = poll_response.status_label.to_owned();
-            }
-        }
+        self.state
+            .happy_route
+            .update_provider_attempt_status(
+                &attempt.provider_attempt_id,
+                poll_response.status_label,
+            )
+            .await
+            .map_err(store_error_to_backend_error)?;
 
         match poll_response.status {
             ProviderPollStatus::Pending => Ok(ReconcileResult::Pending {
@@ -562,6 +544,33 @@ fn classify_callback_status(status: &str) -> CallbackStatusClass {
         "completed" | "succeeded" | "success" => CallbackStatusClass::Completed,
         "failed" | "cancelled" | "canceled" | "rejected" | "error" => CallbackStatusClass::Rejected,
         _ => CallbackStatusClass::Ambiguous,
+    }
+}
+
+fn store_error_to_backend_error(error: HappyRouteError) -> BackendError {
+    match error {
+        HappyRouteError::NotFound(_) => BackendError::InvalidProviderPayload,
+        HappyRouteError::BadRequest(_) => BackendError::InvalidProviderPayload,
+        HappyRouteError::Unauthorized(_) => BackendError::InvalidProviderPayload,
+        HappyRouteError::ProviderCallbackMappingDeferred(_) => BackendError::TemporarilyUnavailable,
+        HappyRouteError::Database {
+            code,
+            constraint,
+            retryable,
+            ..
+        } => {
+            if retryable {
+                BackendError::TemporarilyUnavailable
+            } else if code.as_deref() == Some("23505")
+                && constraint.as_deref() == Some("provider_attempts_provider_reference_key")
+            {
+                BackendError::IdempotencyMappingFailed
+            } else {
+                BackendError::InvalidProviderResponse
+            }
+        }
+        HappyRouteError::Provider { .. } => BackendError::InvalidProviderResponse,
+        HappyRouteError::Internal(_) => BackendError::InvalidProviderResponse,
     }
 }
 
@@ -799,8 +808,56 @@ mod tests {
         assert_eq!(ProviderPollStatus::Unknown.as_str(), "unknown");
     }
 
+    #[test]
+    fn database_store_failures_map_to_retryable_backend_errors() {
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: writer disconnected".to_owned(),
+            code: None,
+            constraint: None,
+            retryable: true,
+        });
+
+        assert_eq!(error, BackendError::TemporarilyUnavailable);
+    }
+
+    #[test]
+    fn permanent_database_store_failures_fail_closed() {
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: check constraint".to_owned(),
+            code: Some("23514".to_owned()),
+            constraint: Some("outbox_events_last_error_class_check".to_owned()),
+            retryable: false,
+        });
+
+        assert_eq!(error, BackendError::InvalidProviderResponse);
+    }
+
+    #[test]
+    fn provider_reference_uniqueness_maps_to_idempotency_failure() {
+        let error = store_error_to_backend_error(HappyRouteError::Database {
+            message: "database operation failed: duplicate key value".to_owned(),
+            code: Some("23505".to_owned()),
+            constraint: Some("provider_attempts_provider_reference_key".to_owned()),
+            retryable: false,
+        });
+
+        assert_eq!(error, BackendError::IdempotencyMappingFailed);
+    }
+
+    #[test]
+    fn non_database_internal_failures_still_fail_closed() {
+        let error = store_error_to_backend_error(HappyRouteError::Internal(
+            "stored provider attempt was missing request key".to_owned(),
+        ));
+
+        assert_eq!(error, BackendError::InvalidProviderResponse);
+    }
+
     #[tokio::test]
     async fn unsupported_provider_mode_fails_closed() {
+        let test_state = crate::new_test_state()
+            .await
+            .expect("test database state must initialize");
         let config = PiProviderConfig {
             mode: "production".to_owned(),
             base_url: DEFAULT_PROVIDER_BASE_URL.to_owned(),
@@ -809,7 +866,7 @@ mod tests {
             timeout: Duration::from_millis(DEFAULT_PROVIDER_TIMEOUT_MS),
         };
         let backend = PiSettlementBackend {
-            state: crate::new_state(),
+            state: test_state.state.clone(),
             descriptor: pi_backend_descriptor(),
             client: SandboxPiProviderClient::new(config.clone()),
             config,

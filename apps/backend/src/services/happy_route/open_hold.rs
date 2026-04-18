@@ -9,7 +9,6 @@ use super::{
     backend::PiSettlementBackend,
     common::map_backend_error,
     constants::SETTLEMENT_ORCHESTRATOR,
-    repository::HappyRouteWriteRepository,
     state::OutboxMessageRecord,
     types::{
         HappyRouteError, OpenHoldIntentPrepareOutcome, ProcessedOutboxMessage,
@@ -22,16 +21,15 @@ pub(super) async fn process_open_hold_intent(
     message: OutboxMessageRecord,
     settlement_case_id: String,
 ) -> Result<ProcessedOutboxMessage, HappyRouteError> {
-    let prepare = {
-        let mut store = state.happy_route.write().await;
-        match HappyRouteWriteRepository::new(&mut store)
-            .prepare_open_hold_intent(&message, &settlement_case_id)?
-        {
-            OpenHoldIntentPrepareOutcome::ReplayNoop(processed_message) => {
-                return Ok(processed_message);
-            }
-            OpenHoldIntentPrepareOutcome::Ready(prepare) => prepare,
+    let prepare = match state
+        .happy_route
+        .prepare_open_hold_intent(&message, &settlement_case_id)
+        .await?
+    {
+        OpenHoldIntentPrepareOutcome::ReplayNoop(processed_message) => {
+            return Ok(processed_message);
         }
+        OpenHoldIntentPrepareOutcome::Ready(prepare) => prepare,
     };
 
     let backend = PiSettlementBackend::new(state.clone());
@@ -77,14 +75,10 @@ pub(super) async fn process_open_hold_intent(
         .await
         .map_err(map_backend_error)?;
 
-    let persist_result = {
-        let mut store = state.happy_route.write().await;
-        HappyRouteWriteRepository::new(&mut store).persist_open_hold_intent_result(
-            &message,
-            &prepare,
-            submission_result,
-        )?
-    };
+    let persist_result = state
+        .happy_route
+        .persist_open_hold_intent_result(&message, &prepare, submission_result)
+        .await?;
 
     Ok(processed_outbox_message(
         &message,

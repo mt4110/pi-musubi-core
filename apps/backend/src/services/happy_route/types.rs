@@ -6,6 +6,12 @@ pub enum HappyRouteError {
     Unauthorized(String),
     NotFound(String),
     ProviderCallbackMappingDeferred(String),
+    Database {
+        message: String,
+        code: Option<String>,
+        constraint: Option<String>,
+        retryable: bool,
+    },
     Provider {
         class: ProviderErrorClass,
         message: String,
@@ -20,6 +26,7 @@ impl HappyRouteError {
             | Self::Unauthorized(message)
             | Self::NotFound(message)
             | Self::ProviderCallbackMappingDeferred(message)
+            | Self::Database { message, .. }
             | Self::Provider { message, .. }
             | Self::Internal(message) => message,
         }
@@ -28,6 +35,11 @@ impl HappyRouteError {
     pub(super) fn provider_error_class(&self) -> Option<ProviderErrorClass> {
         match self {
             Self::ProviderCallbackMappingDeferred(_) => Some(ProviderErrorClass::Retryable),
+            Self::Database { retryable, .. } => Some(if *retryable {
+                ProviderErrorClass::Retryable
+            } else {
+                ProviderErrorClass::Terminal
+            }),
             Self::Provider { class, .. } => Some(*class),
             _ => None,
         }

@@ -4,7 +4,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use musubi_backend::{
-    build_app, new_state,
+    build_app, new_test_state,
     services::proof::{StartProofChallengeInput, start_proof_challenge},
 };
 use serde_json::{Value, json};
@@ -14,7 +14,8 @@ const RESPONSE_BODY_LIMIT_BYTES: usize = 1024 * 1024;
 
 #[tokio::test]
 async fn public_proof_challenge_rejects_operator_pin_fallback() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let user = sign_in(&app, "pi-user-proof-a", "proof-a").await;
 
     let response = post_json(
@@ -41,7 +42,8 @@ async fn public_proof_challenge_rejects_operator_pin_fallback() {
 
 #[tokio::test]
 async fn public_operator_pin_rejections_do_not_consume_operator_budget() {
-    let state = new_state();
+    let test_state = new_test_state().await.expect("test database state");
+    let state = test_state.state.clone();
     let app = build_app(state.clone());
     let user = sign_in(&app, "pi-user-proof-budget", "proof-budget").await;
 
@@ -81,7 +83,8 @@ async fn public_operator_pin_rejections_do_not_consume_operator_budget() {
 
 #[tokio::test]
 async fn public_challenge_ignores_operator_id_when_normal_flow_is_requested() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let user = sign_in(&app, "pi-user-proof-normal", "proof-normal").await;
 
     let response = post_json(
@@ -108,7 +111,8 @@ async fn public_challenge_ignores_operator_id_when_normal_flow_is_requested() {
 
 #[tokio::test]
 async fn invalid_proof_envelope_is_recorded_as_rejected_evidence() {
-    let app = build_app(new_state());
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
     let user = sign_in(&app, "pi-user-proof-b", "proof-b").await;
 
     let challenge = post_json(

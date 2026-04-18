@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use axum::{
     Json, Router,
@@ -6,7 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Serialize;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -18,7 +22,7 @@ use musubi_db_runtime::{DbConfig, MigrationRunner, StartupCheck};
 pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
-    pub happy_route: RwLock<services::happy_route::HappyRouteState>,
+    pub happy_route: services::happy_route::HappyRouteStore,
     pub proof: RwLock<services::proof::ProofState>,
 }
 
@@ -28,10 +32,64 @@ struct HealthResponse {
     service: &'static str,
 }
 
-pub fn new_state() -> SharedState {
-    Arc::new(AppState {
-        happy_route: RwLock::new(services::happy_route::HappyRouteState::default()),
+pub async fn new_state() -> musubi_db_runtime::Result<SharedState> {
+    load_env_files();
+    let config = DbConfig::from_env()?;
+    new_state_from_config(&config).await
+}
+
+pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Result<SharedState> {
+    Ok(Arc::new(AppState {
+        happy_route: services::happy_route::HappyRouteStore::connect(config).await?,
         proof: RwLock::new(services::proof::ProofState::default()),
+    }))
+}
+
+pub struct TestState {
+    pub state: SharedState,
+    _guard: OwnedMutexGuard<()>,
+}
+
+static TEST_DB_LOCK: OnceLock<Arc<AsyncMutex<()>>> = OnceLock::new();
+static TEST_DB_MIGRATED: OnceLock<Arc<AsyncMutex<bool>>> = OnceLock::new();
+
+pub async fn new_test_state() -> Result<TestState, String> {
+    load_env_files();
+    let guard = TEST_DB_LOCK
+        .get_or_init(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+        .lock_owned()
+        .await;
+    let config = test_db_config().map_err(|error| error.to_string())?;
+    let migrated = TEST_DB_MIGRATED
+        .get_or_init(|| Arc::new(AsyncMutex::new(false)))
+        .clone();
+    {
+        let mut migrated = migrated.lock().await;
+        if !*migrated {
+            let runner = MigrationRunner::new(config.migrations_dir.clone());
+            runner
+                .bootstrap(&config)
+                .await
+                .map_err(|error| error.to_string())?;
+            runner
+                .migrate(&config)
+                .await
+                .map_err(|error| error.to_string())?;
+            *migrated = true;
+        }
+    }
+    let state = new_state_from_config(&config)
+        .await
+        .map_err(|error| error.to_string())?;
+    state
+        .happy_route
+        .reset_for_test()
+        .await
+        .map_err(|error| error.message().to_owned())?;
+    Ok(TestState {
+        state,
+        _guard: guard,
     })
 }
 
@@ -81,6 +139,7 @@ pub fn build_app(state: SharedState) -> Router {
 }
 
 pub async fn verify_backend_startup() -> musubi_db_runtime::Result<StartupCheck> {
+    load_env_files();
     let config = DbConfig::from_env()?;
     MigrationRunner::new(config.migrations_dir.clone())
         .verify_startup(&config)
@@ -152,6 +211,21 @@ fn env_flag_enabled(name: &str) -> bool {
             normalized == "1" || normalized == "true" || normalized == "yes"
         })
         .unwrap_or(false)
+}
+
+fn load_env_files() {
+    dotenvy::dotenv().ok();
+    dotenvy::from_path("apps/backend/.env").ok();
+}
+
+fn test_db_config() -> musubi_db_runtime::Result<DbConfig> {
+    DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("test".to_owned()),
+        "DATABASE_URL" => std::env::var("MUSUBI_TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .ok(),
+        other => std::env::var(other).ok(),
+    })
 }
 
 fn internal_orchestration_drain_enabled_with_flags(

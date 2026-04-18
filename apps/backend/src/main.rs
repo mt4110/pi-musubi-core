@@ -7,5 +7,10 @@ async fn main() {
         std::process::exit(1);
     }
 
-    musubi_backend::run(musubi_backend::new_state()).await;
+    let state = musubi_backend::new_state().await.unwrap_or_else(|error| {
+        eprintln!("musubi backend state initialization failed: {error}");
+        std::process::exit(1);
+    });
+
+    musubi_backend::run(state).await;
 }

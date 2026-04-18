@@ -1330,7 +1330,8 @@ mod tests {
 
     #[tokio::test]
     async fn valid_dynamic_venue_code_verifies_without_raw_gps_persistence() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-a", FALLBACK_NONE).await;
         let code = display_code(&state, "venue-a", challenge.venue_key_version, Utc::now()).await;
 
@@ -1369,7 +1370,8 @@ mod tests {
 
     #[tokio::test]
     async fn valid_coarse_location_bucket_is_canonicalized_before_recording() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge =
             start_test_challenge(&state, "venue-canonical-location", FALLBACK_NONE).await;
         let code = display_code(
@@ -1414,7 +1416,8 @@ mod tests {
         ];
 
         for (index, invalid_hint) in invalid_hints.iter().enumerate() {
-            let state = crate::new_state();
+            let test_state = crate::new_test_state().await.expect("test database state");
+            let state = test_state.state.clone();
             let venue_id = format!("venue-invalid-location-{index}");
             let challenge = start_test_challenge(&state, &venue_id, FALLBACK_NONE).await;
             let code =
@@ -1460,7 +1463,8 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_submission_fallback_mode_is_rejected_before_verification() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge =
             start_test_challenge(&state, "venue-unsupported-fallback", FALLBACK_NONE).await;
         let code = display_code(
@@ -1503,7 +1507,8 @@ mod tests {
 
     #[tokio::test]
     async fn blank_submission_fallback_mode_uses_normal_flow() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-blank-fallback", FALLBACK_NONE).await;
         let code = display_code(
             &state,
@@ -1531,7 +1536,8 @@ mod tests {
 
     #[tokio::test]
     async fn expired_challenge_is_rejected_by_server_time() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-expired", FALLBACK_NONE).await;
         let code = display_code(
             &state,
@@ -1560,7 +1566,8 @@ mod tests {
 
     #[tokio::test]
     async fn replayed_envelope_is_rejected() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-replay", FALLBACK_NONE).await;
         let code = display_code(
             &state,
@@ -1655,7 +1662,8 @@ mod tests {
 
     #[tokio::test]
     async fn persisted_replay_material_is_not_plain_digest_over_low_entropy_secrets() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-hmac-persistence", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let code = display_code(
@@ -1715,7 +1723,8 @@ mod tests {
 
     #[tokio::test]
     async fn previous_window_code_is_accepted_with_bounded_skew() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-prev-window", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let previous_code = display_code(
@@ -1739,7 +1748,8 @@ mod tests {
 
     #[tokio::test]
     async fn subject_mismatch_submission_does_not_poison_valid_subject_submission() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-replay-subject", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let code = display_code(
@@ -1773,7 +1783,8 @@ mod tests {
 
     #[tokio::test]
     async fn public_venue_inputs_do_not_reconstruct_display_code() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-public-code", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let public_secret = digest_parts(&[
@@ -1859,7 +1870,8 @@ mod tests {
 
     #[tokio::test]
     async fn same_venue_id_in_different_realms_gets_different_display_codes() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let realm_a =
             start_test_challenge_in_realm(&state, "realm-a", "venue-shared", FALLBACK_NONE).await;
         let realm_b =
@@ -1906,7 +1918,8 @@ mod tests {
 
     #[tokio::test]
     async fn challenge_does_not_accept_display_code_from_another_realm() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let realm_a =
             start_test_challenge_in_realm(&state, "realm-a", "venue-shared-proof", FALLBACK_NONE)
                 .await;
@@ -1937,7 +1950,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_attempt_limit_quarantines_challenge() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-attempt-limit", FALLBACK_NONE).await;
         let received_at = Utc::now();
 
@@ -1990,7 +2004,8 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_or_mismatched_requests_do_not_consume_attempt_budget() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-malformed-budget", FALLBACK_NONE).await;
         let received_at = Utc::now();
 
@@ -2068,7 +2083,8 @@ mod tests {
 
     #[tokio::test]
     async fn only_bound_secret_check_failures_consume_attempt_budget() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-secret-budget", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let mut missing_display_code: ProofEnvelopeInput =
@@ -2157,7 +2173,8 @@ mod tests {
 
     #[tokio::test]
     async fn attempt_limit_counts_only_real_secret_check_failures() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge =
             start_test_challenge(&state, "venue-attempt-limit-secret-only", FALLBACK_NONE).await;
         let received_at = Utc::now();
@@ -2214,7 +2231,8 @@ mod tests {
 
     #[tokio::test]
     async fn stale_client_observation_is_quarantined() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-stale", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let code = display_code(
@@ -2244,7 +2262,8 @@ mod tests {
 
     #[tokio::test]
     async fn revoked_key_version_is_rejected() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-revoked", FALLBACK_NONE).await;
         let code = display_code(
             &state,
@@ -2276,7 +2295,8 @@ mod tests {
 
     #[tokio::test]
     async fn draining_key_version_accepts_existing_challenge_only() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-draining", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let code = display_code(
@@ -2337,7 +2357,8 @@ mod tests {
 
     #[tokio::test]
     async fn old_challenge_rejects_submitted_key_version_override() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let challenge = start_test_challenge(&state, "venue-old-key-override", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let new_key_version = challenge.venue_key_version + 1;
@@ -2403,7 +2424,8 @@ mod tests {
 
     #[tokio::test]
     async fn new_challenge_rejects_old_draining_key_override() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_test_challenge(&state, "venue-new-key-override", FALLBACK_NONE).await;
         let received_at = Utc::now();
         let old_key_version = first.venue_key_version;
@@ -2475,7 +2497,8 @@ mod tests {
 
     #[tokio::test]
     async fn operator_pin_flow_is_audited_and_rate_limited() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first_start = start_proof_challenge(
             &state,
             StartProofChallengeInput {
@@ -2575,7 +2598,8 @@ mod tests {
 
     #[tokio::test]
     async fn operator_pin_capable_challenge_accepts_normal_display_code_flow() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let start = start_proof_challenge(
             &state,
             StartProofChallengeInput {
@@ -2613,7 +2637,8 @@ mod tests {
 
     #[tokio::test]
     async fn public_operator_inputs_do_not_reconstruct_pin() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let start = start_proof_challenge(
             &state,
             StartProofChallengeInput {
@@ -2672,7 +2697,8 @@ mod tests {
 
     #[tokio::test]
     async fn same_operator_and_venue_get_distinct_pins_per_challenge() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_proof_challenge(
             &state,
             StartProofChallengeInput {
@@ -2705,7 +2731,8 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_envelope_is_rejected_and_recorded() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
 
         let outcome = submit_proof_envelope(
             &state,
@@ -2738,7 +2765,8 @@ mod tests {
 
     #[tokio::test]
     async fn redacted_payload_canonicalizes_request_identifiers() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let outcome = submit_proof_envelope(
             &state,
             ProofEnvelopeInput {
@@ -2775,7 +2803,8 @@ mod tests {
 
     #[tokio::test]
     async fn proof_submission_state_prunes_expired_rejected_evidence() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let base = Utc::now();
         let old_input = ProofEnvelopeInput {
             subject_account_id: "account-prune-old".to_owned(),
@@ -2843,7 +2872,8 @@ mod tests {
 
     #[tokio::test]
     async fn replay_index_tracks_latest_retained_duplicate_submission() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let base = Utc::now();
         let input = ProofEnvelopeInput {
             subject_account_id: "account-replay-prune".to_owned(),
@@ -2891,7 +2921,8 @@ mod tests {
 
     #[tokio::test]
     async fn proof_submission_state_caps_unique_rejected_evidence() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let base = Utc::now();
         let mut first_submission_id = None;
         let mut last_submission_id = None;
@@ -2948,7 +2979,8 @@ mod tests {
 
     #[tokio::test]
     async fn challenge_state_prunes_expired_challenges_and_stale_operator_audits() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_proof_challenge(
             &state,
             StartProofChallengeInput {
@@ -3002,7 +3034,8 @@ mod tests {
 
     #[tokio::test]
     async fn active_challenge_limit_is_enforced_per_subject() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
 
         for index in 0..MAX_ACTIVE_PROOF_CHALLENGES_PER_SUBJECT {
             start_proof_challenge(
@@ -3036,7 +3069,8 @@ mod tests {
 
     #[tokio::test]
     async fn active_challenge_capacity_preserves_existing_active_challenges() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_test_challenge(&state, "venue-challenge-cap-first", FALLBACK_NONE).await;
 
         {
@@ -3096,7 +3130,8 @@ mod tests {
 
     #[tokio::test]
     async fn challenge_pruning_removes_unused_venue_key_state() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_test_challenge(&state, "venue-key-prune", FALLBACK_NONE).await;
 
         {
@@ -3136,7 +3171,8 @@ mod tests {
 
     #[tokio::test]
     async fn retained_challenge_keeps_active_rotated_venue_key_state() {
-        let state = crate::new_state();
+        let test_state = crate::new_test_state().await.expect("test database state");
+        let state = test_state.state.clone();
         let first = start_test_challenge(&state, "venue-key-retain", FALLBACK_NONE).await;
         let rotated_key_version = first.venue_key_version + 1;
         let now = Utc::now();
