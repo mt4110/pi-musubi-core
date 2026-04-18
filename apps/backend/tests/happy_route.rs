@@ -331,6 +331,130 @@ async fn projection_rebuild_restores_read_models_from_writer_truth() {
 }
 
 #[tokio::test]
+async fn projection_rebuild_reports_source_watermark_and_positive_lag_for_stale_facts() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE dao.promise_intents
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE promise_intent_id::text = $1
+            ",
+            &[&prepared.promise_intent_id],
+        )
+        .await
+        .expect("promise timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE dao.settlement_cases
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE core.payment_receipts
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("receipt timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE ledger.journal_entries
+            SET
+                effective_at = CURRENT_TIMESTAMP - interval '2 hours',
+                created_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("journal timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE dao.settlement_observations
+            SET observed_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("observation timestamp must be adjustable for lag test");
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    for item in rebuild.body["rebuilt"]
+        .as_array()
+        .expect("rebuilt items must be an array")
+    {
+        let projection_lag_ms = item["projection_lag_ms"]
+            .as_i64()
+            .expect("projection_lag_ms must be numeric");
+        assert!(
+            projection_lag_ms >= 60 * 60 * 1000,
+            "projection meta lag should reflect stale writer facts: {projection_lag_ms}"
+        );
+        assert!(item["source_watermark_at"].as_str().is_some());
+        assert!(
+            item["source_fact_count"]
+                .as_i64()
+                .expect("source fact count must be numeric")
+                > 0
+        );
+    }
+
+    let promise_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(promise_view.status, StatusCode::OK);
+    assert_stale_provenance(&promise_view.body["provenance"]);
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_stale_provenance(&expanded_settlement.body["provenance"]);
+
+    let trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(trust.status, StatusCode::OK);
+    assert_stale_provenance(&trust.body["provenance"]);
+}
+
+#[tokio::test]
 async fn duplicate_projector_input_is_safe_for_projection_rows() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -2347,6 +2471,37 @@ fn promise_request_hash_test(
     ]
     .join("\u{1f}");
     sha256_hex_test(material.as_bytes())
+}
+
+fn assert_stale_provenance(provenance: &Value) {
+    let source_watermark = parse_datetime_field(provenance, "source_watermark_at");
+    let freshness_checked = parse_datetime_field(provenance, "freshness_checked_at");
+    let last_projected = parse_datetime_field(provenance, "last_projected_at");
+    let projection_lag_ms = provenance["projection_lag_ms"]
+        .as_i64()
+        .expect("projection_lag_ms must be numeric");
+    let source_fact_count = provenance["source_fact_count"]
+        .as_i64()
+        .expect("source_fact_count must be numeric");
+
+    assert!(freshness_checked >= source_watermark);
+    assert!(last_projected >= source_watermark);
+    assert!(source_fact_count > 0);
+    assert!(
+        projection_lag_ms >= 60 * 60 * 1000,
+        "projection lag should reflect stale writer facts: {projection_lag_ms}"
+    );
+    assert!(provenance["rebuild_generation"].as_str().is_some());
+}
+
+fn parse_datetime_field(value: &Value, field_name: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(
+        value[field_name]
+            .as_str()
+            .unwrap_or_else(|| panic!("{field_name} must be an RFC3339 string")),
+    )
+    .unwrap_or_else(|error| panic!("{field_name} must parse as RFC3339: {error}"))
+    .with_timezone(&chrono::Utc)
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
