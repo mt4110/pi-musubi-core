@@ -129,37 +129,70 @@ impl HappyRouteStore {
             .map_err(db_error)?;
             account_id
         } else {
-            let account_id = Uuid::new_v4();
+            let new_account_id = Uuid::new_v4();
             tx.execute(
                 "
                 INSERT INTO core.accounts (account_id, account_class, account_state)
                 VALUES ($1, 'Ordinary Account', 'active')
                 ",
-                &[&account_id],
+                &[&new_account_id],
             )
             .await
             .map_err(db_error)?;
-            tx.execute(
-                "
-                INSERT INTO core.pi_account_links (
-                    account_id,
-                    pi_uid,
-                    username,
-                    wallet_address,
-                    access_token_digest
+            let row = tx
+                .query_one(
+                    "
+                    INSERT INTO core.pi_account_links (
+                        account_id,
+                        pi_uid,
+                        username,
+                        wallet_address,
+                        access_token_digest
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (pi_uid) DO UPDATE
+                    SET username = CASE
+                            WHEN core.pi_account_links.access_token_digest = EXCLUDED.access_token_digest
+                                THEN EXCLUDED.username
+                            ELSE core.pi_account_links.username
+                        END,
+                        wallet_address = CASE
+                            WHEN core.pi_account_links.access_token_digest = EXCLUDED.access_token_digest
+                                THEN EXCLUDED.wallet_address
+                            ELSE core.pi_account_links.wallet_address
+                        END,
+                        updated_at = CASE
+                            WHEN core.pi_account_links.access_token_digest = EXCLUDED.access_token_digest
+                                THEN CURRENT_TIMESTAMP
+                            ELSE core.pi_account_links.updated_at
+                        END
+                    RETURNING account_id, access_token_digest
+                    ",
+                    &[
+                        &new_account_id,
+                        &input.pi_uid,
+                        &input.username,
+                        &input.wallet_address,
+                        &access_token_digest,
+                    ],
                 )
-                VALUES ($1, $2, $3, $4, $5)
-                ",
-                &[
-                    &account_id,
-                    &input.pi_uid,
-                    &input.username,
-                    &input.wallet_address,
-                    &access_token_digest,
-                ],
-            )
-            .await
-            .map_err(db_error)?;
+                .await
+                .map_err(db_error)?;
+            let account_id: Uuid = row.get("account_id");
+            let stored_digest: String = row.get("access_token_digest");
+            if account_id != new_account_id {
+                tx.execute(
+                    "DELETE FROM core.accounts WHERE account_id = $1",
+                    &[&new_account_id],
+                )
+                .await
+                .map_err(db_error)?;
+                if stored_digest != access_token_digest {
+                    return Err(HappyRouteError::Unauthorized(
+                        "pi identity proof did not match the existing account".to_owned(),
+                    ));
+                }
+            }
             account_id
         };
 
@@ -355,26 +388,80 @@ impl HappyRouteStore {
         )
         .await
         .map_err(db_error)?;
-        tx.execute(
-            "
-            INSERT INTO dao.promise_intent_idempotency_keys (
-                initiator_account_id,
-                internal_idempotency_key,
-                promise_intent_id,
-                request_payload_hash
+        if tx
+            .execute(
+                "
+                INSERT INTO dao.promise_intent_idempotency_keys (
+                    initiator_account_id,
+                    internal_idempotency_key,
+                    promise_intent_id,
+                    request_payload_hash
+                )
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (initiator_account_id, internal_idempotency_key) DO NOTHING
+                ",
+                &[
+                    &initiator_account_id,
+                    &input.internal_idempotency_key,
+                    &promise_intent_id,
+                    &request_hash,
+                ],
             )
-            VALUES ($1, $2, $3, $4)
-            ",
-            &[
-                &initiator_account_id,
-                &input.internal_idempotency_key,
-                &promise_intent_id,
-                &request_hash,
-            ],
-        )
-        .await
-        .map_err(db_error)?;
+            .await
+            .map_err(db_error)?
+            == 0
+        {
+            tx.execute(
+                "DELETE FROM dao.settlement_cases WHERE settlement_case_id = $1",
+                &[&settlement_case_id],
+            )
+            .await
+            .map_err(db_error)?;
+            tx.execute(
+                "DELETE FROM dao.promise_intents WHERE promise_intent_id = $1",
+                &[&promise_intent_id],
+            )
+            .await
+            .map_err(db_error)?;
 
+            let row = tx
+                .query_one(
+                    "
+                    SELECT
+                        idem.promise_intent_id,
+                        idem.request_payload_hash,
+                        settlement.settlement_case_id,
+                        settlement.case_status
+                    FROM dao.promise_intent_idempotency_keys idem
+                    JOIN dao.settlement_cases settlement
+                        ON settlement.promise_intent_id = idem.promise_intent_id
+                    WHERE idem.initiator_account_id = $1
+                      AND idem.internal_idempotency_key = $2
+                    FOR UPDATE
+                    ",
+                    &[&initiator_account_id, &input.internal_idempotency_key],
+                )
+                .await
+                .map_err(db_error)?;
+            let existing_hash: String = row.get("request_payload_hash");
+            if existing_hash != request_hash {
+                return Err(HappyRouteError::BadRequest(
+                    "internal_idempotency_key was already used with a different Promise payload"
+                        .to_owned(),
+                ));
+            }
+            let promise_intent_id: Uuid = row.get("promise_intent_id");
+            let settlement_case_id: Uuid = row.get("settlement_case_id");
+            let case_status: String = row.get("case_status");
+            tx.commit().await.map_err(db_error)?;
+            return Ok(PromiseIntentOutcome {
+                promise_intent_id: promise_intent_id.to_string(),
+                settlement_case_id: settlement_case_id.to_string(),
+                case_status,
+                outbox_event_ids: Vec::new(),
+                replayed_intent: true,
+            });
+        }
         let hold_event_id = insert_outbox_message_tx(
             &tx,
             "settlement_case",

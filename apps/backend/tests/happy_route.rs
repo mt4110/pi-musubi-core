@@ -9,6 +9,7 @@ use musubi_backend::{
     start_background_outbox_worker,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -838,6 +839,87 @@ async fn authenticate_pi_requires_matching_access_token_for_existing_account() {
 }
 
 #[tokio::test]
+async fn first_time_sign_in_replays_race_winner_instead_of_500() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let pi_uid = "pi-user-auth-race";
+    let username = "auth-race";
+    let access_token = "access-token-auth-race";
+    let blocked_account_id = Uuid::new_v4();
+    let access_token_digest = sha256_hex_test(access_token.as_bytes());
+    let mut blocker_client = test_db_client().await;
+    let blocker_tx = blocker_client
+        .transaction()
+        .await
+        .expect("blocker transaction must start");
+
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO core.accounts (account_id, account_class, account_state)
+            VALUES ($1, 'Ordinary Account', 'active')
+            ",
+            &[&blocked_account_id],
+        )
+        .await
+        .expect("blocked account must insert");
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO core.pi_account_links (
+                account_id,
+                pi_uid,
+                username,
+                wallet_address,
+                access_token_digest
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            ",
+            &[
+                &blocked_account_id,
+                &pi_uid,
+                &username,
+                &Some(format!("wallet-{pi_uid}")),
+                &access_token_digest,
+            ],
+        )
+        .await
+        .expect("blocked pi link must insert");
+
+    let app_clone = app.clone();
+    let request = tokio::spawn(async move {
+        sign_in_with_access_token_response(&app_clone, pi_uid, username, access_token).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    blocker_tx
+        .commit()
+        .await
+        .expect("blocker transaction must commit");
+
+    let response = request.await.expect("request task must join");
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(
+        response.body["user"]["id"].as_str(),
+        Some(blocked_account_id.to_string().as_str())
+    );
+
+    let client = test_db_client().await;
+    let row = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*) FROM core.accounts) AS account_count,
+                (SELECT count(*) FROM core.pi_account_links WHERE pi_uid = $1) AS link_count
+            ",
+            &[&pi_uid],
+        )
+        .await
+        .expect("auth race counts must be queryable");
+    assert_eq!(row.get::<_, i64>("account_count"), 1);
+    assert_eq!(row.get::<_, i64>("link_count"), 1);
+}
+
+#[tokio::test]
 async fn re_authentication_rotates_the_prior_session_token() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1034,6 +1116,145 @@ async fn promise_intent_idempotency_is_scoped_per_initiator() {
         create_for_a.body["settlement_case_id"],
         create_for_b.body["settlement_case_id"]
     );
+}
+
+#[tokio::test]
+async fn promise_intent_replays_race_winner_instead_of_500() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let initiator = sign_in(&app, "pi-user-promise-race-a", "promise-race-a").await;
+    let counterparty = sign_in(&app, "pi-user-promise-race-b", "promise-race-b").await;
+    let internal_idempotency_key = "promise-race-key";
+    let realm_id = "realm-promise-race";
+    let blocked_promise_intent_id = Uuid::new_v4();
+    let blocked_settlement_case_id = Uuid::new_v4();
+    let request_hash =
+        promise_request_hash_test(realm_id, &counterparty.account_id, 10000, "PI", 3);
+    let mut blocker_client = test_db_client().await;
+    let blocker_tx = blocker_client
+        .transaction()
+        .await
+        .expect("blocker transaction must start");
+
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO dao.promise_intents (
+                promise_intent_id,
+                realm_id,
+                initiator_account_id,
+                counterparty_account_id,
+                intent_status,
+                deposit_amount_minor_units,
+                deposit_currency_code,
+                deposit_scale
+            )
+            VALUES ($1, $2, $3, $4, 'proposed', 10000, 'PI', 3)
+            ",
+            &[
+                &blocked_promise_intent_id,
+                &realm_id,
+                &Uuid::parse_str(&initiator.account_id).expect("initiator account id must be uuid"),
+                &Uuid::parse_str(&counterparty.account_id)
+                    .expect("counterparty account id must be uuid"),
+            ],
+        )
+        .await
+        .expect("blocked promise intent must insert");
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO dao.settlement_cases (
+                settlement_case_id,
+                promise_intent_id,
+                realm_id,
+                case_status,
+                backend_key,
+                backend_version
+            )
+            VALUES ($1, $2, $3, 'pending_funding', 'pi', 'sandbox-2026-04')
+            ",
+            &[
+                &blocked_settlement_case_id,
+                &blocked_promise_intent_id,
+                &realm_id,
+            ],
+        )
+        .await
+        .expect("blocked settlement case must insert");
+    blocker_tx
+        .execute(
+            "
+            INSERT INTO dao.promise_intent_idempotency_keys (
+                initiator_account_id,
+                internal_idempotency_key,
+                promise_intent_id,
+                request_payload_hash
+            )
+            VALUES ($1, $2, $3, $4)
+            ",
+            &[
+                &Uuid::parse_str(&initiator.account_id).expect("initiator account id must be uuid"),
+                &internal_idempotency_key,
+                &blocked_promise_intent_id,
+                &request_hash,
+            ],
+        )
+        .await
+        .expect("blocked idempotency row must insert");
+
+    let app_clone = app.clone();
+    let initiator_token = initiator.token.clone();
+    let counterparty_account_id = counterparty.account_id.clone();
+    let request = tokio::spawn(async move {
+        post_json(
+            &app_clone,
+            "/api/promise/intents",
+            Some(initiator_token.as_str()),
+            json!({
+                "internal_idempotency_key": internal_idempotency_key,
+                "realm_id": realm_id,
+                "counterparty_account_id": counterparty_account_id,
+                "deposit_amount_minor_units": 10000,
+                "currency_code": "PI"
+            }),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    blocker_tx
+        .commit()
+        .await
+        .expect("blocker transaction must commit");
+
+    let response = request.await.expect("request task must join");
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body["replayed_intent"], true);
+    assert_eq!(
+        response.body["promise_intent_id"].as_str(),
+        Some(blocked_promise_intent_id.to_string().as_str())
+    );
+    assert_eq!(
+        response.body["settlement_case_id"].as_str(),
+        Some(blocked_settlement_case_id.to_string().as_str())
+    );
+
+    let client = test_db_client().await;
+    let row = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*) FROM dao.promise_intents) AS promise_count,
+                (SELECT count(*) FROM dao.settlement_cases) AS settlement_count,
+                (SELECT count(*) FROM dao.promise_intent_idempotency_keys) AS idempotency_count
+            ",
+            &[],
+        )
+        .await
+        .expect("promise race counts must be queryable");
+    assert_eq!(row.get::<_, i64>("promise_count"), 1);
+    assert_eq!(row.get::<_, i64>("settlement_count"), 1);
+    assert_eq!(row.get::<_, i64>("idempotency_count"), 1);
 }
 
 #[tokio::test]
@@ -1259,6 +1480,34 @@ async fn test_db_client() -> tokio_postgres::Client {
         }
     });
     client
+}
+
+fn sha256_hex_test(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+fn promise_request_hash_test(
+    realm_id: &str,
+    counterparty_account_id: &str,
+    minor_units: i128,
+    currency_code: &str,
+    scale: u32,
+) -> String {
+    let material = [
+        realm_id,
+        counterparty_account_id,
+        &minor_units.to_string(),
+        currency_code,
+        &scale.to_string(),
+    ]
+    .join("\u{1f}");
+    sha256_hex_test(material.as_bytes())
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
