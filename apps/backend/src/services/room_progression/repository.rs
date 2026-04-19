@@ -284,7 +284,7 @@ impl RoomProgressionStore {
         )
         .await?;
         if let Some(review_case_id) = review_case_id.as_ref() {
-            ensure_review_case_exists_tx(&tx, review_case_id).await?;
+            ensure_review_case_matches_room_scope_tx(&tx, &track, review_case_id).await?;
         }
 
         let status_code = next_status_code(
@@ -338,7 +338,7 @@ impl RoomProgressionStore {
         .await?;
         let current_review_case_id: Option<Uuid> = track.get("current_review_case_id");
         let next_review_case_id = if input.to_stage == "sealed" {
-            review_case_id.or(current_review_case_id)
+            current_review_case_id.or(review_case_id)
         } else {
             None
         };
@@ -792,7 +792,15 @@ async fn validate_triggered_by_tx<C: GenericClient + Sync>(
             };
             ensure_operator_transition_role_tx(client, account_id).await
         }
-        "system" => Ok(()),
+        "system" => {
+            if triggered_by_account_id.is_some() {
+                return Err(RoomProgressionError::BadRequest(
+                    "system-triggered transitions must not include triggered_by_account_id"
+                        .to_owned(),
+                ));
+            }
+            Ok(())
+        }
         _ => Err(RoomProgressionError::BadRequest(
             "triggered_by_kind is not supported".to_owned(),
         )),
@@ -828,13 +836,28 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                     "seal transitions must target sealed".to_owned(),
                 ));
             }
+            let current_review_case_id: Option<Uuid> = track.get("current_review_case_id");
+            if let Some(review_case_id) = review_case_id {
+                if let Some(current_review_case_id) = current_review_case_id.as_ref() {
+                    if current_review_case_id != review_case_id {
+                        return Err(RoomProgressionError::BadRequest(
+                            "seal review_case_id must match the room's current review case"
+                                .to_owned(),
+                        ));
+                    }
+                }
+            }
+            if from_stage != "sealed" && review_case_id.is_none() {
+                return Err(RoomProgressionError::BadRequest(
+                    "seal transitions from live rooms require review_case_id".to_owned(),
+                ));
+            }
             if status_code == "sealed_restricted" {
                 let Some(review_case_id) = review_case_id else {
                     return Err(RoomProgressionError::BadRequest(
                         "restricted seal transitions require review_case_id".to_owned(),
                     ));
                 };
-                let current_review_case_id: Option<Uuid> = track.get("current_review_case_id");
                 if let Some(current_review_case_id) = current_review_case_id.as_ref() {
                     if current_review_case_id != review_case_id {
                         return Err(RoomProgressionError::BadRequest(
@@ -945,27 +968,34 @@ fn next_status_code(
     Ok(status.to_owned())
 }
 
-async fn ensure_review_case_exists_tx<C: GenericClient + Sync>(
+async fn ensure_review_case_matches_room_scope_tx<C: GenericClient + Sync>(
     client: &C,
+    track: &Row,
     review_case_id: &Uuid,
 ) -> Result<(), RoomProgressionError> {
-    let exists = client
+    let room_progression_id = track.get::<_, Uuid>("room_progression_id").to_string();
+    let realm_id = track.get::<_, String>("realm_id");
+    let matches_scope = client
         .query_opt(
             "
             SELECT 1
             FROM dao.review_cases
             WHERE review_case_id = $1
+              AND case_type = 'sealed_room_fallback'
+              AND source_fact_kind = 'room_progression'
+              AND source_fact_id = $2
+              AND (related_realm_id IS NULL OR related_realm_id = $3)
             ",
-            &[review_case_id],
+            &[review_case_id, &room_progression_id, &realm_id],
         )
         .await
         .map_err(db_error)?
         .is_some();
-    if exists {
+    if matches_scope {
         Ok(())
     } else {
         Err(RoomProgressionError::BadRequest(
-            "review_case_id must reference an existing review case".to_owned(),
+            "review_case_id must reference the room's sealed fallback review case".to_owned(),
         ))
     }
 }
