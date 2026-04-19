@@ -47,6 +47,8 @@ While a room remains sealed, later writer-owned facts may keep `sealed -> sealed
 follow-up posture such as `sealed_under_review -> sealed_restricted` without reopening the room.
 Live-room seal transitions require a room-scoped `sealed_room_fallback` review case so the
 participant-facing under-review posture always has writer-owned backing.
+Restore transitions are operator-triggered only and must return the room to the live stage it
+held immediately before the current sealed fallback began.
 
 ## User-Facing Projection
 

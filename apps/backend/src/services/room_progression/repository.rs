@@ -1,10 +1,10 @@
 use std::{fmt::Write as _, sync::Arc};
 
-use musubi_db_runtime::{connect_writer, DbConfig};
-use serde_json::{json, Value};
+use musubi_db_runtime::{DbConfig, connect_writer};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{error::SqlState, Client, GenericClient, Row, Transaction};
+use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
 use uuid::Uuid;
 
 use super::types::{
@@ -281,6 +281,7 @@ impl RoomProgressionStore {
         validate_triggered_by_tx(
             &tx,
             &track,
+            &input.transition_kind,
             &input.triggered_by_kind,
             &triggered_by_account_id,
         )
@@ -768,9 +769,15 @@ async fn select_track_for_update_tx(
 async fn validate_triggered_by_tx<C: GenericClient + Sync>(
     client: &C,
     track: &Row,
+    transition_kind: &str,
     triggered_by_kind: &str,
     triggered_by_account_id: &Option<Uuid>,
 ) -> Result<(), RoomProgressionError> {
+    if transition_kind == "restore" && triggered_by_kind != "operator" {
+        return Err(RoomProgressionError::BadRequest(
+            "restore transitions must be operator-triggered".to_owned(),
+        ));
+    }
     match triggered_by_kind {
         "participant" => {
             let Some(account_id) = triggered_by_account_id else {
@@ -874,9 +881,9 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
             Ok(())
         }
         "restore" => {
-            if from_stage != "sealed" || !matches!(to_stage, "coordination" | "relationship") {
+            if from_stage != "sealed" {
                 return Err(RoomProgressionError::BadRequest(
-                    "restore transitions must move sealed rooms to coordination or relationship"
+                    "restore transitions must move sealed rooms back to their prior live stage"
                         .to_owned(),
                 ));
             }
@@ -890,6 +897,13 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                 return Err(RoomProgressionError::BadRequest(
                     "restore review_case_id must match the room's current review case".to_owned(),
                 ));
+            }
+            let restore_target_stage =
+                current_restore_target_stage_tx(client, track, review_case_id).await?;
+            if to_stage != restore_target_stage {
+                return Err(RoomProgressionError::BadRequest(format!(
+                    "restore transitions must return this sealed room to {restore_target_stage}"
+                )));
             }
             ensure_review_supports_restore_tx(client, review_case_id).await
         }
@@ -1001,6 +1015,37 @@ async fn ensure_review_case_matches_room_scope_tx<C: GenericClient + Sync>(
             "review_case_id must reference the room's sealed fallback review case".to_owned(),
         ))
     }
+}
+
+async fn current_restore_target_stage_tx<C: GenericClient + Sync>(
+    client: &C,
+    track: &Row,
+    review_case_id: &Uuid,
+) -> Result<String, RoomProgressionError> {
+    let room_progression_id = track.get::<_, Uuid>("room_progression_id");
+    let row = client
+        .query_opt(
+            "
+            SELECT from_stage
+            FROM dao.room_progression_facts
+            WHERE room_progression_id = $1
+              AND transition_kind = 'seal'
+              AND to_stage = 'sealed'
+              AND from_stage <> 'sealed'
+              AND review_case_id = $2
+            ORDER BY recorded_at DESC, room_progression_fact_id DESC
+            LIMIT 1
+            ",
+            &[&room_progression_id, review_case_id],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| {
+            RoomProgressionError::BadRequest(
+                "restore review_case_id must reference the room's active live-room seal".to_owned(),
+            )
+        })?;
+    Ok(row.get("from_stage"))
 }
 
 async fn ensure_review_supports_restore_tx<C: GenericClient + Sync>(
