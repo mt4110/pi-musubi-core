@@ -2037,6 +2037,46 @@ async fn projection_reads_require_authenticated_participant() {
 }
 
 #[tokio::test]
+async fn promise_projection_response_uses_writer_owned_participant_ids() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let outsider = sign_in(&app, "pi-user-projection-outsider", "projection-outsider").await;
+    let outsider_account_id = Uuid::parse_str(&outsider.account_id).expect("outsider account uuid");
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE projection.promise_views
+            SET initiator_account_id = $2::uuid,
+                counterparty_account_id = $2::uuid
+            WHERE promise_intent_id::text = $1
+            ",
+            &[&prepared.promise_intent_id, &outsider_account_id],
+        )
+        .await
+        .expect("projection participant corruption fixture must update");
+
+    let promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(promise.status, StatusCode::OK);
+    assert_eq!(promise.body["initiator_account_id"], prepared.initiator_account_id);
+    assert_eq!(
+        promise.body["counterparty_account_id"],
+        prepared.counterparty_account_id
+    );
+}
+
+#[tokio::test]
 async fn projection_reads_keep_invalid_ids_as_not_found() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

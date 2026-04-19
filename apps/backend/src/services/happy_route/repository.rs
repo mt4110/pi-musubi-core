@@ -1674,8 +1674,8 @@ impl HappyRouteStore {
                 SELECT
                     view.promise_intent_id,
                     view.realm_id,
-                    view.initiator_account_id,
-                    view.counterparty_account_id,
+                    promise.initiator_account_id AS initiator_account_id,
+                    promise.counterparty_account_id AS counterparty_account_id,
                     view.current_intent_status,
                     view.deposit_amount_minor_units,
                     view.currency_code,
@@ -1687,9 +1687,7 @@ impl HappyRouteStore {
                     view.freshness_checked_at,
                     view.projection_lag_ms,
                     view.last_projected_at,
-                    view.rebuild_generation,
-                    promise.initiator_account_id AS writer_initiator_account_id,
-                    promise.counterparty_account_id AS writer_counterparty_account_id
+                    view.rebuild_generation
                 FROM projection.promise_views view
                 JOIN dao.promise_intents promise
                     ON promise.promise_intent_id = view.promise_intent_id
@@ -1700,8 +1698,8 @@ impl HappyRouteStore {
             .await
             .map_err(db_error)?
             .ok_or_else(promise_projection_not_found)?;
-        let initiator: Uuid = row.get("writer_initiator_account_id");
-        let counterparty: Uuid = row.get("writer_counterparty_account_id");
+        let initiator: Uuid = row.get("initiator_account_id");
+        let counterparty: Uuid = row.get("counterparty_account_id");
         if viewer_account_id != initiator && viewer_account_id != counterparty {
             return Err(promise_projection_not_found());
         }
