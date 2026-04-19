@@ -1479,6 +1479,19 @@ impl HappyRouteStore {
             let effects = apply_verified_receipt_side_effects_tx(&tx, &settlement_case_id).await?;
             ledger_journal_id = effects.0;
             outbox_event_ids = effects.1;
+            if outbox_event_ids.is_empty() && !duplicate_receipt {
+                let settlement_refresh_event_id = insert_outbox_message_tx(
+                    &tx,
+                    "settlement_case",
+                    settlement_case_id,
+                    EVENT_REFRESH_SETTLEMENT_VIEW,
+                    &OutboxCommand::RefreshSettlementView {
+                        settlement_case_id: settlement_case_id.to_string(),
+                    },
+                )
+                .await?;
+                outbox_event_ids.push(settlement_refresh_event_id);
+            }
         } else if !duplicate_receipt {
             let settlement_refresh_event_id = insert_outbox_message_tx(
                 &tx,
@@ -1916,13 +1929,8 @@ impl HappyRouteStore {
         for row in trust_realm_rows {
             let account_id: Uuid = row.get("account_id");
             let realm_id: String = row.get("realm_id");
-            refresh_realm_trust_snapshot_tx(
-                &tx,
-                &account_id,
-                &realm_id,
-                Some(rebuild_generation),
-            )
-            .await?;
+            refresh_realm_trust_snapshot_tx(&tx, &account_id, &realm_id, Some(rebuild_generation))
+                .await?;
         }
 
         let rebuilt_at = tx
