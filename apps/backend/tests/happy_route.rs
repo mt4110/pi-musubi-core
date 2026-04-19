@@ -153,6 +153,479 @@ async fn duplicate_receipt_is_idempotent_and_does_not_double_credit_projection()
 }
 
 #[tokio::test]
+async fn projection_read_models_expose_freshness_and_bounded_trust() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+
+    let promise_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(promise_view.status, StatusCode::OK);
+    assert_eq!(
+        promise_view.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(promise_view.body["realm_id"], prepared.realm_id);
+    assert_eq!(
+        promise_view.body["counterparty_account_id"],
+        prepared.counterparty_account_id
+    );
+    assert_eq!(promise_view.body["current_intent_status"], "proposed");
+    assert_eq!(promise_view.body["deposit_amount_minor_units"], 10000);
+    assert_eq!(promise_view.body["latest_settlement_status"], "funded");
+    assert!(
+        promise_view.body["provenance"]["source_fact_count"]
+            .as_i64()
+            .expect("promise source fact count must be numeric")
+            >= 2
+    );
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_eq!(
+        expanded_settlement.body["settlement_case_id"],
+        prepared.settlement_case_id
+    );
+    assert_eq!(
+        expanded_settlement.body["current_settlement_status"],
+        "funded"
+    );
+    assert_eq!(expanded_settlement.body["proof_status"], "unavailable");
+    assert_eq!(expanded_settlement.body["proof_signal_count"], 0);
+    assert!(
+        expanded_settlement.body["provenance"]["source_fact_count"]
+            .as_i64()
+            .expect("settlement source fact count must be numeric")
+            >= 5
+    );
+
+    let trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(trust.status, StatusCode::OK);
+    assert_eq!(trust.body["realm_id"], Value::Null);
+    assert_eq!(trust.body["trust_posture"], "bounded_reliability_observed");
+    assert_eq!(trust.body["funded_settlement_count_90d"], 1);
+    assert_eq!(trust.body["proof_status"], "unavailable");
+    assert!(trust.body.get("trust_score").is_none());
+    assert!(trust.body.get("rank").is_none());
+    let reason_codes = trust.body["reason_codes"]
+        .as_array()
+        .expect("reason_codes must be an array");
+    assert!(
+        reason_codes
+            .iter()
+            .any(|code| { code.as_str() == Some("deposit_backed_promise_funded") })
+    );
+    assert!(
+        reason_codes
+            .iter()
+            .any(|code| code.as_str() == Some("proof_unavailable"))
+    );
+
+    let counterparty_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.counterparty_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(counterparty_trust.status, StatusCode::OK);
+    assert_eq!(counterparty_trust.body["funded_settlement_count_90d"], 1);
+    assert!(
+        counterparty_trust.body["reason_codes"]
+            .as_array()
+            .expect("counterparty reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("deposit_backed_promise_funded"))
+    );
+}
+
+#[tokio::test]
+async fn projection_rebuild_restores_read_models_from_writer_truth() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    client
+        .batch_execute(
+            "
+            DELETE FROM projection.projection_meta;
+            DELETE FROM projection.realm_trust_snapshots;
+            DELETE FROM projection.trust_snapshots;
+            DELETE FROM projection.settlement_views;
+            DELETE FROM projection.promise_views;
+            ",
+        )
+        .await
+        .expect("projection rows must be deletable");
+
+    let missing_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(missing_view.status, StatusCode::NOT_FOUND);
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    let rebuild_generation = rebuild.body["rebuild_generation"]
+        .as_str()
+        .expect("rebuild generation must exist")
+        .to_owned();
+    let rebuilt = rebuild.body["rebuilt"]
+        .as_array()
+        .expect("rebuilt items must be an array");
+    let matching_rebuilt_count = |projection_name: &str, projection_row_count: i64| {
+        rebuilt
+            .iter()
+            .filter(|item| {
+                item["projection_name"] == projection_name
+                    && item["projection_row_count"].as_i64() == Some(projection_row_count)
+            })
+            .count()
+    };
+    assert_eq!(matching_rebuilt_count("promise_views", 1), 1);
+    assert_eq!(matching_rebuilt_count("settlement_views", 1), 1);
+    assert_eq!(matching_rebuilt_count("trust_snapshots", 2), 1);
+    assert_eq!(matching_rebuilt_count("realm_trust_snapshots", 2), 1);
+
+    let rebuilt_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(rebuilt_promise.status, StatusCode::OK);
+    assert_eq!(
+        rebuilt_promise.body["provenance"]["rebuild_generation"],
+        rebuild_generation
+    );
+
+    let rebuilt_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(rebuilt_trust.status, StatusCode::OK);
+    assert_eq!(
+        rebuilt_trust.body["provenance"]["rebuild_generation"],
+        rebuild_generation
+    );
+}
+
+#[tokio::test]
+async fn projection_rebuild_reports_source_watermark_and_positive_lag_for_stale_facts() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE dao.promise_intents
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE promise_intent_id::text = $1
+            ",
+            &[&prepared.promise_intent_id],
+        )
+        .await
+        .expect("promise timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE dao.settlement_cases
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE core.payment_receipts
+            SET updated_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("receipt timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE ledger.journal_entries
+            SET
+                effective_at = CURRENT_TIMESTAMP - interval '2 hours',
+                created_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("journal timestamp must be adjustable for lag test");
+    client
+        .execute(
+            "
+            UPDATE dao.settlement_observations
+            SET observed_at = CURRENT_TIMESTAMP - interval '2 hours'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("observation timestamp must be adjustable for lag test");
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    for item in rebuild.body["rebuilt"]
+        .as_array()
+        .expect("rebuilt items must be an array")
+    {
+        let projection_lag_ms = item["projection_lag_ms"]
+            .as_i64()
+            .expect("projection_lag_ms must be numeric");
+        assert!(
+            projection_lag_ms >= 60 * 60 * 1000,
+            "projection meta lag should reflect stale writer facts: {projection_lag_ms}"
+        );
+        assert!(item["source_watermark_at"].as_str().is_some());
+        assert!(
+            item["source_fact_count"]
+                .as_i64()
+                .expect("source fact count must be numeric")
+                > 0
+        );
+    }
+
+    let promise_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(promise_view.status, StatusCode::OK);
+    assert_stale_provenance(&promise_view.body["provenance"]);
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_stale_provenance(&expanded_settlement.body["provenance"]);
+
+    let trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(trust.status, StatusCode::OK);
+    assert_stale_provenance(&trust.body["provenance"]);
+}
+
+#[tokio::test]
+async fn duplicate_projector_input_is_safe_for_projection_rows() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    let event_row = client
+        .query_one(
+            "
+            SELECT event_id
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'REFRESH_SETTLEMENT_VIEW'
+            ORDER BY created_at DESC
+            LIMIT 1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement projection event must exist");
+    let event_id: Uuid = event_row.get("event_id");
+    let before = client
+        .query_one(
+            "
+            SELECT last_projected_at
+            FROM projection.settlement_views
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement view must exist before duplicate input");
+    let before_projected_at: chrono::DateTime<chrono::Utc> = before.get("last_projected_at");
+
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'pending',
+                published_at = NULL,
+                retain_until = NULL,
+                available_at = CURRENT_TIMESTAMP
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("projection event must be requeueable for duplicate input test");
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    let event_id_text = event_id.to_string();
+    assert!(
+        drain.body["processed_messages"]
+            .as_array()
+            .expect("processed messages must be an array")
+            .iter()
+            .any(|message| {
+                message["event_id"].as_str() == Some(event_id_text.as_str())
+                    && message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
+                    && message["already_processed"].as_bool() == Some(true)
+            })
+    );
+
+    let after = client
+        .query_one(
+            "
+            SELECT
+                last_projected_at,
+                (SELECT count(*) FROM projection.settlement_views) AS settlement_view_count,
+                (SELECT count(*) FROM projection.trust_snapshots) AS trust_snapshot_count
+            FROM projection.settlement_views
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement view must remain after duplicate input");
+    let after_projected_at: chrono::DateTime<chrono::Utc> = after.get("last_projected_at");
+    assert_eq!(after_projected_at, before_projected_at);
+    assert_eq!(after.get::<_, i64>("settlement_view_count"), 1);
+    assert_eq!(after.get::<_, i64>("trust_snapshot_count"), 2);
+}
+
+#[tokio::test]
+async fn trust_visibility_is_self_scoped_and_realm_local_separated() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+
+    let global = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(global.status, StatusCode::OK);
+    assert_eq!(global.body["realm_id"], Value::Null);
+    assert!(
+        global.body["reason_codes"]
+            .as_array()
+            .expect("global reason codes must be an array")
+            .iter()
+            .all(|code| code.as_str() != Some("realm_scoped"))
+    );
+
+    let realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/{}",
+            prepared.realm_id, prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(realm.status, StatusCode::OK);
+    assert_eq!(realm.body["realm_id"], prepared.realm_id);
+    assert!(
+        realm.body["reason_codes"]
+            .as_array()
+            .expect("realm reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("realm_scoped"))
+    );
+
+    let cross_account = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(cross_account.status, StatusCode::NOT_FOUND);
+
+    let wrong_realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/other-realm/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(wrong_realm.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn concurrent_payment_receipt_insert_replays_race_winner() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1185,6 +1658,96 @@ async fn payment_callback_without_status_is_accepted_as_raw_evidence() {
 }
 
 #[tokio::test]
+async fn ambiguous_callback_refreshes_trust_snapshots_for_manual_review() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let before_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(before_trust.status, StatusCode::OK);
+    assert_eq!(
+        before_trust.body["trust_posture"],
+        "insufficient_authoritative_facts"
+    );
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-ambiguous-review",
+            "status": "provider-new-state"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    let processed_messages = drain.body["processed_messages"]
+        .as_array()
+        .expect("processed_messages must be an array");
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "INGEST_PROVIDER_CALLBACK"
+            && message["provider_submission_id"].as_str() == Some(prepared.payment_id.as_str())
+    }));
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
+            && message["aggregate_id"].as_str() == Some(prepared.settlement_case_id.as_str())
+    }));
+
+    let initiator_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(initiator_trust.status, StatusCode::OK);
+    assert_eq!(
+        initiator_trust.body["trust_posture"],
+        "review_attention_needed"
+    );
+    assert_eq!(initiator_trust.body["manual_review_case_bucket"], "some");
+    assert!(
+        initiator_trust.body["reason_codes"]
+            .as_array()
+            .expect("reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("manual_review_bucket_nonzero"))
+    );
+
+    let counterparty_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.counterparty_account_id
+        ),
+        Some(prepared.counterparty_token.as_str()),
+    )
+    .await;
+    assert_eq!(counterparty_trust.status, StatusCode::OK);
+    assert_eq!(
+        counterparty_trust.body["trust_posture"],
+        "review_attention_needed"
+    );
+}
+
+#[tokio::test]
 async fn later_verified_callback_can_fund_after_initial_rejection() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1244,6 +1807,104 @@ async fn later_verified_callback_can_fund_after_initial_rejection() {
     assert_eq!(settlement_view.status, StatusCode::OK);
     assert_eq!(settlement_view.body["current_settlement_status"], "funded");
     assert_eq!(settlement_view.body["total_funded_minor_units"], 10000);
+}
+
+#[tokio::test]
+async fn later_verified_callback_refreshes_trust_after_manual_review_upgrade() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE core.payment_receipts
+            SET receipt_status = 'manual_review',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE provider_key = 'pi'
+              AND external_payment_id = $1
+            ",
+            &[&prepared.payment_id],
+        )
+        .await
+        .expect("receipt must be adjustable to manual_review");
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+
+    let manual_review_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(manual_review_trust.status, StatusCode::OK);
+    assert_eq!(
+        manual_review_trust.body["trust_posture"],
+        "review_attention_needed"
+    );
+    assert_eq!(
+        manual_review_trust.body["manual_review_case_bucket"],
+        "some"
+    );
+
+    let verified_callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-late-verified-refresh",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(verified_callback.status, StatusCode::OK);
+    assert_eq!(verified_callback.body["duplicate_callback"], false);
+
+    let drain = post_json(&app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain.status, StatusCode::OK);
+    let processed_messages = drain.body["processed_messages"]
+        .as_array()
+        .expect("processed_messages must be an array");
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "INGEST_PROVIDER_CALLBACK"
+            && message["provider_submission_id"].as_str() == Some(prepared.payment_id.as_str())
+    }));
+    assert!(processed_messages.iter().any(|message| {
+        message["event_type"] == "REFRESH_SETTLEMENT_VIEW"
+            && message["aggregate_id"].as_str() == Some(prepared.settlement_case_id.as_str())
+    }));
+
+    let restored_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            prepared.initiator_account_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(restored_trust.status, StatusCode::OK);
+    assert_eq!(
+        restored_trust.body["trust_posture"],
+        "bounded_reliability_observed"
+    );
+    assert_eq!(restored_trust.body["manual_review_case_bucket"], "none");
+    assert!(
+        !restored_trust.body["reason_codes"]
+            .as_array()
+            .expect("reason codes must be an array")
+            .iter()
+            .any(|code| code.as_str() == Some("manual_review_bucket_nonzero"))
+    );
 }
 
 #[tokio::test]
@@ -1425,7 +2086,7 @@ async fn re_authentication_rotates_the_prior_session_token() {
 }
 
 #[tokio::test]
-async fn settlement_projection_requires_authenticated_participant() {
+async fn projection_reads_require_authenticated_participant() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
@@ -1442,6 +2103,17 @@ async fn settlement_projection_requires_authenticated_participant() {
     .await;
     assert_eq!(anonymous_view.status, StatusCode::UNAUTHORIZED);
 
+    let anonymous_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(anonymous_promise.status, StatusCode::UNAUTHORIZED);
+
     let outsider_view = get_json(
         &app,
         &format!(
@@ -1452,10 +2124,163 @@ async fn settlement_projection_requires_authenticated_participant() {
     )
     .await;
     assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
+
+    let outsider_promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_promise.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn settlement_projection_keeps_invalid_ids_as_not_found() {
+async fn promise_projection_response_uses_writer_owned_participant_ids() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let outsider = sign_in(&app, "pi-user-projection-outsider", "projection-outsider").await;
+    let outsider_account_id = Uuid::parse_str(&outsider.account_id).expect("outsider account uuid");
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE projection.promise_views
+            SET initiator_account_id = $2::uuid,
+                counterparty_account_id = $2::uuid
+            WHERE promise_intent_id::text = $1
+            ",
+            &[&prepared.promise_intent_id, &outsider_account_id],
+        )
+        .await
+        .expect("projection participant corruption fixture must update");
+
+    let promise = get_json(
+        &app,
+        &format!(
+            "/api/projection/promise-views/{}",
+            prepared.promise_intent_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(promise.status, StatusCode::OK);
+    assert_eq!(
+        promise.body["initiator_account_id"],
+        prepared.initiator_account_id
+    );
+    assert_eq!(
+        promise.body["counterparty_account_id"],
+        prepared.counterparty_account_id
+    );
+}
+
+#[tokio::test]
+async fn settlement_projection_reads_use_writer_owned_linkage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let outsider = sign_in(&app, "pi-user-settlement-outsider", "settlement-outsider").await;
+    let unrelated_counterparty =
+        sign_in(&app, "pi-user-settlement-unrelated", "settlement-unrelated").await;
+    let client = test_db_client().await;
+
+    let unrelated_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(outsider.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-settlement-linkage",
+            "realm_id": "realm-settlement-linkage",
+            "counterparty_account_id": unrelated_counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(unrelated_promise.status, StatusCode::OK);
+    let unrelated_promise_intent_id = Uuid::parse_str(
+        unrelated_promise.body["promise_intent_id"]
+            .as_str()
+            .expect("unrelated promise_intent_id must exist"),
+    )
+    .expect("unrelated promise_intent_id must parse");
+
+    client
+        .execute(
+            "
+            UPDATE projection.settlement_views
+            SET promise_intent_id = $2,
+                realm_id = 'realm-corrupted-linkage'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id, &unrelated_promise_intent_id],
+        )
+        .await
+        .expect("projection settlement linkage corruption fixture must update");
+
+    let settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(settlement.status, StatusCode::OK);
+    assert_eq!(
+        settlement.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(settlement.body["realm_id"], prepared.realm_id);
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_eq!(
+        expanded_settlement.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(expanded_settlement.body["realm_id"], prepared.realm_id);
+
+    let outsider_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
+
+    let outsider_expanded_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_expanded_view.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn projection_reads_keep_invalid_ids_as_not_found() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let prepared = prepare_funded_case(&app).await;
@@ -1471,6 +2296,48 @@ async fn settlement_projection_keeps_invalid_ids_as_not_found() {
     assert_eq!(
         invalid_view.body["error"],
         "settlement projection has not been built for that settlement_case_id"
+    );
+
+    let invalid_promise = get_json(
+        &app,
+        "/api/projection/promise-views/not-a-uuid",
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_promise.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_promise.body["error"],
+        "promise projection has not been built for that promise_intent_id"
+    );
+
+    let invalid_trust = get_json(
+        &app,
+        "/api/projection/trust-snapshots/not-a-uuid",
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_trust.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_trust.body["error"],
+        "trust projection is not visible for that account"
+    );
+
+    let invalid_realm_trust = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/not-a-uuid",
+            prepared.realm_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+
+    assert_eq!(invalid_realm_trust.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        invalid_realm_trust.body["error"],
+        "trust projection is not visible for that account"
     );
 }
 
@@ -1823,10 +2690,15 @@ struct SignedInUser {
 }
 
 struct PreparedCase {
+    promise_intent_id: String,
     settlement_case_id: String,
+    realm_id: String,
     payment_id: String,
+    initiator_account_id: String,
     initiator_pi_uid: String,
     initiator_token: String,
+    counterparty_account_id: String,
+    counterparty_token: String,
 }
 
 async fn prepare_pending_case(app: &Router) -> PreparedCase {
@@ -1852,6 +2724,10 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         .as_str()
         .expect("settlement_case_id must exist")
         .to_owned();
+    let promise_intent_id = create_promise.body["promise_intent_id"]
+        .as_str()
+        .expect("promise_intent_id must exist")
+        .to_owned();
 
     let drain_outbox = post_json(app, "/api/internal/orchestration/drain", None, json!({})).await;
     assert_eq!(drain_outbox.status, StatusCode::OK);
@@ -1866,10 +2742,15 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         .to_owned();
 
     PreparedCase {
+        promise_intent_id,
         settlement_case_id,
+        realm_id: "realm-prepare".to_owned(),
         payment_id,
+        initiator_account_id: initiator.account_id,
         initiator_pi_uid: initiator.pi_uid,
         initiator_token: initiator.token,
+        counterparty_account_id: counterparty.account_id,
+        counterparty_token: counterparty.token,
     }
 }
 
@@ -2004,6 +2885,37 @@ fn promise_request_hash_test(
     ]
     .join("\u{1f}");
     sha256_hex_test(material.as_bytes())
+}
+
+fn assert_stale_provenance(provenance: &Value) {
+    let source_watermark = parse_datetime_field(provenance, "source_watermark_at");
+    let freshness_checked = parse_datetime_field(provenance, "freshness_checked_at");
+    let last_projected = parse_datetime_field(provenance, "last_projected_at");
+    let projection_lag_ms = provenance["projection_lag_ms"]
+        .as_i64()
+        .expect("projection_lag_ms must be numeric");
+    let source_fact_count = provenance["source_fact_count"]
+        .as_i64()
+        .expect("source_fact_count must be numeric");
+
+    assert!(freshness_checked >= source_watermark);
+    assert!(last_projected >= source_watermark);
+    assert!(source_fact_count > 0);
+    assert!(
+        projection_lag_ms >= 60 * 60 * 1000,
+        "projection lag should reflect stale writer facts: {projection_lag_ms}"
+    );
+    assert!(provenance["rebuild_generation"].as_str().is_some());
+}
+
+fn parse_datetime_field(value: &Value, field_name: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(
+        value[field_name]
+            .as_str()
+            .unwrap_or_else(|| panic!("{field_name} must be an RFC3339 string")),
+    )
+    .unwrap_or_else(|error| panic!("{field_name} must parse as RFC3339: {error}"))
+    .with_timezone(&chrono::Utc)
 }
 
 async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
