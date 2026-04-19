@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use musubi_db_runtime::{DbConfig, connect_writer};
+use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
 use uuid::Uuid;
@@ -129,58 +130,125 @@ impl OperatorReviewStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_has_any_role(&tx, &operator_id, WRITE_REVIEW_ROLES).await?;
-
-        if let Some(existing) =
-            find_existing_review_case_by_idempotency(&tx, &operator_id, &request_idempotency_key)
-                .await?
-        {
-            tx.commit().await.map_err(db_error)?;
-            return Ok(existing);
-        }
-
         let review_case_id = Uuid::new_v4();
-        tx.execute(
-            "
-            INSERT INTO dao.review_cases (
-                review_case_id,
-                case_type,
-                severity,
-                review_status,
-                subject_account_id,
-                related_promise_intent_id,
-                related_settlement_case_id,
-                related_realm_id,
-                opened_reason_code,
-                source_fact_kind,
-                source_fact_id,
-                source_snapshot_json,
-                assigned_operator_id,
-                opened_by_operator_id,
-                request_idempotency_key
-            )
-            VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-            ",
-            &[
-                &review_case_id,
-                &input.case_type,
-                &input.severity,
-                &subject_account_id,
-                &related_promise_intent_id,
-                &related_settlement_case_id,
-                &input.related_realm_id,
-                &input.opened_reason_code,
-                &input.source_fact_kind,
-                &input.source_fact_id,
-                &input.source_snapshot_json,
-                &assigned_operator_id,
-                &operator_id,
-                &request_idempotency_key,
-            ],
-        )
-        .await
-        .map_err(db_error)?;
-        refresh_review_status_view_tx(&tx, &review_case_id).await?;
-        let snapshot = select_review_case_tx(&tx, &review_case_id).await?;
+        let row = if request_idempotency_key.is_some() {
+            if let Some(row) = tx
+                .query_opt(
+                    "
+                    INSERT INTO dao.review_cases (
+                        review_case_id,
+                        case_type,
+                        severity,
+                        review_status,
+                        subject_account_id,
+                        related_promise_intent_id,
+                        related_settlement_case_id,
+                        related_realm_id,
+                        opened_reason_code,
+                        source_fact_kind,
+                        source_fact_id,
+                        source_snapshot_json,
+                        assigned_operator_id,
+                        opened_by_operator_id,
+                        request_idempotency_key
+                    )
+                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    ON CONFLICT (opened_by_operator_id, request_idempotency_key)
+                    WHERE request_idempotency_key IS NOT NULL
+                    DO NOTHING
+                    RETURNING *
+                    ",
+                    &[
+                        &review_case_id,
+                        &input.case_type,
+                        &input.severity,
+                        &subject_account_id,
+                        &related_promise_intent_id,
+                        &related_settlement_case_id,
+                        &input.related_realm_id,
+                        &input.opened_reason_code,
+                        &input.source_fact_kind,
+                        &input.source_fact_id,
+                        &input.source_snapshot_json,
+                        &assigned_operator_id,
+                        &operator_id,
+                        &request_idempotency_key,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            {
+                refresh_review_status_view_tx(&tx, &review_case_id).await?;
+                row
+            } else {
+                let row = find_existing_review_case_by_idempotency(
+                    &tx,
+                    &operator_id,
+                    &request_idempotency_key,
+                )
+                .await?
+                .ok_or_else(|| {
+                    OperatorReviewError::Internal(
+                        "review case idempotency row disappeared after conflict".to_owned(),
+                    )
+                })?;
+                ensure_review_case_matches_input(
+                    &row,
+                    &input,
+                    &subject_account_id,
+                    &related_promise_intent_id,
+                    &related_settlement_case_id,
+                    &assigned_operator_id,
+                )?;
+                row
+            }
+        } else {
+            let row = tx
+                .query_one(
+                    "
+                    INSERT INTO dao.review_cases (
+                        review_case_id,
+                        case_type,
+                        severity,
+                        review_status,
+                        subject_account_id,
+                        related_promise_intent_id,
+                        related_settlement_case_id,
+                        related_realm_id,
+                        opened_reason_code,
+                        source_fact_kind,
+                        source_fact_id,
+                        source_snapshot_json,
+                        assigned_operator_id,
+                        opened_by_operator_id,
+                        request_idempotency_key
+                    )
+                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING *
+                    ",
+                    &[
+                        &review_case_id,
+                        &input.case_type,
+                        &input.severity,
+                        &subject_account_id,
+                        &related_promise_intent_id,
+                        &related_settlement_case_id,
+                        &input.related_realm_id,
+                        &input.opened_reason_code,
+                        &input.source_fact_kind,
+                        &input.source_fact_id,
+                        &input.source_snapshot_json,
+                        &assigned_operator_id,
+                        &operator_id,
+                        &request_idempotency_key,
+                    ],
+                )
+                .await
+                .map_err(db_error)?;
+            refresh_review_status_view_tx(&tx, &review_case_id).await?;
+            row
+        };
+        let snapshot = review_case_from_row(&row);
         tx.commit().await.map_err(db_error)?;
         Ok(snapshot)
     }
@@ -195,7 +263,21 @@ impl OperatorReviewStore {
         let rows = client
             .query(
                 "
-                SELECT *
+                SELECT
+                    review_case_id,
+                    case_type,
+                    severity,
+                    review_status,
+                    subject_account_id,
+                    related_promise_intent_id,
+                    related_settlement_case_id,
+                    related_realm_id,
+                    opened_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    assigned_operator_id,
+                    opened_at,
+                    updated_at
                 FROM dao.review_cases
                 ORDER BY opened_at DESC
                 LIMIT 100
@@ -252,7 +334,14 @@ impl OperatorReviewStore {
                     created_by_operator_id
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                RETURNING *
+                RETURNING
+                    evidence_bundle_id,
+                    review_case_id,
+                    evidence_visibility,
+                    summary_json,
+                    retention_class,
+                    created_by_operator_id,
+                    created_at
                 ",
                 &[
                     &evidence_bundle_id,
@@ -266,6 +355,7 @@ impl OperatorReviewStore {
             )
             .await
             .map_err(db_error)?;
+        sync_review_case_status_tx(&tx, &review_case_id).await?;
         refresh_review_status_view_tx(&tx, &review_case_id).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(evidence_bundle_from_row(&row))
@@ -284,14 +374,19 @@ impl OperatorReviewStore {
         let grantee_operator_id = parse_uuid(&input.grantee_operator_id, "grantee operator id")?;
         validate_allowed("access_scope", &input.access_scope, EVIDENCE_VISIBILITIES)?;
         require_non_empty("grant_reason", &input.grant_reason)?;
-        if input.expires_at <= Utc::now() {
+
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        let db_now: chrono::DateTime<Utc> = tx
+            .query_one("SELECT CURRENT_TIMESTAMP AS current_timestamp", &[])
+            .await
+            .map_err(db_error)?
+            .get("current_timestamp");
+        if input.expires_at <= db_now {
             return Err(OperatorReviewError::BadRequest(
                 "expires_at must be in the future".to_owned(),
             ));
         }
-
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_has_role(&tx, &operator_id, OperatorRole::Approver).await?;
         ensure_review_case_exists_tx(&tx, &review_case_id).await?;
         if let Some(bundle_id) = evidence_bundle_id.as_ref() {
@@ -329,6 +424,7 @@ impl OperatorReviewStore {
             )
             .await
             .map_err(db_error)?;
+        sync_review_case_status_tx(&tx, &review_case_id).await?;
         refresh_review_status_view_tx(&tx, &review_case_id).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(evidence_access_grant_from_row(&row))
@@ -354,21 +450,68 @@ impl OperatorReviewStore {
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_has_role(&tx, &operator_id, OperatorRole::Approver).await?;
         ensure_review_case_exists_tx(&tx, &review_case_id).await?;
-        if let Some(existing) = find_existing_decision_by_idempotency(
-            &tx,
-            &review_case_id,
-            &operator_id,
-            &decision_idempotency_key,
-        )
-        .await?
-        {
-            tx.commit().await.map_err(db_error)?;
-            return Ok(existing);
-        }
 
         let operator_decision_fact_id = Uuid::new_v4();
-        let row = tx
-            .query_one(
+        let row = if decision_idempotency_key.is_some() {
+            if let Some(row) = tx
+                .query_opt(
+                    "
+                    INSERT INTO dao.operator_decision_facts (
+                        operator_decision_fact_id,
+                        review_case_id,
+                        decision_kind,
+                        user_facing_reason_code,
+                        operator_note_internal,
+                        decision_payload_json,
+                        decided_by_operator_id,
+                        decision_idempotency_key
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (review_case_id, decided_by_operator_id, decision_idempotency_key)
+                    WHERE decision_idempotency_key IS NOT NULL
+                    DO NOTHING
+                    RETURNING
+                        operator_decision_fact_id,
+                        review_case_id,
+                        appeal_case_id,
+                        decision_kind,
+                        user_facing_reason_code,
+                        decided_by_operator_id,
+                        recorded_at
+                    ",
+                    &[
+                        &operator_decision_fact_id,
+                        &review_case_id,
+                        &input.decision_kind,
+                        &input.user_facing_reason_code,
+                        &input.operator_note_internal,
+                        &input.decision_payload_json,
+                        &operator_id,
+                        &decision_idempotency_key,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            {
+                row
+            } else {
+                let row = find_existing_decision_by_idempotency(
+                    &tx,
+                    &review_case_id,
+                    &operator_id,
+                    &decision_idempotency_key,
+                )
+                .await?
+                .ok_or_else(|| {
+                    OperatorReviewError::Internal(
+                        "operator decision idempotency row disappeared after conflict".to_owned(),
+                    )
+                })?;
+                ensure_operator_decision_matches_input(&row, &input)?;
+                row
+            }
+        } else {
+            tx.query_one(
                 "
                 INSERT INTO dao.operator_decision_facts (
                     operator_decision_fact_id,
@@ -381,7 +524,14 @@ impl OperatorReviewStore {
                     decision_idempotency_key
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                RETURNING *
+                RETURNING
+                    operator_decision_fact_id,
+                    review_case_id,
+                    appeal_case_id,
+                    decision_kind,
+                    user_facing_reason_code,
+                    decided_by_operator_id,
+                    recorded_at
                 ",
                 &[
                     &operator_decision_fact_id,
@@ -395,23 +545,9 @@ impl OperatorReviewStore {
                 ],
             )
             .await
-            .map_err(db_error)?;
-        let next_status = if input.decision_kind == "request_more_evidence" {
-            "awaiting_evidence"
-        } else {
-            "decided"
+            .map_err(db_error)?
         };
-        tx.execute(
-            "
-            UPDATE dao.review_cases
-            SET review_status = $2,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE review_case_id = $1
-            ",
-            &[&review_case_id, &next_status],
-        )
-        .await
-        .map_err(db_error)?;
+        sync_review_case_status_tx(&tx, &review_case_id).await?;
         refresh_review_status_view_tx(&tx, &review_case_id).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(operator_decision_fact_from_row(&row))
@@ -438,22 +574,75 @@ impl OperatorReviewStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_subject_can_access_case_tx(&tx, &review_case_id, &submitted_by_account_id).await?;
-        if let Some(existing) = find_existing_appeal_by_idempotency(
-            &tx,
-            &review_case_id,
-            &submitted_by_account_id,
-            &appeal_idempotency_key,
-        )
-        .await?
-        {
-            tx.commit().await.map_err(db_error)?;
-            return Ok(existing);
-        }
         ensure_appeal_source_tx(&tx, &review_case_id, source_decision_fact_id.as_ref()).await?;
 
         let appeal_case_id = Uuid::new_v4();
-        let row = tx
-            .query_one(
+        let row = if appeal_idempotency_key.is_some() {
+            if let Some(row) = tx
+                .query_opt(
+                    "
+                    INSERT INTO dao.appeal_cases (
+                        appeal_case_id,
+                        source_review_case_id,
+                        source_decision_fact_id,
+                        appeal_status,
+                        submitted_by_account_id,
+                        submitted_reason_code,
+                        appellant_statement,
+                        new_evidence_summary_json,
+                        appeal_idempotency_key
+                    )
+                    VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8)
+                    ON CONFLICT (
+                        source_review_case_id,
+                        submitted_by_account_id,
+                        appeal_idempotency_key
+                    )
+                    WHERE appeal_idempotency_key IS NOT NULL
+                    DO NOTHING
+                    RETURNING
+                        appeal_case_id,
+                        source_review_case_id,
+                        source_decision_fact_id,
+                        appeal_status,
+                        submitted_by_account_id,
+                        submitted_reason_code,
+                        created_at,
+                        updated_at
+                    ",
+                    &[
+                        &appeal_case_id,
+                        &review_case_id,
+                        &source_decision_fact_id,
+                        &submitted_by_account_id,
+                        &input.submitted_reason_code,
+                        &input.appellant_statement,
+                        &input.new_evidence_summary_json,
+                        &appeal_idempotency_key,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            {
+                row
+            } else {
+                let row = find_existing_appeal_by_idempotency(
+                    &tx,
+                    &review_case_id,
+                    &submitted_by_account_id,
+                    &appeal_idempotency_key,
+                )
+                .await?
+                .ok_or_else(|| {
+                    OperatorReviewError::Internal(
+                        "appeal idempotency row disappeared after conflict".to_owned(),
+                    )
+                })?;
+                ensure_appeal_matches_input(&row, &input, source_decision_fact_id.as_ref())?;
+                row
+            }
+        } else {
+            tx.query_one(
                 "
                 INSERT INTO dao.appeal_cases (
                     appeal_case_id,
@@ -467,7 +656,15 @@ impl OperatorReviewStore {
                     appeal_idempotency_key
                 )
                 VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8)
-                RETURNING *
+                RETURNING
+                    appeal_case_id,
+                    source_review_case_id,
+                    source_decision_fact_id,
+                    appeal_status,
+                    submitted_by_account_id,
+                    submitted_reason_code,
+                    created_at,
+                    updated_at
                 ",
                 &[
                     &appeal_case_id,
@@ -481,18 +678,9 @@ impl OperatorReviewStore {
                 ],
             )
             .await
-            .map_err(db_error)?;
-        tx.execute(
-            "
-            UPDATE dao.review_cases
-            SET review_status = 'appealed',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE review_case_id = $1
-            ",
-            &[&review_case_id],
-        )
-        .await
-        .map_err(db_error)?;
+            .map_err(db_error)?
+        };
+        sync_review_case_status_tx(&tx, &review_case_id).await?;
         refresh_review_status_view_tx(&tx, &review_case_id).await?;
         tx.commit().await.map_err(db_error)?;
         Ok(appeal_case_from_row(&row))
@@ -510,7 +698,15 @@ impl OperatorReviewStore {
         let rows = client
             .query(
                 "
-                SELECT *
+                SELECT
+                    appeal_case_id,
+                    source_review_case_id,
+                    source_decision_fact_id,
+                    appeal_status,
+                    submitted_by_account_id,
+                    submitted_reason_code,
+                    created_at,
+                    updated_at
                 FROM dao.appeal_cases
                 WHERE source_review_case_id = $1
                 ORDER BY created_at ASC
@@ -557,7 +753,14 @@ async fn read_review_case_tx<C: GenericClient + Sync>(
     let evidence_bundles = client
         .query(
             "
-            SELECT *
+            SELECT
+                evidence_bundle_id,
+                review_case_id,
+                evidence_visibility,
+                summary_json,
+                retention_class,
+                created_by_operator_id,
+                created_at
             FROM dao.evidence_bundles
             WHERE review_case_id = $1
             ORDER BY created_at ASC
@@ -587,7 +790,14 @@ async fn read_review_case_tx<C: GenericClient + Sync>(
     let operator_decision_facts = client
         .query(
             "
-            SELECT *
+            SELECT
+                operator_decision_fact_id,
+                review_case_id,
+                appeal_case_id,
+                decision_kind,
+                user_facing_reason_code,
+                decided_by_operator_id,
+                recorded_at
             FROM dao.operator_decision_facts
             WHERE review_case_id = $1
             ORDER BY recorded_at ASC
@@ -602,7 +812,15 @@ async fn read_review_case_tx<C: GenericClient + Sync>(
     let appeal_cases = client
         .query(
             "
-            SELECT *
+            SELECT
+                appeal_case_id,
+                source_review_case_id,
+                source_decision_fact_id,
+                appeal_status,
+                submitted_by_account_id,
+                submitted_reason_code,
+                created_at,
+                updated_at
             FROM dao.appeal_cases
             WHERE source_review_case_id = $1
             ORDER BY created_at ASC
@@ -628,11 +846,11 @@ async fn find_existing_review_case_by_idempotency<C: GenericClient + Sync>(
     client: &C,
     operator_id: &Uuid,
     request_idempotency_key: &Option<String>,
-) -> Result<Option<ReviewCaseSnapshot>, OperatorReviewError> {
+) -> Result<Option<Row>, OperatorReviewError> {
     let Some(request_idempotency_key) = request_idempotency_key else {
         return Ok(None);
     };
-    let row = client
+    client
         .query_opt(
             "
             SELECT *
@@ -643,8 +861,7 @@ async fn find_existing_review_case_by_idempotency<C: GenericClient + Sync>(
             &[operator_id, request_idempotency_key],
         )
         .await
-        .map_err(db_error)?;
-    Ok(row.as_ref().map(review_case_from_row))
+        .map_err(db_error)
 }
 
 async fn find_existing_decision_by_idempotency<C: GenericClient + Sync>(
@@ -652,11 +869,11 @@ async fn find_existing_decision_by_idempotency<C: GenericClient + Sync>(
     review_case_id: &Uuid,
     operator_id: &Uuid,
     decision_idempotency_key: &Option<String>,
-) -> Result<Option<OperatorDecisionFactSnapshot>, OperatorReviewError> {
+) -> Result<Option<Row>, OperatorReviewError> {
     let Some(decision_idempotency_key) = decision_idempotency_key else {
         return Ok(None);
     };
-    let row = client
+    client
         .query_opt(
             "
             SELECT *
@@ -668,8 +885,7 @@ async fn find_existing_decision_by_idempotency<C: GenericClient + Sync>(
             &[review_case_id, operator_id, decision_idempotency_key],
         )
         .await
-        .map_err(db_error)?;
-    Ok(row.as_ref().map(operator_decision_fact_from_row))
+        .map_err(db_error)
 }
 
 async fn find_existing_appeal_by_idempotency<C: GenericClient + Sync>(
@@ -677,11 +893,11 @@ async fn find_existing_appeal_by_idempotency<C: GenericClient + Sync>(
     review_case_id: &Uuid,
     submitted_by_account_id: &Uuid,
     appeal_idempotency_key: &Option<String>,
-) -> Result<Option<AppealCaseSnapshot>, OperatorReviewError> {
+) -> Result<Option<Row>, OperatorReviewError> {
     let Some(appeal_idempotency_key) = appeal_idempotency_key else {
         return Ok(None);
     };
-    let row = client
+    client
         .query_opt(
             "
             SELECT *
@@ -697,8 +913,7 @@ async fn find_existing_appeal_by_idempotency<C: GenericClient + Sync>(
             ],
         )
         .await
-        .map_err(db_error)?;
-    Ok(row.as_ref().map(appeal_case_from_row))
+        .map_err(db_error)
 }
 
 async fn ensure_operator_has_any_role<C: GenericClient + Sync>(
@@ -706,10 +921,33 @@ async fn ensure_operator_has_any_role<C: GenericClient + Sync>(
     operator_id: &Uuid,
     roles: &[OperatorRole],
 ) -> Result<(), OperatorReviewError> {
-    for role in roles {
-        if operator_has_role(client, operator_id, *role).await? {
-            return Ok(());
-        }
+    if roles.is_empty() {
+        return Err(OperatorReviewError::Unauthorized(
+            "operator role is not allowed for this action".to_owned(),
+        ));
+    }
+    let role_names = roles.iter().map(|role| role.as_str()).collect::<Vec<_>>();
+    let row = client
+        .query_one(
+            "
+            SELECT EXISTS (
+                SELECT 1
+                FROM core.operator_role_assignments
+                JOIN core.accounts
+                  ON core.accounts.account_id = core.operator_role_assignments.operator_account_id
+                WHERE operator_account_id = $1
+                  AND operator_role = ANY($2::text[])
+                  AND revoked_at IS NULL
+                  AND core.accounts.account_class = 'Controlled Exceptional Account'
+                  AND core.accounts.account_state = 'active'
+            ) AS has_role
+            ",
+            &[operator_id, &role_names],
+        )
+        .await
+        .map_err(db_error)?;
+    if row.get("has_role") {
+        return Ok(());
     }
     Err(OperatorReviewError::Unauthorized(
         "operator role is not allowed for this action".to_owned(),
@@ -914,7 +1152,25 @@ async fn select_review_case_tx<C: GenericClient + Sync>(
 ) -> Result<ReviewCaseSnapshot, OperatorReviewError> {
     let row = client
         .query_opt(
-            "SELECT * FROM dao.review_cases WHERE review_case_id = $1",
+            "
+            SELECT
+                review_case_id,
+                case_type,
+                severity,
+                review_status,
+                subject_account_id,
+                related_promise_intent_id,
+                related_settlement_case_id,
+                related_realm_id,
+                opened_reason_code,
+                source_fact_kind,
+                source_fact_id,
+                assigned_operator_id,
+                opened_at,
+                updated_at
+            FROM dao.review_cases
+            WHERE review_case_id = $1
+            ",
             &[review_case_id],
         )
         .await
@@ -947,14 +1203,22 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
                 last_projected_at
             )
             WITH latest_decision AS (
-                SELECT *
+                SELECT
+                    operator_decision_fact_id,
+                    decision_kind,
+                    user_facing_reason_code,
+                    recorded_at
                 FROM dao.operator_decision_facts
                 WHERE review_case_id = $1
                 ORDER BY recorded_at DESC, operator_decision_fact_id DESC
                 LIMIT 1
             ),
             latest_appeal AS (
-                SELECT *
+                SELECT
+                    appeal_case_id,
+                    appeal_status,
+                    submitted_reason_code,
+                    updated_at
                 FROM dao.appeal_cases
                 WHERE source_review_case_id = $1
                 ORDER BY updated_at DESC, appeal_case_id DESC
@@ -990,7 +1254,7 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
                     review.related_promise_intent_id,
                     review.related_settlement_case_id,
                     review.related_realm_id,
-                    latest_decision.operator_decision_fact_id,
+                    latest_decision.operator_decision_fact_id AS latest_decision_fact_id,
                     CASE
                         WHEN review.review_status = 'closed' THEN 'closed'
                         WHEN latest_appeal.appeal_status IN ('submitted', 'accepted', 'under_review')
@@ -998,13 +1262,16 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
                             THEN 'appeal_submitted'
                         WHEN latest_decision.decision_kind IN ('restrict', 'escalate')
                             THEN 'sealed_or_restricted'
-                        WHEN review.review_status = 'awaiting_evidence'
-                            OR latest_decision.decision_kind = 'request_more_evidence'
+                        WHEN latest_decision.decision_kind = 'request_more_evidence'
+                            OR (
+                                review.review_status = 'awaiting_evidence'
+                                AND latest_decision.operator_decision_fact_id IS NULL
+                            )
                             THEN 'evidence_requested'
                         WHEN review.review_status IN ('open', 'triaged') THEN 'pending_review'
                         WHEN review.review_status = 'under_review' THEN 'under_review'
-                        WHEN review.review_status = 'decided'
-                            AND latest_decision.operator_decision_fact_id IS NOT NULL
+                        WHEN latest_decision.operator_decision_fact_id IS NOT NULL
+                            AND latest_decision.decision_kind <> 'request_more_evidence'
                             AND latest_appeal.appeal_case_id IS NULL
                             THEN 'appeal_available'
                         WHEN review.review_status = 'decided' THEN 'decided'
@@ -1021,18 +1288,23 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
                         WHEN latest_appeal.appeal_status = 'under_review' THEN 'under_review'
                         WHEN latest_appeal.appeal_status = 'decided' THEN 'decided'
                         WHEN latest_appeal.appeal_status = 'closed' THEN 'closed'
-                        WHEN review.review_status = 'decided'
-                            AND latest_decision.operator_decision_fact_id IS NOT NULL
+                        WHEN latest_decision.operator_decision_fact_id IS NOT NULL
+                            AND latest_decision.decision_kind <> 'request_more_evidence'
+                            AND latest_appeal.appeal_case_id IS NULL
                             THEN 'appeal_available'
                         ELSE 'none'
                     END AS appeal_status,
                     (
-                        review.review_status = 'awaiting_evidence'
-                        OR COALESCE(latest_decision.decision_kind = 'request_more_evidence', FALSE)
+                        COALESCE(latest_decision.decision_kind = 'request_more_evidence', FALSE)
+                        OR (
+                            review.review_status = 'awaiting_evidence'
+                            AND latest_decision.operator_decision_fact_id IS NULL
+                        )
                     ) AS evidence_requested,
                     (
-                        review.review_status = 'decided'
+                        review.review_status <> 'closed'
                         AND latest_decision.operator_decision_fact_id IS NOT NULL
+                        AND latest_decision.decision_kind <> 'request_more_evidence'
                         AND latest_appeal.appeal_case_id IS NULL
                     ) AS appeal_available,
                     GREATEST(
@@ -1060,7 +1332,7 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
                 user_facing_status,
                 user_facing_reason_code,
                 appeal_status,
-                operator_decision_fact_id,
+                latest_decision_fact_id,
                 evidence_requested,
                 appeal_available,
                 source_watermark_at,
@@ -1086,6 +1358,127 @@ async fn refresh_review_status_view_tx<C: GenericClient + Sync>(
         )
         .await
         .map_err(db_error)?;
+    Ok(())
+}
+
+async fn sync_review_case_status_tx<C: GenericClient + Sync>(
+    client: &C,
+    review_case_id: &Uuid,
+) -> Result<(), OperatorReviewError> {
+    client
+        .execute(
+            "
+            WITH latest_decision AS (
+                SELECT decision_kind
+                FROM dao.operator_decision_facts
+                WHERE review_case_id = $1
+                ORDER BY recorded_at DESC, operator_decision_fact_id DESC
+                LIMIT 1
+            ),
+            latest_appeal AS (
+                SELECT appeal_status
+                FROM dao.appeal_cases
+                WHERE source_review_case_id = $1
+                ORDER BY updated_at DESC, appeal_case_id DESC
+                LIMIT 1
+            ),
+            next_status AS (
+                SELECT
+                    CASE
+                        WHEN review.review_status = 'closed' THEN 'closed'
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM latest_appeal
+                            WHERE appeal_status IN ('submitted', 'accepted', 'under_review')
+                        ) THEN 'appealed'
+                        WHEN (SELECT decision_kind FROM latest_decision) = 'request_more_evidence'
+                            THEN 'awaiting_evidence'
+                        WHEN EXISTS (SELECT 1 FROM latest_decision) THEN 'decided'
+                        ELSE review.review_status
+                    END AS review_status
+                FROM dao.review_cases review
+                WHERE review.review_case_id = $1
+            )
+            UPDATE dao.review_cases review
+            SET review_status = next_status.review_status,
+                updated_at = CASE
+                    WHEN review.review_status IS DISTINCT FROM next_status.review_status
+                        THEN CURRENT_TIMESTAMP
+                    ELSE review.updated_at
+                END
+            FROM next_status
+            WHERE review.review_case_id = $1
+            ",
+            &[review_case_id],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(())
+}
+
+fn ensure_review_case_matches_input(
+    row: &Row,
+    input: &CreateReviewCaseInput,
+    subject_account_id: &Option<Uuid>,
+    related_promise_intent_id: &Option<Uuid>,
+    related_settlement_case_id: &Option<Uuid>,
+    assigned_operator_id: &Option<Uuid>,
+) -> Result<(), OperatorReviewError> {
+    let existing_related_realm_id = row
+        .get::<_, Option<String>>("related_realm_id")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if row.get::<_, String>("case_type") != input.case_type
+        || row.get::<_, String>("severity") != input.severity
+        || row.get::<_, Option<Uuid>>("subject_account_id") != *subject_account_id
+        || row.get::<_, Option<Uuid>>("related_promise_intent_id") != *related_promise_intent_id
+        || row.get::<_, Option<Uuid>>("related_settlement_case_id") != *related_settlement_case_id
+        || existing_related_realm_id != normalize_optional(&input.related_realm_id)
+        || row.get::<_, String>("opened_reason_code") != input.opened_reason_code
+        || row.get::<_, String>("source_fact_kind") != input.source_fact_kind
+        || row.get::<_, String>("source_fact_id") != input.source_fact_id
+        || row.get::<_, Value>("source_snapshot_json") != input.source_snapshot_json
+        || row.get::<_, Option<Uuid>>("assigned_operator_id") != *assigned_operator_id
+    {
+        return Err(OperatorReviewError::BadRequest(
+            "request_idempotency_key was already used with a different review case payload"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_operator_decision_matches_input(
+    row: &Row,
+    input: &RecordOperatorDecisionInput,
+) -> Result<(), OperatorReviewError> {
+    if row.get::<_, String>("decision_kind") != input.decision_kind
+        || row.get::<_, String>("user_facing_reason_code") != input.user_facing_reason_code
+        || row.get::<_, Option<String>>("operator_note_internal") != input.operator_note_internal
+        || row.get::<_, Value>("decision_payload_json") != input.decision_payload_json
+    {
+        return Err(OperatorReviewError::BadRequest(
+            "decision_idempotency_key was already used with a different operator decision payload"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_appeal_matches_input(
+    row: &Row,
+    input: &CreateAppealCaseInput,
+    source_decision_fact_id: Option<&Uuid>,
+) -> Result<(), OperatorReviewError> {
+    if row.get::<_, Option<Uuid>>("source_decision_fact_id") != source_decision_fact_id.copied()
+        || row.get::<_, String>("submitted_reason_code") != input.submitted_reason_code
+        || row.get::<_, Option<String>>("appellant_statement") != input.appellant_statement
+        || row.get::<_, Value>("new_evidence_summary_json") != input.new_evidence_summary_json
+    {
+        return Err(OperatorReviewError::BadRequest(
+            "appeal_idempotency_key was already used with a different appeal payload".to_owned(),
+        ));
+    }
     Ok(())
 }
 

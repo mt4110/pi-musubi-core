@@ -3,7 +3,8 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use musubi_backend::{build_app, new_test_state};
+use musubi_backend::{build_app, new_state_from_config, new_test_state};
+use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -491,6 +492,249 @@ async fn distinct_operator_decisions_append_new_facts_without_rewriting_source_t
     assert_eq!(
         status.body["latest_decision_fact_id"],
         restore.body["operator_decision_fact_id"]
+    );
+}
+
+#[tokio::test]
+async fn reused_decision_idempotency_key_rejects_mismatched_payload() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-review-mismatch", "review-mismatch").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-review-mismatch",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": "proof-source-mismatch",
+            "source_snapshot_json": {
+                "source": "proof"
+            },
+            "request_idempotency_key": "review-case-mismatch"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "first decision",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "decision-mismatch"
+        }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+
+    let second = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restore",
+            "user_facing_reason_code": "restored_after_review",
+            "operator_note_internal": "second decision should fail",
+            "decision_payload_json": {
+                "resolution": "restore"
+            },
+            "decision_idempotency_key": "decision-mismatch"
+        }),
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::BAD_REQUEST);
+    assert_eq!(decision_count(&client, &review_case_id).await, 1);
+}
+
+#[tokio::test]
+async fn concurrent_decision_replay_returns_existing_fact_across_two_app_states() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let config = DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("local".to_owned()),
+        "DATABASE_URL" => Some(database_url.clone()),
+        _ => std::env::var(name).ok(),
+    })
+    .expect("db config");
+    let second_state = new_state_from_config(&config).await.expect("second state");
+    let second_app = build_app(second_state.clone());
+    let subject = sign_in(&app, "pi-user-review-concurrent", "review-concurrent").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-review-concurrent",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": "proof-source-concurrent",
+            "source_snapshot_json": {
+                "source": "proof"
+            },
+            "request_idempotency_key": "review-case-concurrent"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let path = format!("/api/internal/operator/review-cases/{review_case_id}/decisions");
+    let body = json!({
+        "decision_kind": "restrict",
+        "user_facing_reason_code": "restricted_after_review",
+        "operator_note_internal": "concurrent replay",
+        "decision_payload_json": {
+            "resolution": "restrict"
+        },
+        "decision_idempotency_key": "decision-concurrent"
+    });
+    let (first, second) = tokio::join!(
+        operator_post_json(&app, &path, &approver_id, body.clone()),
+        operator_post_json(&second_app, &path, &approver_id, body)
+    );
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(
+        first.body["operator_decision_fact_id"],
+        second.body["operator_decision_fact_id"]
+    );
+    assert_eq!(decision_count(&client, &review_case_id).await, 1);
+}
+
+#[tokio::test]
+async fn evidence_refresh_repairs_stale_case_status_from_latest_decision_fact() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-review-stale", "review-stale").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-review-stale",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": "proof-source-stale",
+            "source_snapshot_json": {
+                "source": "proof"
+            },
+            "request_idempotency_key": "review-case-stale"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "final restriction",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "decision-stale"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+
+    client
+        .execute(
+            "
+            UPDATE dao.review_cases
+            SET review_status = 'awaiting_evidence',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("stale review status must update");
+
+    let attach_evidence = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-bundles"),
+        &approver_id,
+        json!({
+            "evidence_visibility": "summary_only",
+            "summary_json": {
+                "safe_summary": "bounded summary"
+            },
+            "raw_locator_json": {},
+            "retention_class": "R4"
+        }),
+    )
+    .await;
+    assert_eq!(attach_evidence.status, StatusCode::OK);
+
+    let status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(status.status, StatusCode::OK);
+    assert_eq!(status.body["user_facing_status"], "sealed_or_restricted");
+    assert_eq!(status.body["appeal_status"], "appeal_available");
+    assert_eq!(status.body["appeal_available"], true);
+    assert_eq!(
+        status.body["latest_decision_fact_id"],
+        decision.body["operator_decision_fact_id"]
+    );
+
+    let review_detail = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_detail.status, StatusCode::OK);
+    assert_eq!(
+        review_detail.body["review_case"]["review_status"],
+        "decided"
     );
 }
 

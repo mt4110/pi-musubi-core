@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS core.operator_role_assignments (
         operator_role IN ('reviewer', 'approver', 'steward', 'auditor', 'support')
     ),
     grant_reason TEXT NOT NULL CHECK (char_length(trim(grant_reason)) > 0),
-    granted_by_operator_id UUID,
+    granted_by_operator_id UUID REFERENCES core.accounts(account_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked_at TIMESTAMPTZ
 );
@@ -70,14 +70,14 @@ CREATE TABLE IF NOT EXISTS dao.review_cases (
     source_fact_kind TEXT NOT NULL CHECK (char_length(trim(source_fact_kind)) > 0),
     source_fact_id TEXT NOT NULL CHECK (char_length(trim(source_fact_id)) > 0),
     source_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    assigned_operator_id UUID,
+    assigned_operator_id UUID REFERENCES core.accounts(account_id),
     opened_by_operator_id UUID REFERENCES core.accounts(account_id),
     request_idempotency_key TEXT,
     opened_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS review_cases_open_idempotency_unique
+CREATE UNIQUE INDEX IF NOT EXISTS review_cases_idempotency_unique
     ON dao.review_cases (opened_by_operator_id, request_idempotency_key)
     WHERE request_idempotency_key IS NOT NULL;
 

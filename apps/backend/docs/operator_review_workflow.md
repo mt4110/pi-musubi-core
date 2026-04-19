@@ -20,6 +20,8 @@ This keeps the workflow auditable:
 - `dao.appeal_cases` links appeals back to the original review case or decision fact.
 - `projection.review_status_views` exposes bounded, calm user-facing status and reason codes.
 
+Idempotent create / decision / appeal requests must be durable under concurrent replay. Reusing the same idempotency key with a different payload is rejected instead of being silently treated as a replay.
+
 ## Evidence Access
 
 Evidence access is separate from case visibility. A case may exist without granting an operator raw evidence access.
@@ -46,6 +48,8 @@ Raw evidence locators stay out of handler responses and user-facing projections.
 - `closed`
 
 User-facing reason codes are constrained by the database and service validation. They must not expose raw accusations, private claims, operator identities, internal evidence details, or safety-sensitive classifications.
+
+The projection must derive appeal availability and evidence-needed posture from the latest preserved facts, not from a stale mutable case row alone.
 
 ## Deferred Scope
 
