@@ -49,6 +49,8 @@ Live-room seal transitions require a room-scoped `sealed_room_fallback` review c
 participant-facing under-review posture always has writer-owned backing.
 Restore transitions are operator-triggered only and must return the room to the live stage it
 held immediately before the current sealed fallback began.
+Reviewed restriction outcomes are also not participant-attributed: a `sealed_restricted` fact must
+be recorded as operator- or system-triggered once a writer-owned restrict decision exists.
 
 ## User-Facing Projection
 
@@ -64,7 +66,9 @@ held immediately before the current sealed fallback began.
 
 `rebuild_generation` is a monotonic `BIGINT` within this single projection surface. Unlike the
 UUID rebuild generations used by multi-projection happy-route rebuilds, it only needs to express
-local refresh ordering for room progression views.
+local refresh ordering for room progression views. Full room-progression rebuilds allocate that
+ordinal inside a single writer transaction guarded by a database advisory lock, so the local
+generation stays race-free without pretending to be shared cross-projection provenance.
 
 It does not expose:
 - raw evidence locators

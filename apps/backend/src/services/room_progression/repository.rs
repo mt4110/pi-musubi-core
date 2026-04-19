@@ -302,6 +302,7 @@ impl RoomProgressionStore {
             &from_stage,
             &current_status_code,
             &input.transition_kind,
+            &input.triggered_by_kind,
             &input.to_stage,
             &status_code,
             review_case_id.as_ref(),
@@ -419,8 +420,19 @@ impl RoomProgressionStore {
     pub async fn rebuild_room_progression_views(
         &self,
     ) -> Result<RoomProgressionRebuildSnapshot, RoomProgressionError> {
-        let client = self.client.lock().await;
-        let rows = client
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        tx.query_one(
+            "
+            SELECT pg_advisory_xact_lock(
+                hashtext('projection.room_progression_views.rebuild')::bigint
+            )
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+        let rows = tx
             .query(
                 "
                 SELECT room_progression_id
@@ -431,7 +443,7 @@ impl RoomProgressionStore {
             )
             .await
             .map_err(db_error)?;
-        let generation_row = client
+        let generation_row = tx
             .query_one(
                 "
                 SELECT COALESCE(MAX(rebuild_generation), 0)::bigint + 1 AS rebuild_generation
@@ -444,13 +456,10 @@ impl RoomProgressionStore {
         let rebuild_generation: i64 = generation_row.get("rebuild_generation");
         for row in &rows {
             let room_progression_id: Uuid = row.get("room_progression_id");
-            refresh_room_progression_view_tx(
-                &*client,
-                &room_progression_id,
-                Some(rebuild_generation),
-            )
-            .await?;
+            refresh_room_progression_view_tx(&tx, &room_progression_id, Some(rebuild_generation))
+                .await?;
         }
+        tx.commit().await.map_err(db_error)?;
 
         Ok(RoomProgressionRebuildSnapshot {
             rebuilt_count: rows.len() as i64,
@@ -823,6 +832,7 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
     from_stage: &str,
     current_status_code: &str,
     transition_kind: &str,
+    triggered_by_kind: &str,
     to_stage: &str,
     status_code: &str,
     review_case_id: Option<&Uuid>,
@@ -868,6 +878,12 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                         "restricted seal transitions require review_case_id".to_owned(),
                     ));
                 };
+                if !matches!(triggered_by_kind, "operator" | "system") {
+                    return Err(RoomProgressionError::BadRequest(
+                        "restricted seal transitions must be operator- or system-triggered"
+                            .to_owned(),
+                    ));
+                }
                 if let Some(current_review_case_id) = current_review_case_id.as_ref() {
                     if current_review_case_id != review_case_id {
                         return Err(RoomProgressionError::BadRequest(
@@ -960,6 +976,7 @@ fn next_status_code(
             }
         }
         "restore" => match to_stage {
+            "intent" => "intent_open",
             "coordination" => "coordination_open",
             "relationship" => "relationship_open",
             _ => {

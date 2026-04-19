@@ -395,6 +395,111 @@ async fn restricted_seal_requires_writer_owned_restrict_decision() {
 }
 
 #[tokio::test]
+async fn restricted_seal_rejects_participant_actor() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-restrict-actor-a",
+        "room-restrict-actor-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-restrict-actor-b",
+        "room-restrict-actor-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-restrict-actor-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restrict-actor-sealed"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::OK);
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "restriction rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "room-restrict-actor-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("operator decision fact id must exist")
+        .to_owned();
+
+    let restricted = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "restricted_after_review",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": decision_fact_id,
+            "source_snapshot_json": {
+                "resolution": "restrict"
+            },
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restrict-actor-follow-up"
+        }),
+    )
+    .await;
+    assert_eq!(restricted.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn live_room_seal_requires_room_scoped_review_case() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -782,6 +887,124 @@ async fn restore_clears_review_link_from_live_room_projection() {
     assert_eq!(relationship_view.body["status_code"], "relationship_open");
     assert!(relationship_view.body["review_case_id"].is_null());
     assert!(relationship_view.body["review_status"].is_null());
+}
+
+#[tokio::test]
+async fn intent_room_restore_returns_to_intent_open() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-restore-intent-a",
+        "room-restore-intent-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-restore-intent-b",
+        "room-restore-intent-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-restore-intent-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restore-intent-sealed"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::OK);
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restore",
+            "user_facing_reason_code": "restored_after_review",
+            "operator_note_internal": "restore rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restore"
+            },
+            "decision_idempotency_key": "room-restore-intent-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("operator decision fact id must exist")
+        .to_owned();
+
+    let restored = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "restore",
+            "to_stage": "intent",
+            "user_facing_reason_code": "restored_after_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": approver_id,
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": decision_fact_id,
+            "source_snapshot_json": {
+                "resolution": "restore"
+            },
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restore-intent-transition"
+        }),
+    )
+    .await;
+    assert_eq!(restored.status, StatusCode::OK);
+    assert_eq!(restored.body["to_stage"], "intent");
+    assert_eq!(restored.body["status_code"], "intent_open");
+
+    let restored_view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(restored_view.status, StatusCode::OK);
+    assert_eq!(restored_view.body["visible_stage"], "intent");
+    assert_eq!(restored_view.body["status_code"], "intent_open");
+    assert!(restored_view.body["review_case_id"].is_null());
 }
 
 #[tokio::test]

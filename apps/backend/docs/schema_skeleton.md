@@ -144,6 +144,10 @@ Migration `0016_room_progression_surface.sql` adds the baseline room progression
 - `dao.room_progression_facts`
 - `projection.room_progression_views`
 
+Migration `0017_room_progression_actor_consistency.sql` adds the actor-consistency constraint that
+governs room progression write validity, so both migrations are part of the schema surface
+operators and developers must apply for ISSUE-13 writes.
+
 Room progression tracks preserve the stable realm-scoped participant envelope. Room progression facts are append-only writer facts for transitions between Intent Room, Coordination Room, Relationship Room, and Sealed Room fallback. These facts may reference ISSUE-12 review cases, but they do not duplicate review/evidence/appeal storage and they do not overwrite Promise or settlement writer truth.
 
 `projection.room_progression_views` is a bounded user-facing read model. It is rebuilt from writer-owned room progression facts and may include safe review posture derived from ISSUE-12 projection for display only. State-changing room progression decisions must read writer-owned `dao` facts, not projection rows.
