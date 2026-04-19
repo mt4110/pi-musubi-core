@@ -1102,27 +1102,30 @@ async fn ensure_appeal_source_tx<C: GenericClient + Sync>(
     source_decision_fact_id: Option<&Uuid>,
 ) -> Result<(), OperatorReviewError> {
     if let Some(source_decision_fact_id) = source_decision_fact_id {
-        let exists: bool = client
-            .query_one(
+        let source_decision = client
+            .query_opt(
                 "
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM dao.operator_decision_facts
-                    WHERE operator_decision_fact_id = $1
-                      AND review_case_id = $2
-                ) AS exists
+                SELECT decision_kind
+                FROM dao.operator_decision_facts
+                WHERE operator_decision_fact_id = $1
+                  AND review_case_id = $2
                 ",
                 &[source_decision_fact_id, review_case_id],
             )
             .await
-            .map_err(db_error)?
-            .get("exists");
-        if exists {
-            return Ok(());
+            .map_err(db_error)?;
+        let Some(source_decision) = source_decision else {
+            return Err(OperatorReviewError::BadRequest(
+                "source_decision_fact_id must belong to the review case".to_owned(),
+            ));
+        };
+        let decision_kind: String = source_decision.get("decision_kind");
+        if decision_kind == "request_more_evidence" {
+            return Err(OperatorReviewError::BadRequest(
+                "appeal cannot reference a non-final decision".to_owned(),
+            ));
         }
-        return Err(OperatorReviewError::BadRequest(
-            "source_decision_fact_id must belong to the review case".to_owned(),
-        ));
+        return Ok(());
     }
 
     let status: String = client

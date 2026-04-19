@@ -738,6 +738,94 @@ async fn evidence_refresh_repairs_stale_case_status_from_latest_decision_fact() 
     );
 }
 
+#[tokio::test]
+async fn request_more_evidence_decision_is_not_appealable() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-review-request-more-evidence",
+        "review-request-more-evidence",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-review-request-more-evidence",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": "proof-source-request-more-evidence",
+            "source_snapshot_json": {
+                "source": "proof"
+            },
+            "request_idempotency_key": "review-case-request-more-evidence"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let request_more_evidence = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "request_more_evidence",
+            "user_facing_reason_code": "proof_inconclusive",
+            "operator_note_internal": "need more proof context",
+            "decision_payload_json": {
+                "requested": "bounded evidence summary"
+            },
+            "decision_idempotency_key": "decision-request-more-evidence"
+        }),
+    )
+    .await;
+    assert_eq!(request_more_evidence.status, StatusCode::OK);
+    let decision_fact_id = request_more_evidence.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("decision fact id must exist")
+        .to_owned();
+
+    let appeal = post_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/appeals"),
+        Some(subject.token.as_str()),
+        json!({
+            "source_decision_fact_id": decision_fact_id,
+            "submitted_reason_code": "appeal_received",
+            "appellant_statement": "I want to appeal before sending more proof.",
+            "new_evidence_summary_json": {
+                "safe_summary": "appeal should be rejected for non-final decisions"
+            },
+            "appeal_idempotency_key": "appeal-request-more-evidence"
+        }),
+    )
+    .await;
+    assert_eq!(appeal.status, StatusCode::BAD_REQUEST);
+
+    let status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(status.status, StatusCode::OK);
+    assert_eq!(status.body["user_facing_status"], "evidence_requested");
+    assert_eq!(status.body["appeal_status"], "none");
+    assert_eq!(status.body["appeal_available"], false);
+}
+
 struct SignedInUser {
     token: String,
     account_id: String,
