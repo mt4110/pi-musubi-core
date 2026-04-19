@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use chrono::Utc;
 use musubi_db_runtime::{DbConfig, connect_writer};
@@ -1579,13 +1579,62 @@ fn optional_uuid_hash_value(value: &Option<Uuid>) -> Option<String> {
 }
 
 fn hash_json_value(value: &Value) -> String {
-    let digest = Sha256::digest(value.to_string().as_bytes());
+    let digest = Sha256::digest(canonical_json_text(value).as_bytes());
     let mut encoded = String::with_capacity(digest.len() * 2);
     for byte in digest {
-        use std::fmt::Write as _;
         let _ = write!(&mut encoded, "{byte:02x}");
     }
     encoded
+}
+
+fn canonical_json_text(value: &Value) -> String {
+    let mut output = String::new();
+    write_canonical_json(value, &mut output);
+    output
+}
+
+fn write_canonical_json(value: &Value, output: &mut String) {
+    match value {
+        Value::Null => output.push_str("null"),
+        Value::Bool(boolean) => output.push_str(if *boolean { "true" } else { "false" }),
+        Value::Number(number) => {
+            let _ = write!(output, "{number}");
+        }
+        Value::String(string) => {
+            output.push_str(
+                &serde_json::to_string(string).expect("serializing a JSON string should not fail"),
+            );
+        }
+        Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                write_canonical_json(value, output);
+            }
+            output.push(']');
+        }
+        Value::Object(map) => {
+            output.push('{');
+            let mut entries = map.iter().collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(right.0));
+
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str(
+                    &serde_json::to_string(key)
+                        .expect("serializing a JSON object key should not fail"),
+                );
+                output.push(':');
+                write_canonical_json(value, output);
+            }
+
+            output.push('}');
+        }
+    }
 }
 
 fn ensure_review_case_matches_payload_hash(

@@ -496,6 +496,135 @@ async fn distinct_operator_decisions_append_new_facts_without_rewriting_source_t
 }
 
 #[tokio::test]
+async fn review_case_idempotency_replay_accepts_canonical_json_key_order() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-review-canonical-json-v2",
+        "review-canonical-json-v2",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let first_body = format!(
+        r#"{{
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": "{subject_account_id}",
+            "related_realm_id": "realm-review-canonical-json-v2",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": "proof-source-canonical-json-v2",
+            "source_snapshot_json": {{
+                "outer": {{ "b": 2, "a": 1 }},
+                "array": [{{ "z": 3, "y": 2 }}]
+            }},
+            "request_idempotency_key": "review-case-canonical-json-v2"
+        }}"#,
+        subject_account_id = subject.account_id
+    );
+    let first = operator_post_raw_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        &first_body,
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    let review_case_id = first.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let replay_body = format!(
+        r#"{{
+            "request_idempotency_key": "review-case-canonical-json-v2",
+            "source_snapshot_json": {{
+                "array": [{{ "y": 2, "z": 3 }}],
+                "outer": {{ "a": 1, "b": 2 }}
+            }},
+            "source_fact_id": "proof-source-canonical-json-v2",
+            "source_fact_kind": "proof_submission",
+            "opened_reason_code": "proof_inconclusive",
+            "related_realm_id": "realm-review-canonical-json-v2",
+            "subject_account_id": "{subject_account_id}",
+            "severity": "sev1",
+            "case_type": "proof_anomaly"
+        }}"#,
+        subject_account_id = subject.account_id
+    );
+    let replay = operator_post_raw_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        &replay_body,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::OK);
+    assert_eq!(replay.body["review_case_id"], review_case_id);
+    assert_eq!(review_case_count(&client, &review_case_id).await, 1);
+}
+
+#[tokio::test]
+async fn review_case_idempotency_rejects_null_stored_payload_hash() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-review-null-hash-v2", "review-null-hash-v2").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let request = json!({
+        "case_type": "proof_anomaly",
+        "severity": "sev1",
+        "subject_account_id": subject.account_id,
+        "related_realm_id": "realm-review-null-hash-v2",
+        "opened_reason_code": "proof_inconclusive",
+        "source_fact_kind": "proof_submission",
+        "source_fact_id": "proof-source-null-hash-v2",
+        "source_snapshot_json": {
+            "source": "proof"
+        },
+        "request_idempotency_key": "review-case-null-hash-v2"
+    });
+
+    let first = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        request.clone(),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    let review_case_id = first.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    client
+        .execute(
+            "
+            UPDATE dao.review_cases
+            SET request_payload_hash = NULL
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review case payload hash must be nullable for legacy rows");
+
+    let replay = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        request,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::BAD_REQUEST);
+    assert_eq!(review_case_count(&client, &review_case_id).await, 1);
+}
+
+#[tokio::test]
 async fn reused_review_case_idempotency_key_rejects_mismatched_payload() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1139,6 +1268,15 @@ async fn operator_post_json(
     request_json(app, "POST", path, None, Some(operator_id), Some(body)).await
 }
 
+async fn operator_post_raw_json(
+    app: &Router,
+    path: &str,
+    operator_id: &str,
+    body: &str,
+) -> JsonResponse {
+    request_raw_json(app, "POST", path, None, Some(operator_id), Some(body)).await
+}
+
 async fn operator_get_json(app: &Router, path: &str, operator_id: &str) -> JsonResponse {
     request_json(app, "GET", path, None, Some(operator_id), None).await
 }
@@ -1164,6 +1302,26 @@ async fn request_json(
     operator_id: Option<&str>,
     body: Option<Value>,
 ) -> JsonResponse {
+    let raw_body = body.map(|body| body.to_string());
+    request_raw_json(
+        app,
+        method,
+        path,
+        bearer_token,
+        operator_id,
+        raw_body.as_deref(),
+    )
+    .await
+}
+
+async fn request_raw_json(
+    app: &Router,
+    method: &str,
+    path: &str,
+    bearer_token: Option<&str>,
+    operator_id: Option<&str>,
+    body: Option<&str>,
+) -> JsonResponse {
     let mut builder = Request::builder().method(method).uri(path);
     if let Some(token) = bearer_token {
         builder = builder.header("authorization", format!("Bearer {token}"));
@@ -1175,7 +1333,7 @@ async fn request_json(
     let request = builder
         .header("content-type", "application/json")
         .body(match body {
-            Some(body) => Body::from(body.to_string()),
+            Some(body) => Body::from(body.to_owned()),
             None => Body::empty(),
         })
         .expect("request must build");
