@@ -29,6 +29,7 @@ Owns:
 - Promise coordination facts
 - settlement coordination facts
 - realm-scoped, pseudonymous references used to coordinate state progression
+- operator review cases, evidence bundles, appeal cases, and append-only operator decision facts that reference writer-owned source facts without overwriting them
 
 Must not own:
 - immutable financial postings
@@ -66,6 +67,7 @@ Owns:
 - rebuildable Promise read models
 - rebuildable settlement read models
 - rebuildable bounded trust read models
+- rebuildable user-facing review status models derived from operator review and appeal facts
 - freshness, lag, watermark, and rebuild metadata for projections
 
 Must not own:
@@ -73,6 +75,7 @@ Must not own:
 - raw PII
 - append-only ledger truth
 - raw callback payloads
+- raw evidence locators or internal operator notes
 - ranking, leaderboard, popularity, or recommendation truth
 
 ## Foundation alignment
@@ -106,3 +109,22 @@ Issue #3 did not implement:
 
 That incompleteness is deliberate.
 Issue #3 only establishes the physical ownership boundaries so later issues can build without collapsing core, dao, ledger, outbox, and projection into convenience tables.
+
+## ISSUE-12 operator review additions
+
+Design source: ISSUE-12-operator-review-appeal-evidence.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0014_operator_review_appeal_evidence.sql` adds the baseline operator review workflow:
+- `core.operator_role_assignments`
+- `dao.review_cases`
+- `dao.evidence_bundles`
+- `dao.evidence_access_grants`
+- `dao.operator_decision_facts`
+- `dao.appeal_cases`
+- `projection.review_status_views`
+
+The architectural boundary is strict: operator decisions are append-only facts and do not rewrite the original Promise, settlement, proof, or source writer truth. User-facing review status is projected from review, decision, evidence, and appeal facts using bounded status and reason codes.
+
+ISSUE-13 room progression and ISSUE-14 Promise UI are future consumers of this boundary. They are not implemented by this schema addition.

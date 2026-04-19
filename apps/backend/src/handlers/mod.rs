@@ -7,6 +7,7 @@ use serde::Serialize;
 use crate::services::happy_route::{HappyRouteError, ProviderErrorClass};
 
 pub mod auth;
+pub mod operator_review;
 pub mod orchestration;
 pub mod payments;
 pub mod projection;
@@ -113,13 +114,17 @@ fn require_internal_bearer_token_with_config(
         .map(str::trim)
         .filter(|token| !token.is_empty())
     else {
-        return Err(unauthorized("internal authorization bearer token is required"));
+        return Err(unauthorized(
+            "internal authorization bearer token is required",
+        ));
     };
 
     let token = require_bearer_token(headers)
         .map_err(|_| unauthorized("internal authorization bearer token is required"))?;
     if token != configured_token {
-        return Err(unauthorized("internal authorization bearer token is required"));
+        return Err(unauthorized(
+            "internal authorization bearer token is required",
+        ));
     }
 
     Ok(())
@@ -166,7 +171,7 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
 mod tests {
     use axum::http::{HeaderValue, header::AUTHORIZATION};
 
-    use super::{require_internal_bearer_token_with_config, HeaderMap};
+    use super::{HeaderMap, require_internal_bearer_token_with_config};
 
     #[test]
     fn debug_build_internal_requests_do_not_require_token() {
@@ -177,7 +182,10 @@ mod tests {
     #[test]
     fn release_build_internal_requests_require_matching_bearer_token() {
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer musubi-internal"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer musubi-internal"),
+        );
 
         assert!(
             require_internal_bearer_token_with_config(&headers, false, Some("musubi-internal"))
@@ -188,7 +196,10 @@ mod tests {
     #[test]
     fn release_build_internal_requests_reject_wrong_bearer_token() {
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer wrong-token"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer wrong-token"),
+        );
 
         assert!(
             require_internal_bearer_token_with_config(&headers, false, Some("musubi-internal"))

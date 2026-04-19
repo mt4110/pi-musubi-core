@@ -1,0 +1,679 @@
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
+use musubi_backend::{build_app, new_test_state};
+use serde_json::{Value, json};
+use tower::ServiceExt;
+use uuid::Uuid;
+
+#[tokio::test]
+async fn operator_review_flow_preserves_writer_truth_and_projects_safe_status() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-review-subject", "review-subject").await;
+    let counterparty = sign_in(&app, "pi-user-review-counterparty", "review-counterparty").await;
+    let client = test_db_client().await;
+    let reviewer_id = insert_operator_account(&client, "reviewer").await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let support_id = insert_operator_account(&client, "support").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(subject.token.as_str()),
+        json!({
+            "internal_idempotency_key": "operator-review-promise",
+            "realm_id": "realm-operator-review",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+    let promise_intent_id = create_promise.body["promise_intent_id"]
+        .as_str()
+        .expect("promise_intent_id must exist")
+        .to_owned();
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let original_settlement_status = settlement_status(&client, &settlement_case_id).await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &reviewer_id,
+        json!({
+            "case_type": "promise_dispute",
+            "severity": "sev2",
+            "subject_account_id": subject.account_id,
+            "related_promise_intent_id": promise_intent_id,
+            "related_settlement_case_id": settlement_case_id,
+            "related_realm_id": "realm-operator-review",
+            "opened_reason_code": "promise_completion_under_review",
+            "source_fact_kind": "settlement_case",
+            "source_fact_id": settlement_case_id,
+            "source_snapshot_json": {
+                "case_status": original_settlement_status
+            },
+            "request_idempotency_key": "review-case-001"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    assert_eq!(create_case.body["review_status"], "open");
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let initial_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(initial_status.status, StatusCode::OK);
+    assert_eq!(initial_status.body["user_facing_status"], "pending_review");
+    assert_eq!(
+        initial_status.body["user_facing_reason_code"],
+        "promise_completion_under_review"
+    );
+    assert_eq!(initial_status.body["source_fact_count"], 1);
+
+    let attach_evidence = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-bundles"),
+        &reviewer_id,
+        json!({
+            "evidence_visibility": "redacted_raw",
+            "summary_json": {
+                "badge": "timeline_ready",
+                "safe_summary": "Promise timeline and proof summary are ready for review."
+            },
+            "raw_locator_json": {
+                "raw_callback_locator": "private-raw-callback-uri"
+            },
+            "retention_class": "R6"
+        }),
+    )
+    .await;
+    assert_eq!(attach_evidence.status, StatusCode::OK);
+    assert!(attach_evidence.body.get("raw_locator_json").is_none());
+    assert!(
+        !attach_evidence
+            .body
+            .to_string()
+            .contains("private-raw-callback-uri")
+    );
+    let evidence_bundle_id = attach_evidence.body["evidence_bundle_id"]
+        .as_str()
+        .expect("evidence_bundle_id must exist")
+        .to_owned();
+
+    let after_evidence_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(after_evidence_status.status, StatusCode::OK);
+    assert_eq!(after_evidence_status.body["source_fact_count"], 2);
+
+    let reviewer_grant_attempt = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-access-grants"),
+        &reviewer_id,
+        json!({
+            "evidence_bundle_id": evidence_bundle_id,
+            "grantee_operator_id": reviewer_id,
+            "access_scope": "summary_only",
+            "grant_reason": "reviewer needs the bounded case summary",
+            "expires_at": future_timestamp()
+        }),
+    )
+    .await;
+    assert_eq!(reviewer_grant_attempt.status, StatusCode::UNAUTHORIZED);
+
+    let summary_grant = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-access-grants"),
+        &approver_id,
+        json!({
+            "evidence_bundle_id": evidence_bundle_id,
+            "grantee_operator_id": reviewer_id,
+            "access_scope": "summary_only",
+            "grant_reason": "reviewer needs the bounded case summary",
+            "expires_at": future_timestamp()
+        }),
+    )
+    .await;
+    assert_eq!(summary_grant.status, StatusCode::OK);
+    assert_eq!(summary_grant.body["access_scope"], "summary_only");
+
+    let after_grant_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(after_grant_status.status, StatusCode::OK);
+    assert_eq!(after_grant_status.body["source_fact_count"], 3);
+
+    let support_raw_grant = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-access-grants"),
+        &approver_id,
+        json!({
+            "evidence_bundle_id": evidence_bundle_id,
+            "grantee_operator_id": support_id,
+            "access_scope": "full_raw",
+            "grant_reason": "support should not get full raw access",
+            "expires_at": future_timestamp()
+        }),
+    )
+    .await;
+    assert_eq!(support_raw_grant.status, StatusCode::UNAUTHORIZED);
+
+    let invalid_reason_decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "internal_abuse_label",
+            "operator_note_internal": "private operator note must not leak",
+            "decision_payload_json": {
+                "internal": "not user facing"
+            },
+            "decision_idempotency_key": "decision-invalid"
+        }),
+    )
+    .await;
+    assert_eq!(invalid_reason_decision.status, StatusCode::BAD_REQUEST);
+
+    let reviewer_decision_attempt = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &reviewer_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "private operator note must not leak",
+            "decision_payload_json": {
+                "internal": "not user facing"
+            },
+            "decision_idempotency_key": "decision-unauthorized"
+        }),
+    )
+    .await;
+    assert_eq!(reviewer_decision_attempt.status, StatusCode::UNAUTHORIZED);
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "private operator note must not leak",
+            "decision_payload_json": {
+                "internal": "not user facing"
+            },
+            "decision_idempotency_key": "decision-001"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("decision fact id must exist")
+        .to_owned();
+
+    let replayed_decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "private operator note must not leak",
+            "decision_payload_json": {
+                "internal": "not user facing"
+            },
+            "decision_idempotency_key": "decision-001"
+        }),
+    )
+    .await;
+    assert_eq!(replayed_decision.status, StatusCode::OK);
+    assert_eq!(
+        replayed_decision.body["operator_decision_fact_id"],
+        decision_fact_id
+    );
+    assert_eq!(
+        decision_count(&client, &review_case_id).await,
+        1,
+        "idempotent replay must not append a second decision fact"
+    );
+    assert_eq!(
+        settlement_status(&client, &settlement_case_id).await,
+        original_settlement_status,
+        "operator decision must not mutate settlement writer truth"
+    );
+
+    let decided_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(decided_status.status, StatusCode::OK);
+    assert_eq!(
+        decided_status.body["user_facing_status"],
+        "sealed_or_restricted"
+    );
+    assert_eq!(
+        decided_status.body["user_facing_reason_code"],
+        "restricted_after_review"
+    );
+    assert!(decided_status.body.get("operator_note_internal").is_none());
+    assert!(
+        !decided_status
+            .body
+            .to_string()
+            .contains("private operator note")
+    );
+
+    let review_detail = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_detail.status, StatusCode::OK);
+    assert!(review_detail.body.get("operator_note_internal").is_none());
+    assert!(
+        !review_detail
+            .body
+            .to_string()
+            .contains("private operator note")
+    );
+    assert!(
+        !review_detail
+            .body
+            .to_string()
+            .contains("private-raw-callback-uri")
+    );
+    assert_eq!(
+        review_detail.body["operator_decision_facts"]
+            .as_array()
+            .expect("decision facts must be an array")
+            .len(),
+        1
+    );
+
+    let appeal = post_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/appeals"),
+        Some(subject.token.as_str()),
+        json!({
+            "source_decision_fact_id": decision_fact_id,
+            "submitted_reason_code": "appeal_received",
+            "appellant_statement": "I have additional context.",
+            "new_evidence_summary_json": {
+                "safe_summary": "Additional user-provided context is available."
+            },
+            "appeal_idempotency_key": "appeal-001"
+        }),
+    )
+    .await;
+    assert_eq!(appeal.status, StatusCode::OK);
+    assert_eq!(appeal.body["source_review_case_id"], review_case_id);
+    assert_eq!(appeal.body["source_decision_fact_id"], decision_fact_id);
+    assert_eq!(appeal.body["appeal_status"], "submitted");
+
+    let appeals = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/appeals"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(appeals.status, StatusCode::OK);
+    assert_eq!(
+        appeals
+            .body
+            .as_array()
+            .expect("appeals must be an array")
+            .len(),
+        1
+    );
+
+    let appealed_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(appealed_status.status, StatusCode::OK);
+    assert_eq!(
+        appealed_status.body["user_facing_status"],
+        "appeal_submitted"
+    );
+    assert_eq!(appealed_status.body["appeal_status"], "submitted");
+    assert_eq!(
+        appealed_status.body["user_facing_reason_code"],
+        "appeal_received"
+    );
+
+    let cross_user_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(counterparty.token.as_str()),
+    )
+    .await;
+    assert_eq!(cross_user_status.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn distinct_operator_decisions_append_new_facts_without_rewriting_source_truth() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-review-append", "review-append").await;
+    let counterparty = sign_in(&app, "pi-user-review-append-b", "review-append-b").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(subject.token.as_str()),
+        json!({
+            "internal_idempotency_key": "operator-review-append-promise",
+            "realm_id": "realm-operator-review-append",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let original_settlement_status = settlement_status(&client, &settlement_case_id).await;
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "settlement_conflict",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_settlement_case_id": settlement_case_id,
+            "related_realm_id": "realm-operator-review-append",
+            "opened_reason_code": "policy_review",
+            "source_fact_kind": "settlement_case",
+            "source_fact_id": settlement_case_id,
+            "source_snapshot_json": {
+                "case_status": original_settlement_status
+            },
+            "request_idempotency_key": "review-case-append"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let request_more_evidence = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "request_more_evidence",
+            "user_facing_reason_code": "proof_inconclusive",
+            "operator_note_internal": "requesting private details for internal review",
+            "decision_payload_json": {
+                "requested": "bounded evidence summary"
+            },
+            "decision_idempotency_key": "append-decision-001"
+        }),
+    )
+    .await;
+    assert_eq!(request_more_evidence.status, StatusCode::OK);
+
+    let restore = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restore",
+            "user_facing_reason_code": "restored_after_review",
+            "operator_note_internal": "restoration rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restore"
+            },
+            "decision_idempotency_key": "append-decision-002"
+        }),
+    )
+    .await;
+    assert_eq!(restore.status, StatusCode::OK);
+    assert_ne!(
+        request_more_evidence.body["operator_decision_fact_id"],
+        restore.body["operator_decision_fact_id"]
+    );
+    assert_eq!(decision_count(&client, &review_case_id).await, 2);
+    assert_eq!(
+        settlement_status(&client, &settlement_case_id).await,
+        original_settlement_status
+    );
+
+    let status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(status.status, StatusCode::OK);
+    assert_eq!(status.body["user_facing_status"], "appeal_available");
+    assert_eq!(
+        status.body["user_facing_reason_code"],
+        "restored_after_review"
+    );
+    assert_eq!(
+        status.body["latest_decision_fact_id"],
+        restore.body["operator_decision_fact_id"]
+    );
+}
+
+struct SignedInUser {
+    token: String,
+    account_id: String,
+}
+
+struct JsonResponse {
+    status: StatusCode,
+    body: Value,
+}
+
+async fn sign_in(app: &Router, pi_uid: &str, username: &str) -> SignedInUser {
+    let response = post_json(
+        app,
+        "/api/auth/pi",
+        None,
+        json!({
+            "pi_uid": pi_uid,
+            "username": username,
+            "wallet_address": format!("wallet-{pi_uid}"),
+            "access_token": format!("access-token-{pi_uid}")
+        }),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+
+    SignedInUser {
+        token: response.body["token"]
+            .as_str()
+            .expect("token must exist")
+            .to_owned(),
+        account_id: response.body["user"]["id"]
+            .as_str()
+            .expect("user id must exist")
+            .to_owned(),
+    }
+}
+
+async fn insert_operator_account(client: &tokio_postgres::Client, role: &str) -> String {
+    let account_id = Uuid::new_v4();
+    client
+        .execute(
+            "
+            INSERT INTO core.accounts (account_id, account_class, account_state)
+            VALUES ($1, 'Controlled Exceptional Account', 'active')
+            ",
+            &[&account_id],
+        )
+        .await
+        .expect("operator account must insert");
+    client
+        .execute(
+            "
+            INSERT INTO core.operator_role_assignments (
+                operator_role_assignment_id,
+                operator_account_id,
+                operator_role,
+                grant_reason
+            )
+            VALUES ($1, $2, $3, 'operator review test role')
+            ",
+            &[&Uuid::new_v4(), &account_id, &role],
+        )
+        .await
+        .expect("operator role assignment must insert");
+    account_id.to_string()
+}
+
+async fn settlement_status(client: &tokio_postgres::Client, settlement_case_id: &str) -> String {
+    client
+        .query_one(
+            "
+            SELECT case_status
+            FROM dao.settlement_cases
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("settlement case must exist")
+        .get("case_status")
+}
+
+async fn decision_count(client: &tokio_postgres::Client, review_case_id: &str) -> i64 {
+    client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM dao.operator_decision_facts
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("operator decision fact count must be queryable")
+        .get("count")
+}
+
+async fn test_db_client() -> tokio_postgres::Client {
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let (client, connection) = tokio_postgres::connect(&database_url, tokio_postgres::NoTls)
+        .await
+        .expect("test database must be reachable");
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            eprintln!("test database connection error: {error}");
+        }
+    });
+    client
+}
+
+fn future_timestamp() -> String {
+    (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339()
+}
+
+async fn operator_post_json(
+    app: &Router,
+    path: &str,
+    operator_id: &str,
+    body: Value,
+) -> JsonResponse {
+    request_json(app, "POST", path, None, Some(operator_id), Some(body)).await
+}
+
+async fn operator_get_json(app: &Router, path: &str, operator_id: &str) -> JsonResponse {
+    request_json(app, "GET", path, None, Some(operator_id), None).await
+}
+
+async fn post_json(
+    app: &Router,
+    path: &str,
+    bearer_token: Option<&str>,
+    body: Value,
+) -> JsonResponse {
+    request_json(app, "POST", path, bearer_token, None, Some(body)).await
+}
+
+async fn get_json(app: &Router, path: &str, bearer_token: Option<&str>) -> JsonResponse {
+    request_json(app, "GET", path, bearer_token, None, None).await
+}
+
+async fn request_json(
+    app: &Router,
+    method: &str,
+    path: &str,
+    bearer_token: Option<&str>,
+    operator_id: Option<&str>,
+    body: Option<Value>,
+) -> JsonResponse {
+    let mut builder = Request::builder().method(method).uri(path);
+    if let Some(token) = bearer_token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    if let Some(operator_id) = operator_id {
+        builder = builder.header("x-musubi-operator-id", operator_id);
+    }
+
+    let request = builder
+        .header("content-type", "application/json")
+        .body(match body {
+            Some(body) => Body::from(body.to_string()),
+            None => Body::empty(),
+        })
+        .expect("request must build");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("app should respond");
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body must be readable");
+    let body = if bytes.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice(&bytes).expect("response body must be valid json")
+    };
+
+    JsonResponse { status, body }
+}
