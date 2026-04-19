@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use chrono::Utc;
-use musubi_db_runtime::{DbConfig, connect_writer};
-use serde_json::Value;
+use musubi_db_runtime::{connect_writer, DbConfig};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
+use tokio_postgres::{error::SqlState, Client, GenericClient, Row, Transaction};
 use uuid::Uuid;
 
 use super::types::{
@@ -127,6 +128,13 @@ impl OperatorReviewStore {
         let assigned_operator_id =
             parse_optional_uuid(&input.assigned_operator_id, "assigned operator id")?;
         let request_idempotency_key = normalize_optional(&input.request_idempotency_key);
+        let request_payload_hash = review_case_payload_hash(
+            &input,
+            &subject_account_id,
+            &related_promise_intent_id,
+            &related_settlement_case_id,
+            &assigned_operator_id,
+        );
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
@@ -151,13 +159,28 @@ impl OperatorReviewStore {
                         source_snapshot_json,
                         assigned_operator_id,
                         opened_by_operator_id,
-                        request_idempotency_key
+                        request_idempotency_key,
+                        request_payload_hash
                     )
-                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     ON CONFLICT (opened_by_operator_id, request_idempotency_key)
                     WHERE request_idempotency_key IS NOT NULL
                     DO NOTHING
-                    RETURNING *
+                    RETURNING
+                        review_case_id,
+                        case_type,
+                        severity,
+                        review_status,
+                        subject_account_id,
+                        related_promise_intent_id,
+                        related_settlement_case_id,
+                        related_realm_id,
+                        opened_reason_code,
+                        source_fact_kind,
+                        source_fact_id,
+                        assigned_operator_id,
+                        opened_at,
+                        updated_at
                     ",
                     &[
                         &review_case_id,
@@ -174,6 +197,7 @@ impl OperatorReviewStore {
                         &assigned_operator_id,
                         &operator_id,
                         &request_idempotency_key,
+                        &request_payload_hash,
                     ],
                 )
                 .await
@@ -193,14 +217,7 @@ impl OperatorReviewStore {
                         "review case idempotency row disappeared after conflict".to_owned(),
                     )
                 })?;
-                ensure_review_case_matches_input(
-                    &row,
-                    &input,
-                    &subject_account_id,
-                    &related_promise_intent_id,
-                    &related_settlement_case_id,
-                    &assigned_operator_id,
-                )?;
+                ensure_review_case_matches_payload_hash(&tx, &row, &request_payload_hash).await?;
                 row
             }
         } else {
@@ -222,10 +239,25 @@ impl OperatorReviewStore {
                         source_snapshot_json,
                         assigned_operator_id,
                         opened_by_operator_id,
-                        request_idempotency_key
+                        request_idempotency_key,
+                        request_payload_hash
                     )
-                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                    RETURNING *
+                    VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    RETURNING
+                        review_case_id,
+                        case_type,
+                        severity,
+                        review_status,
+                        subject_account_id,
+                        related_promise_intent_id,
+                        related_settlement_case_id,
+                        related_realm_id,
+                        opened_reason_code,
+                        source_fact_kind,
+                        source_fact_id,
+                        assigned_operator_id,
+                        opened_at,
+                        updated_at
                     ",
                     &[
                         &review_case_id,
@@ -242,6 +274,7 @@ impl OperatorReviewStore {
                         &assigned_operator_id,
                         &operator_id,
                         &request_idempotency_key,
+                        &request_payload_hash,
                     ],
                 )
                 .await
@@ -410,7 +443,16 @@ impl OperatorReviewStore {
                     expires_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                RETURNING *
+                RETURNING
+                    access_grant_id,
+                    review_case_id,
+                    evidence_bundle_id,
+                    grantee_operator_id,
+                    access_scope,
+                    grant_reason,
+                    approved_by_operator_id,
+                    expires_at,
+                    created_at
                 ",
                 &[
                     &access_grant_id,
@@ -446,6 +488,7 @@ impl OperatorReviewStore {
             USER_FACING_REASON_CODES,
         )?;
         let decision_idempotency_key = normalize_optional(&input.decision_idempotency_key);
+        let decision_payload_hash = operator_decision_payload_hash(&input);
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
@@ -465,9 +508,10 @@ impl OperatorReviewStore {
                         operator_note_internal,
                         decision_payload_json,
                         decided_by_operator_id,
-                        decision_idempotency_key
+                        decision_idempotency_key,
+                        decision_payload_hash
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (review_case_id, decided_by_operator_id, decision_idempotency_key)
                     WHERE decision_idempotency_key IS NOT NULL
                     DO NOTHING
@@ -489,6 +533,7 @@ impl OperatorReviewStore {
                         &input.decision_payload_json,
                         &operator_id,
                         &decision_idempotency_key,
+                        &decision_payload_hash,
                     ],
                 )
                 .await
@@ -508,7 +553,8 @@ impl OperatorReviewStore {
                         "operator decision idempotency row disappeared after conflict".to_owned(),
                     )
                 })?;
-                ensure_operator_decision_matches_input(&row, &input)?;
+                ensure_operator_decision_matches_payload_hash(&tx, &row, &decision_payload_hash)
+                    .await?;
                 row
             }
         } else {
@@ -522,9 +568,10 @@ impl OperatorReviewStore {
                     operator_note_internal,
                     decision_payload_json,
                     decided_by_operator_id,
-                    decision_idempotency_key
+                    decision_idempotency_key,
+                    decision_payload_hash
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING
                     operator_decision_fact_id,
                     review_case_id,
@@ -543,6 +590,7 @@ impl OperatorReviewStore {
                     &input.decision_payload_json,
                     &operator_id,
                     &decision_idempotency_key,
+                    &decision_payload_hash,
                 ],
             )
             .await
@@ -571,6 +619,8 @@ impl OperatorReviewStore {
             USER_FACING_REASON_CODES,
         )?;
         let appeal_idempotency_key = normalize_optional(&input.appeal_idempotency_key);
+        let appeal_request_payload_hash =
+            appeal_payload_hash(&input, source_decision_fact_id.as_ref());
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
@@ -591,9 +641,10 @@ impl OperatorReviewStore {
                         submitted_reason_code,
                         appellant_statement,
                         new_evidence_summary_json,
-                        appeal_idempotency_key
+                        appeal_idempotency_key,
+                        appeal_payload_hash
                     )
-                    VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8)
+                    VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (
                         source_review_case_id,
                         submitted_by_account_id,
@@ -620,6 +671,7 @@ impl OperatorReviewStore {
                         &input.appellant_statement,
                         &input.new_evidence_summary_json,
                         &appeal_idempotency_key,
+                        &appeal_request_payload_hash,
                     ],
                 )
                 .await
@@ -639,7 +691,7 @@ impl OperatorReviewStore {
                         "appeal idempotency row disappeared after conflict".to_owned(),
                     )
                 })?;
-                ensure_appeal_matches_input(&row, &input, source_decision_fact_id.as_ref())?;
+                ensure_appeal_matches_payload_hash(&tx, &row, &appeal_request_payload_hash).await?;
                 row
             }
         } else {
@@ -654,9 +706,10 @@ impl OperatorReviewStore {
                     submitted_reason_code,
                     appellant_statement,
                     new_evidence_summary_json,
-                    appeal_idempotency_key
+                    appeal_idempotency_key,
+                    appeal_payload_hash
                 )
-                VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, 'submitted', $4, $5, $6, $7, $8, $9)
                 RETURNING
                     appeal_case_id,
                     source_review_case_id,
@@ -676,6 +729,7 @@ impl OperatorReviewStore {
                     &input.appellant_statement,
                     &input.new_evidence_summary_json,
                     &appeal_idempotency_key,
+                    &appeal_request_payload_hash,
                 ],
             )
             .await
@@ -730,7 +784,21 @@ impl OperatorReviewStore {
         let row = client
             .query_opt(
                 "
-                SELECT *
+                SELECT
+                    review_case_id,
+                    subject_account_id,
+                    related_promise_intent_id,
+                    related_settlement_case_id,
+                    related_realm_id,
+                    user_facing_status,
+                    user_facing_reason_code,
+                    appeal_status,
+                    evidence_requested,
+                    appeal_available,
+                    latest_decision_fact_id,
+                    source_watermark_at,
+                    source_fact_count,
+                    last_projected_at
                 FROM projection.review_status_views
                 WHERE review_case_id = $1
                   AND subject_account_id = $2
@@ -776,7 +844,16 @@ async fn read_review_case_tx<C: GenericClient + Sync>(
     let evidence_access_grants = client
         .query(
             "
-            SELECT *
+            SELECT
+                access_grant_id,
+                review_case_id,
+                evidence_bundle_id,
+                grantee_operator_id,
+                access_scope,
+                grant_reason,
+                approved_by_operator_id,
+                expires_at,
+                created_at
             FROM dao.evidence_access_grants
             WHERE review_case_id = $1
             ORDER BY created_at ASC
@@ -854,7 +931,22 @@ async fn find_existing_review_case_by_idempotency<C: GenericClient + Sync>(
     client
         .query_opt(
             "
-            SELECT *
+            SELECT
+                review_case_id,
+                case_type,
+                severity,
+                review_status,
+                subject_account_id,
+                related_promise_intent_id,
+                related_settlement_case_id,
+                related_realm_id,
+                opened_reason_code,
+                source_fact_kind,
+                source_fact_id,
+                assigned_operator_id,
+                opened_at,
+                updated_at,
+                request_payload_hash
             FROM dao.review_cases
             WHERE opened_by_operator_id = $1
               AND request_idempotency_key = $2
@@ -877,7 +969,15 @@ async fn find_existing_decision_by_idempotency<C: GenericClient + Sync>(
     client
         .query_opt(
             "
-            SELECT *
+            SELECT
+                operator_decision_fact_id,
+                review_case_id,
+                appeal_case_id,
+                decision_kind,
+                user_facing_reason_code,
+                decided_by_operator_id,
+                recorded_at,
+                decision_payload_hash
             FROM dao.operator_decision_facts
             WHERE review_case_id = $1
               AND decided_by_operator_id = $2
@@ -901,7 +1001,16 @@ async fn find_existing_appeal_by_idempotency<C: GenericClient + Sync>(
     client
         .query_opt(
             "
-            SELECT *
+            SELECT
+                appeal_case_id,
+                source_review_case_id,
+                source_decision_fact_id,
+                appeal_status,
+                submitted_by_account_id,
+                submitted_reason_code,
+                created_at,
+                updated_at,
+                appeal_payload_hash
             FROM dao.appeal_cases
             WHERE source_review_case_id = $1
               AND submitted_by_account_id = $2
@@ -1420,30 +1529,125 @@ async fn sync_review_case_status_tx<C: GenericClient + Sync>(
     Ok(())
 }
 
-fn ensure_review_case_matches_input(
-    row: &Row,
+fn review_case_payload_hash(
     input: &CreateReviewCaseInput,
     subject_account_id: &Option<Uuid>,
     related_promise_intent_id: &Option<Uuid>,
     related_settlement_case_id: &Option<Uuid>,
     assigned_operator_id: &Option<Uuid>,
+) -> String {
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "case_type": &input.case_type,
+        "severity": &input.severity,
+        "subject_account_id": optional_uuid_hash_value(subject_account_id),
+        "related_promise_intent_id": optional_uuid_hash_value(related_promise_intent_id),
+        "related_settlement_case_id": optional_uuid_hash_value(related_settlement_case_id),
+        "related_realm_id": normalize_optional(&input.related_realm_id),
+        "opened_reason_code": &input.opened_reason_code,
+        "source_fact_kind": &input.source_fact_kind,
+        "source_fact_id": &input.source_fact_id,
+        "source_snapshot_json": &input.source_snapshot_json,
+        "assigned_operator_id": optional_uuid_hash_value(assigned_operator_id),
+    }))
+}
+
+fn operator_decision_payload_hash(input: &RecordOperatorDecisionInput) -> String {
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "decision_kind": &input.decision_kind,
+        "user_facing_reason_code": &input.user_facing_reason_code,
+        "operator_note_internal": &input.operator_note_internal,
+        "decision_payload_json": &input.decision_payload_json,
+    }))
+}
+
+fn appeal_payload_hash(
+    input: &CreateAppealCaseInput,
+    source_decision_fact_id: Option<&Uuid>,
+) -> String {
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "source_decision_fact_id": source_decision_fact_id.map(|value| value.to_string()),
+        "submitted_reason_code": &input.submitted_reason_code,
+        "appellant_statement": &input.appellant_statement,
+        "new_evidence_summary_json": &input.new_evidence_summary_json,
+    }))
+}
+
+fn optional_uuid_hash_value(value: &Option<Uuid>) -> Option<String> {
+    value.map(|value| value.to_string())
+}
+
+fn hash_json_value(value: &Value) -> String {
+    let digest = Sha256::digest(canonical_json_text(value).as_bytes());
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+fn canonical_json_text(value: &Value) -> String {
+    let mut output = String::new();
+    write_canonical_json(value, &mut output);
+    output
+}
+
+fn write_canonical_json(value: &Value, output: &mut String) {
+    match value {
+        Value::Null => output.push_str("null"),
+        Value::Bool(boolean) => output.push_str(if *boolean { "true" } else { "false" }),
+        Value::Number(number) => {
+            let _ = write!(output, "{number}");
+        }
+        Value::String(string) => {
+            output.push_str(
+                &serde_json::to_string(string).expect("serializing a JSON string should not fail"),
+            );
+        }
+        Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                write_canonical_json(value, output);
+            }
+            output.push(']');
+        }
+        Value::Object(map) => {
+            output.push('{');
+            let mut entries = map.iter().collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(right.0));
+
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str(
+                    &serde_json::to_string(key)
+                        .expect("serializing a JSON object key should not fail"),
+                );
+                output.push(':');
+                write_canonical_json(value, output);
+            }
+
+            output.push('}');
+        }
+    }
+}
+
+async fn ensure_review_case_matches_payload_hash<C: GenericClient + Sync>(
+    client: &C,
+    row: &Row,
+    request_payload_hash: &str,
 ) -> Result<(), OperatorReviewError> {
-    let existing_related_realm_id = row
-        .get::<_, Option<String>>("related_realm_id")
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
-    if row.get::<_, String>("case_type") != input.case_type
-        || row.get::<_, String>("severity") != input.severity
-        || row.get::<_, Option<Uuid>>("subject_account_id") != *subject_account_id
-        || row.get::<_, Option<Uuid>>("related_promise_intent_id") != *related_promise_intent_id
-        || row.get::<_, Option<Uuid>>("related_settlement_case_id") != *related_settlement_case_id
-        || existing_related_realm_id != normalize_optional(&input.related_realm_id)
-        || row.get::<_, String>("opened_reason_code") != input.opened_reason_code
-        || row.get::<_, String>("source_fact_kind") != input.source_fact_kind
-        || row.get::<_, String>("source_fact_id") != input.source_fact_id
-        || row.get::<_, Value>("source_snapshot_json") != input.source_snapshot_json
-        || row.get::<_, Option<Uuid>>("assigned_operator_id") != *assigned_operator_id
-    {
+    let existing_hash = match row.get::<_, Option<String>>("request_payload_hash") {
+        Some(hash) => hash,
+        None => backfill_review_case_payload_hash(client, row).await?,
+    };
+    if existing_hash != request_payload_hash {
         return Err(OperatorReviewError::BadRequest(
             "request_idempotency_key was already used with a different review case payload"
                 .to_owned(),
@@ -1452,15 +1656,16 @@ fn ensure_review_case_matches_input(
     Ok(())
 }
 
-fn ensure_operator_decision_matches_input(
+async fn ensure_operator_decision_matches_payload_hash<C: GenericClient + Sync>(
+    client: &C,
     row: &Row,
-    input: &RecordOperatorDecisionInput,
+    decision_payload_hash: &str,
 ) -> Result<(), OperatorReviewError> {
-    if row.get::<_, String>("decision_kind") != input.decision_kind
-        || row.get::<_, String>("user_facing_reason_code") != input.user_facing_reason_code
-        || row.get::<_, Option<String>>("operator_note_internal") != input.operator_note_internal
-        || row.get::<_, Value>("decision_payload_json") != input.decision_payload_json
-    {
+    let existing_hash = match row.get::<_, Option<String>>("decision_payload_hash") {
+        Some(hash) => hash,
+        None => backfill_operator_decision_payload_hash(client, row).await?,
+    };
+    if existing_hash != decision_payload_hash {
         return Err(OperatorReviewError::BadRequest(
             "decision_idempotency_key was already used with a different operator decision payload"
                 .to_owned(),
@@ -1469,21 +1674,242 @@ fn ensure_operator_decision_matches_input(
     Ok(())
 }
 
-fn ensure_appeal_matches_input(
+async fn ensure_appeal_matches_payload_hash<C: GenericClient + Sync>(
+    client: &C,
     row: &Row,
-    input: &CreateAppealCaseInput,
-    source_decision_fact_id: Option<&Uuid>,
+    appeal_payload_hash: &str,
 ) -> Result<(), OperatorReviewError> {
-    if row.get::<_, Option<Uuid>>("source_decision_fact_id") != source_decision_fact_id.copied()
-        || row.get::<_, String>("submitted_reason_code") != input.submitted_reason_code
-        || row.get::<_, Option<String>>("appellant_statement") != input.appellant_statement
-        || row.get::<_, Value>("new_evidence_summary_json") != input.new_evidence_summary_json
-    {
+    let existing_hash = match row.get::<_, Option<String>>("appeal_payload_hash") {
+        Some(hash) => hash,
+        None => backfill_appeal_payload_hash(client, row).await?,
+    };
+    if existing_hash != appeal_payload_hash {
         return Err(OperatorReviewError::BadRequest(
             "appeal_idempotency_key was already used with a different appeal payload".to_owned(),
         ));
     }
     Ok(())
+}
+
+async fn backfill_review_case_payload_hash<C: GenericClient + Sync>(
+    client: &C,
+    row: &Row,
+) -> Result<String, OperatorReviewError> {
+    let review_case_id = row.get::<_, Uuid>("review_case_id");
+    let legacy_row = client
+        .query_one(
+            "
+            SELECT
+                case_type,
+                severity,
+                subject_account_id,
+                related_promise_intent_id,
+                related_settlement_case_id,
+                related_realm_id,
+                opened_reason_code,
+                source_fact_kind,
+                source_fact_id,
+                source_snapshot_json,
+                assigned_operator_id
+            FROM dao.review_cases
+            WHERE review_case_id = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let payload_hash = review_case_payload_hash_from_row(&legacy_row);
+    if let Some(updated_row) = client
+        .query_opt(
+            "
+            UPDATE dao.review_cases
+            SET request_payload_hash = $2
+            WHERE review_case_id = $1
+              AND request_payload_hash IS NULL
+            RETURNING request_payload_hash
+            ",
+            &[&review_case_id, &payload_hash],
+        )
+        .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("request_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT request_payload_hash
+            FROM dao.review_cases
+            WHERE review_case_id = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let persisted_hash: Option<String> = persisted_row.get("request_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal(
+            "review case payload hash remained null after backfill".to_owned(),
+        )
+    })
+}
+
+fn review_case_payload_hash_from_row(row: &Row) -> String {
+    let subject_account_id: Option<Uuid> = row.get("subject_account_id");
+    let related_promise_intent_id: Option<Uuid> = row.get("related_promise_intent_id");
+    let related_settlement_case_id: Option<Uuid> = row.get("related_settlement_case_id");
+    let assigned_operator_id: Option<Uuid> = row.get("assigned_operator_id");
+    let related_realm_id = normalize_optional(&row.get::<_, Option<String>>("related_realm_id"));
+
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "case_type": row.get::<_, String>("case_type"),
+        "severity": row.get::<_, String>("severity"),
+        "subject_account_id": optional_uuid_hash_value(&subject_account_id),
+        "related_promise_intent_id": optional_uuid_hash_value(&related_promise_intent_id),
+        "related_settlement_case_id": optional_uuid_hash_value(&related_settlement_case_id),
+        "related_realm_id": related_realm_id,
+        "opened_reason_code": row.get::<_, String>("opened_reason_code"),
+        "source_fact_kind": row.get::<_, String>("source_fact_kind"),
+        "source_fact_id": row.get::<_, String>("source_fact_id"),
+        "source_snapshot_json": row.get::<_, Value>("source_snapshot_json"),
+        "assigned_operator_id": optional_uuid_hash_value(&assigned_operator_id),
+    }))
+}
+
+async fn backfill_operator_decision_payload_hash<C: GenericClient + Sync>(
+    client: &C,
+    row: &Row,
+) -> Result<String, OperatorReviewError> {
+    let operator_decision_fact_id = row.get::<_, Uuid>("operator_decision_fact_id");
+    let legacy_row = client
+        .query_one(
+            "
+            SELECT
+                decision_kind,
+                user_facing_reason_code,
+                operator_note_internal,
+                decision_payload_json
+            FROM dao.operator_decision_facts
+            WHERE operator_decision_fact_id = $1
+            ",
+            &[&operator_decision_fact_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let payload_hash = operator_decision_payload_hash_from_row(&legacy_row);
+    if let Some(updated_row) = client
+        .query_opt(
+            "
+            UPDATE dao.operator_decision_facts
+            SET decision_payload_hash = $2
+            WHERE operator_decision_fact_id = $1
+              AND decision_payload_hash IS NULL
+            RETURNING decision_payload_hash
+            ",
+            &[&operator_decision_fact_id, &payload_hash],
+        )
+        .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("decision_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT decision_payload_hash
+            FROM dao.operator_decision_facts
+            WHERE operator_decision_fact_id = $1
+            ",
+            &[&operator_decision_fact_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let persisted_hash: Option<String> = persisted_row.get("decision_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal(
+            "operator decision payload hash remained null after backfill".to_owned(),
+        )
+    })
+}
+
+fn operator_decision_payload_hash_from_row(row: &Row) -> String {
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "decision_kind": row.get::<_, String>("decision_kind"),
+        "user_facing_reason_code": row.get::<_, String>("user_facing_reason_code"),
+        "operator_note_internal": row.get::<_, Option<String>>("operator_note_internal"),
+        "decision_payload_json": row.get::<_, Value>("decision_payload_json"),
+    }))
+}
+
+async fn backfill_appeal_payload_hash<C: GenericClient + Sync>(
+    client: &C,
+    row: &Row,
+) -> Result<String, OperatorReviewError> {
+    let appeal_case_id = row.get::<_, Uuid>("appeal_case_id");
+    let legacy_row = client
+        .query_one(
+            "
+            SELECT
+                source_decision_fact_id,
+                submitted_reason_code,
+                appellant_statement,
+                new_evidence_summary_json
+            FROM dao.appeal_cases
+            WHERE appeal_case_id = $1
+            ",
+            &[&appeal_case_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let payload_hash = appeal_payload_hash_from_row(&legacy_row);
+    if let Some(updated_row) = client
+        .query_opt(
+            "
+            UPDATE dao.appeal_cases
+            SET appeal_payload_hash = $2
+            WHERE appeal_case_id = $1
+              AND appeal_payload_hash IS NULL
+            RETURNING appeal_payload_hash
+            ",
+            &[&appeal_case_id, &payload_hash],
+        )
+        .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("appeal_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT appeal_payload_hash
+            FROM dao.appeal_cases
+            WHERE appeal_case_id = $1
+            ",
+            &[&appeal_case_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let persisted_hash: Option<String> = persisted_row.get("appeal_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal("appeal payload hash remained null after backfill".to_owned())
+    })
+}
+
+fn appeal_payload_hash_from_row(row: &Row) -> String {
+    let source_decision_fact_id: Option<Uuid> = row.get("source_decision_fact_id");
+
+    hash_json_value(&json!({
+        "schema_version": 1,
+        "source_decision_fact_id": source_decision_fact_id.map(|value| value.to_string()),
+        "submitted_reason_code": row.get::<_, String>("submitted_reason_code"),
+        "appellant_statement": row.get::<_, Option<String>>("appellant_statement"),
+        "new_evidence_summary_json": row.get::<_, Value>("new_evidence_summary_json"),
+    }))
 }
 
 fn review_case_from_row(row: &Row) -> ReviewCaseSnapshot {

@@ -119,7 +119,7 @@ Issue #8 adds the runtime migration runner and backend startup schema check.
 See `docs/db_runtime.md` for the current DB bootstrap and local reset flow.
 Issue #21 wires the happy-route writer truth to PostgreSQL while preserving the existing HTTP surface and settlement-view response contract.
 Issue #22 adds derived Promise, expanded settlement, and bounded trust read models with rebuild and freshness metadata.
-Design source: ISSUE-12-operator-review-appeal-evidence.md adds the operator review / appeal / evidence workflow baseline. Operator decisions are append-only facts, original writer truth is not overwritten, concurrent idempotent replays return the preserved case or fact instead of surfacing a duplicate-write error, and user-facing review state is projected with bounded status and reason codes. See `docs/operator_review_workflow.md`.
+Design source: ISSUE-12-operator-review-appeal-evidence.md adds the operator review / appeal / evidence workflow baseline. Operator decisions are append-only facts, original writer truth is not overwritten, concurrent idempotent replays return the preserved case or fact instead of surfacing a duplicate-write error, replay mismatches are checked with payload hashes, legacy rows backfill missing replay hashes on first retry, and user-facing review state is projected with bounded status and reason codes. See `docs/operator_review_workflow.md`.
 Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 ISSUE-10 adds Day 1 safer venue proof primitives.
 The public HTTP surface supports the normal venue-code path only.

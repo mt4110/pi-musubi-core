@@ -125,6 +125,8 @@ Migration `0014_operator_review_appeal_evidence.sql` adds the baseline operator 
 - `dao.appeal_cases`
 - `projection.review_status_views`
 
+Migration `0015_operator_review_hardening.sql` adds payload hash columns for review case, operator decision, and appeal idempotency replay checks. The hashes keep mismatch detection durable while avoiding unnecessary reads of internal notes, raw-adjacent summaries, or source snapshots during replay rejection, while legacy rows can self-heal by backfilling the missing hash on first replay.
+
 The architectural boundary is strict: operator decisions are append-only facts and do not rewrite the original Promise, settlement, proof, or source writer truth. User-facing review status is projected from review, decision, evidence, and appeal facts using bounded status and reason codes.
 
 ISSUE-13 room progression and ISSUE-14 Promise UI are future consumers of this boundary. They are not implemented by this schema addition.

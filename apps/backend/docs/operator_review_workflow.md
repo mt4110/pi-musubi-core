@@ -22,6 +22,8 @@ This keeps the workflow auditable:
 
 Idempotent create / decision / appeal requests must be durable under concurrent replay. Reusing the same idempotency key with a different payload is rejected instead of being silently treated as a replay.
 
+Replay mismatch checks use stored request payload hashes for review cases, operator decisions, and appeals. This keeps the replay boundary durable without requiring handlers to reload internal source snapshots, operator notes, decision payloads, appellant statements, or new evidence summaries when rejecting a mismatched replay. If a legacy row is missing its replay hash, the handler recomputes the hash from the preserved row once, backfills the derived column, and then resumes the normal hash-only replay path.
+
 ## Evidence Access
 
 Evidence access is separate from case visibility. A case may exist without granting an operator raw evidence access.
