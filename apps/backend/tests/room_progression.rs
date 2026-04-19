@@ -1,10 +1,10 @@
 use axum::{
-    Router,
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     http::{Request, StatusCode},
+    Router,
 };
 use musubi_backend::{build_app, new_test_state};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -320,6 +320,106 @@ async fn sealed_room_can_record_restriction_follow_up_without_reopening() {
     assert_eq!(view.body["visible_stage"], "sealed");
     assert_eq!(view.body["status_code"], "sealed_restricted");
     assert_eq!(view.body["review_case_id"], review_case_id);
+}
+
+#[tokio::test]
+async fn restricted_seal_requires_writer_owned_restrict_decision() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-restrict-gate-a", "room-restrict-gate-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-restrict-gate-b", "room-restrict-gate-b").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let missing_review = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "restricted_after_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": approver_id,
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": "room-restrict-missing-review",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-restrict-missing-review"
+        }),
+    )
+    .await;
+    assert_eq!(missing_review.status, StatusCode::BAD_REQUEST);
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-restrict-gate-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let without_decision = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "restricted_after_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": approver_id,
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": "room-restrict-without-decision",
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restrict-without-decision"
+        }),
+    )
+    .await;
+    assert_eq!(without_decision.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn operator_triggered_facts_require_operator_role_assignment() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-operator-role-a", "room-operator-role-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-operator-role-b", "room-operator-role-b").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let unauthorized = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "operator_hold",
+            "source_fact_id": "room-operator-role-missing",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-operator-role-missing"
+        }),
+    )
+    .await;
+    assert_eq!(unauthorized.status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

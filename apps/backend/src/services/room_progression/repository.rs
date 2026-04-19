@@ -1,10 +1,10 @@
 use std::{fmt::Write as _, sync::Arc};
 
-use musubi_db_runtime::{DbConfig, connect_writer};
-use serde_json::{Value, json};
+use musubi_db_runtime::{connect_writer, DbConfig};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
+use tokio_postgres::{error::SqlState, Client, GenericClient, Row, Transaction};
 use uuid::Uuid;
 
 use super::types::{
@@ -24,6 +24,7 @@ const TRANSITION_KINDS: &[&str] = &[
     "withdraw",
 ];
 const TRIGGERED_BY_KINDS: &[&str] = &["system", "participant", "operator"];
+const OPERATOR_TRANSITION_ROLES: &[&str] = &["reviewer", "approver", "steward"];
 const USER_FACING_REASON_CODES: &[&str] = &[
     "room_created",
     "mutual_intent_acknowledged",
@@ -299,6 +300,7 @@ impl RoomProgressionStore {
             &current_status_code,
             &input.transition_kind,
             &input.to_stage,
+            &status_code,
             review_case_id.as_ref(),
         )
         .await?;
@@ -788,7 +790,7 @@ async fn validate_triggered_by_tx<C: GenericClient + Sync>(
                     "operator-triggered transitions require triggered_by_account_id".to_owned(),
                 ));
             };
-            ensure_account_exists_tx(client, account_id).await
+            ensure_operator_transition_role_tx(client, account_id).await
         }
         "system" => Ok(()),
         _ => Err(RoomProgressionError::BadRequest(
@@ -804,6 +806,7 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
     current_status_code: &str,
     transition_kind: &str,
     to_stage: &str,
+    status_code: &str,
     review_case_id: Option<&Uuid>,
 ) -> Result<(), RoomProgressionError> {
     if matches!(current_status_code, "blocked" | "withdrawn") {
@@ -824,6 +827,23 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                 return Err(RoomProgressionError::BadRequest(
                     "seal transitions must target sealed".to_owned(),
                 ));
+            }
+            if status_code == "sealed_restricted" {
+                let Some(review_case_id) = review_case_id else {
+                    return Err(RoomProgressionError::BadRequest(
+                        "restricted seal transitions require review_case_id".to_owned(),
+                    ));
+                };
+                let current_review_case_id: Option<Uuid> = track.get("current_review_case_id");
+                if let Some(current_review_case_id) = current_review_case_id.as_ref() {
+                    if current_review_case_id != review_case_id {
+                        return Err(RoomProgressionError::BadRequest(
+                            "restricted seal review_case_id must match the room's current review case"
+                                .to_owned(),
+                        ));
+                    }
+                }
+                ensure_review_supports_restriction_tx(client, review_case_id).await?;
             }
             Ok(())
         }
@@ -982,6 +1002,38 @@ async fn ensure_review_supports_restore_tx<C: GenericClient + Sync>(
     }
 }
 
+async fn ensure_review_supports_restriction_tx<C: GenericClient + Sync>(
+    client: &C,
+    review_case_id: &Uuid,
+) -> Result<(), RoomProgressionError> {
+    let row = client
+        .query_opt(
+            "
+            SELECT decision_kind
+            FROM dao.operator_decision_facts
+            WHERE review_case_id = $1
+            ORDER BY recorded_at DESC, operator_decision_fact_id DESC
+            LIMIT 1
+            ",
+            &[review_case_id],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| {
+            RoomProgressionError::BadRequest(
+                "restricted seal requires a writer-owned operator decision fact".to_owned(),
+            )
+        })?;
+    let decision_kind: String = row.get("decision_kind");
+    if decision_kind == "restrict" {
+        Ok(())
+    } else {
+        Err(RoomProgressionError::BadRequest(
+            "latest operator decision fact does not allow restricted seal".to_owned(),
+        ))
+    }
+}
+
 async fn ensure_account_exists_tx<C: GenericClient + Sync>(
     client: &C,
     account_id: &Uuid,
@@ -1004,6 +1056,38 @@ async fn ensure_account_exists_tx<C: GenericClient + Sync>(
     } else {
         Err(RoomProgressionError::BadRequest(
             "account id must reference an active account".to_owned(),
+        ))
+    }
+}
+
+async fn ensure_operator_transition_role_tx<C: GenericClient + Sync>(
+    client: &C,
+    operator_id: &Uuid,
+) -> Result<(), RoomProgressionError> {
+    let row = client
+        .query_one(
+            "
+            SELECT EXISTS (
+                SELECT 1
+                FROM core.operator_role_assignments
+                JOIN core.accounts
+                  ON core.accounts.account_id = core.operator_role_assignments.operator_account_id
+                WHERE operator_account_id = $1
+                  AND operator_role = ANY($2::text[])
+                  AND revoked_at IS NULL
+                  AND core.accounts.account_class = 'Controlled Exceptional Account'
+                  AND core.accounts.account_state = 'active'
+            ) AS has_role
+            ",
+            &[operator_id, &OPERATOR_TRANSITION_ROLES],
+        )
+        .await
+        .map_err(db_error)?;
+    if row.get("has_role") {
+        Ok(())
+    } else {
+        Err(RoomProgressionError::Unauthorized(
+            "operator role is not allowed for room progression transitions".to_owned(),
         ))
     }
 }

@@ -22,7 +22,7 @@ Room progression writer truth lives in `dao`:
 
 User-facing state lives in `projection.room_progression_views`. The projection is rebuildable and exists for display only.
 
-State-changing decisions must read writer-owned facts, not projection rows. For example, restore from a sealed room reads the latest relevant `dao.operator_decision_facts` for the linked review case. `projection.review_status_views` may shape display posture, but it is not authoritative for restore or progression decisions.
+State-changing decisions must read writer-owned facts, not projection rows. For example, restore from a sealed room and reviewed restriction follow-up both read the latest relevant `dao.operator_decision_facts` for the linked review case. `projection.review_status_views` may shape display posture, but it is not authoritative for restore or progression decisions.
 
 Room progression facts must not mutate Promise, settlement, proof, or operator review writer truth.
 
