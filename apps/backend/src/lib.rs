@@ -23,6 +23,7 @@ pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
     pub happy_route: services::happy_route::HappyRouteStore,
+    pub operator_review: services::operator_review::OperatorReviewStore,
     pub proof: RwLock<services::proof::ProofState>,
 }
 
@@ -41,6 +42,7 @@ pub async fn new_state() -> musubi_db_runtime::Result<SharedState> {
 pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Result<SharedState> {
     Ok(Arc::new(AppState {
         happy_route: services::happy_route::HappyRouteStore::connect(config).await?,
+        operator_review: services::operator_review::OperatorReviewStore::connect(config).await?,
         proof: RwLock::new(services::proof::ProofState::default()),
     }))
 }
@@ -84,6 +86,11 @@ pub async fn new_test_state() -> Result<TestState, String> {
         .map_err(|error| error.to_string())?;
     state
         .happy_route
+        .reset_for_test()
+        .await
+        .map_err(|error| error.message().to_owned())?;
+    state
+        .operator_review
         .reset_for_test()
         .await
         .map_err(|error| error.message().to_owned())?;
@@ -133,6 +140,15 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/projection/realm-trust-snapshots/{realm_id}/{account_id}",
             get(handlers::projection::get_realm_trust_snapshot),
+        )
+        .route(
+            "/api/review-cases/{review_case_id}/appeals",
+            post(handlers::operator_review::create_appeal_case)
+                .get(handlers::operator_review::list_appeal_cases),
+        )
+        .route(
+            "/api/review-cases/{review_case_id}/status",
+            get(handlers::operator_review::get_review_status),
         );
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(
@@ -150,6 +166,27 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/internal/projection/rebuild",
             post(handlers::projection::rebuild_projection_read_models),
+        )
+        .route(
+            "/api/internal/operator/review-cases",
+            post(handlers::operator_review::create_review_case)
+                .get(handlers::operator_review::list_review_cases),
+        )
+        .route(
+            "/api/internal/operator/review-cases/{review_case_id}",
+            get(handlers::operator_review::read_review_case),
+        )
+        .route(
+            "/api/internal/operator/review-cases/{review_case_id}/evidence-bundles",
+            post(handlers::operator_review::attach_evidence_bundle),
+        )
+        .route(
+            "/api/internal/operator/review-cases/{review_case_id}/evidence-access-grants",
+            post(handlers::operator_review::grant_evidence_access),
+        )
+        .route(
+            "/api/internal/operator/review-cases/{review_case_id}/decisions",
+            post(handlers::operator_review::record_operator_decision),
         )
     } else {
         app
