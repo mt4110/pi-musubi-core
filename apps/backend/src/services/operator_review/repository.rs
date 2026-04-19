@@ -367,12 +367,14 @@ impl OperatorReviewStore {
         review_case_id: &str,
         input: GrantEvidenceAccessInput,
     ) -> Result<EvidenceAccessGrantSnapshot, OperatorReviewError> {
+        const ACCESS_SCOPES: &[&str] = &["private", "case", "public"];
+
         let operator_id = parse_uuid(operator_id, "operator id")?;
         let review_case_id = parse_uuid(review_case_id, "review case id")?;
         let evidence_bundle_id =
             parse_optional_uuid(&input.evidence_bundle_id, "evidence bundle id")?;
         let grantee_operator_id = parse_uuid(&input.grantee_operator_id, "grantee operator id")?;
-        validate_allowed("access_scope", &input.access_scope, EVIDENCE_VISIBILITIES)?;
+        validate_allowed("access_scope", &input.access_scope, ACCESS_SCOPES)?;
         require_non_empty("grant_reason", &input.grant_reason)?;
 
         let mut client = self.client.lock().await;
