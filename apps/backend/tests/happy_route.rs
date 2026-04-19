@@ -2181,6 +2181,105 @@ async fn promise_projection_response_uses_writer_owned_participant_ids() {
 }
 
 #[tokio::test]
+async fn settlement_projection_reads_use_writer_owned_linkage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_funded_case(&app).await;
+    let outsider = sign_in(&app, "pi-user-settlement-outsider", "settlement-outsider").await;
+    let unrelated_counterparty =
+        sign_in(&app, "pi-user-settlement-unrelated", "settlement-unrelated").await;
+    let client = test_db_client().await;
+
+    let unrelated_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(outsider.token.as_str()),
+        json!({
+            "internal_idempotency_key": "promise-intent-settlement-linkage",
+            "realm_id": "realm-settlement-linkage",
+            "counterparty_account_id": unrelated_counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(unrelated_promise.status, StatusCode::OK);
+    let unrelated_promise_intent_id = Uuid::parse_str(
+        unrelated_promise.body["promise_intent_id"]
+            .as_str()
+            .expect("unrelated promise_intent_id must exist"),
+    )
+    .expect("unrelated promise_intent_id must parse");
+
+    client
+        .execute(
+            "
+            UPDATE projection.settlement_views
+            SET promise_intent_id = $2,
+                realm_id = 'realm-corrupted-linkage'
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id, &unrelated_promise_intent_id],
+        )
+        .await
+        .expect("projection settlement linkage corruption fixture must update");
+
+    let settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(settlement.status, StatusCode::OK);
+    assert_eq!(
+        settlement.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(settlement.body["realm_id"], prepared.realm_id);
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+    assert_eq!(
+        expanded_settlement.body["promise_intent_id"],
+        prepared.promise_intent_id
+    );
+    assert_eq!(expanded_settlement.body["realm_id"], prepared.realm_id);
+
+    let outsider_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_view.status, StatusCode::NOT_FOUND);
+
+    let outsider_expanded_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_expanded_view.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn projection_reads_keep_invalid_ids_as_not_found() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

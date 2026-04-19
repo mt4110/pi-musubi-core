@@ -1629,8 +1629,8 @@ impl HappyRouteStore {
                 "
                 SELECT
                     view.settlement_case_id,
-                    view.promise_intent_id,
-                    view.realm_id,
+                    settlement.promise_intent_id AS promise_intent_id,
+                    settlement.realm_id AS realm_id,
                     view.current_settlement_status,
                     view.total_funded_minor_units,
                     view.currency_code,
@@ -1638,8 +1638,10 @@ impl HappyRouteStore {
                     promise.initiator_account_id,
                     promise.counterparty_account_id
                 FROM projection.settlement_views view
+                JOIN dao.settlement_cases settlement
+                    ON settlement.settlement_case_id = view.settlement_case_id
                 JOIN dao.promise_intents promise
-                    ON promise.promise_intent_id = view.promise_intent_id
+                    ON promise.promise_intent_id = settlement.promise_intent_id
                 WHERE view.settlement_case_id = $1
                 ",
                 &[&settlement_case_id],
@@ -1738,12 +1740,28 @@ impl HappyRouteStore {
             .query_opt(
                 "
                 SELECT
-                    view.*,
+                    view.settlement_case_id,
+                    settlement.promise_intent_id AS promise_intent_id,
+                    settlement.realm_id AS realm_id,
+                    view.current_settlement_status,
+                    view.total_funded_minor_units,
+                    view.currency_code,
+                    view.latest_journal_entry_id,
+                    view.proof_status,
+                    view.proof_signal_count,
+                    view.source_watermark_at,
+                    view.source_fact_count,
+                    view.freshness_checked_at,
+                    view.projection_lag_ms,
+                    view.last_projected_at,
+                    view.rebuild_generation,
                     promise.initiator_account_id,
                     promise.counterparty_account_id
                 FROM projection.settlement_views view
+                JOIN dao.settlement_cases settlement
+                    ON settlement.settlement_case_id = view.settlement_case_id
                 JOIN dao.promise_intents promise
-                    ON promise.promise_intent_id = view.promise_intent_id
+                    ON promise.promise_intent_id = settlement.promise_intent_id
                 WHERE view.settlement_case_id = $1
                 ",
                 &[&settlement_case_id],
