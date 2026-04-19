@@ -1719,19 +1719,40 @@ async fn backfill_review_case_payload_hash<C: GenericClient + Sync>(
         .await
         .map_err(db_error)?;
     let payload_hash = review_case_payload_hash_from_row(&legacy_row);
-    client
-        .execute(
+    if let Some(updated_row) = client
+        .query_opt(
             "
             UPDATE dao.review_cases
             SET request_payload_hash = $2
             WHERE review_case_id = $1
               AND request_payload_hash IS NULL
+            RETURNING request_payload_hash
             ",
             &[&review_case_id, &payload_hash],
         )
         .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("request_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT request_payload_hash
+            FROM dao.review_cases
+            WHERE review_case_id = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
         .map_err(db_error)?;
-    Ok(payload_hash)
+    let persisted_hash: Option<String> = persisted_row.get("request_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal(
+            "review case payload hash remained null after backfill".to_owned(),
+        )
+    })
 }
 
 fn review_case_payload_hash_from_row(row: &Row) -> String {
@@ -1778,19 +1799,40 @@ async fn backfill_operator_decision_payload_hash<C: GenericClient + Sync>(
         .await
         .map_err(db_error)?;
     let payload_hash = operator_decision_payload_hash_from_row(&legacy_row);
-    client
-        .execute(
+    if let Some(updated_row) = client
+        .query_opt(
             "
             UPDATE dao.operator_decision_facts
             SET decision_payload_hash = $2
             WHERE operator_decision_fact_id = $1
               AND decision_payload_hash IS NULL
+            RETURNING decision_payload_hash
             ",
             &[&operator_decision_fact_id, &payload_hash],
         )
         .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("decision_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT decision_payload_hash
+            FROM dao.operator_decision_facts
+            WHERE operator_decision_fact_id = $1
+            ",
+            &[&operator_decision_fact_id],
+        )
+        .await
         .map_err(db_error)?;
-    Ok(payload_hash)
+    let persisted_hash: Option<String> = persisted_row.get("decision_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal(
+            "operator decision payload hash remained null after backfill".to_owned(),
+        )
+    })
 }
 
 fn operator_decision_payload_hash_from_row(row: &Row) -> String {
@@ -1824,19 +1866,38 @@ async fn backfill_appeal_payload_hash<C: GenericClient + Sync>(
         .await
         .map_err(db_error)?;
     let payload_hash = appeal_payload_hash_from_row(&legacy_row);
-    client
-        .execute(
+    if let Some(updated_row) = client
+        .query_opt(
             "
             UPDATE dao.appeal_cases
             SET appeal_payload_hash = $2
             WHERE appeal_case_id = $1
               AND appeal_payload_hash IS NULL
+            RETURNING appeal_payload_hash
             ",
             &[&appeal_case_id, &payload_hash],
         )
         .await
+        .map_err(db_error)?
+    {
+        return Ok(updated_row.get("appeal_payload_hash"));
+    }
+
+    let persisted_row = client
+        .query_one(
+            "
+            SELECT appeal_payload_hash
+            FROM dao.appeal_cases
+            WHERE appeal_case_id = $1
+            ",
+            &[&appeal_case_id],
+        )
+        .await
         .map_err(db_error)?;
-    Ok(payload_hash)
+    let persisted_hash: Option<String> = persisted_row.get("appeal_payload_hash");
+    persisted_hash.ok_or_else(|| {
+        OperatorReviewError::Internal("appeal payload hash remained null after backfill".to_owned())
+    })
 }
 
 fn appeal_payload_hash_from_row(row: &Row) -> String {
