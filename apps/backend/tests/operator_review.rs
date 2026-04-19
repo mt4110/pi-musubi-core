@@ -597,7 +597,8 @@ async fn review_case_idempotency_replay_backfills_missing_payload_hash() {
         .execute(
             "
             UPDATE dao.review_cases
-            SET request_payload_hash = NULL
+            SET request_payload_hash = NULL,
+                related_realm_id = '  realm-review-null-hash-v2  '
             WHERE review_case_id::text = $1
             ",
             &[&review_case_id],

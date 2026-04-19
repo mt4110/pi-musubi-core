@@ -1739,6 +1739,7 @@ fn review_case_payload_hash_from_row(row: &Row) -> String {
     let related_promise_intent_id: Option<Uuid> = row.get("related_promise_intent_id");
     let related_settlement_case_id: Option<Uuid> = row.get("related_settlement_case_id");
     let assigned_operator_id: Option<Uuid> = row.get("assigned_operator_id");
+    let related_realm_id = normalize_optional(&row.get::<_, Option<String>>("related_realm_id"));
 
     hash_json_value(&json!({
         "schema_version": 1,
@@ -1747,7 +1748,7 @@ fn review_case_payload_hash_from_row(row: &Row) -> String {
         "subject_account_id": optional_uuid_hash_value(&subject_account_id),
         "related_promise_intent_id": optional_uuid_hash_value(&related_promise_intent_id),
         "related_settlement_case_id": optional_uuid_hash_value(&related_settlement_case_id),
-        "related_realm_id": row.get::<_, Option<String>>("related_realm_id"),
+        "related_realm_id": related_realm_id,
         "opened_reason_code": row.get::<_, String>("opened_reason_code"),
         "source_fact_kind": row.get::<_, String>("source_fact_kind"),
         "source_fact_id": row.get::<_, String>("source_fact_id"),
