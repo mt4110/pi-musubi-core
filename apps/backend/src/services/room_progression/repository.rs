@@ -262,6 +262,8 @@ impl RoomProgressionStore {
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
+        // Serialize fact appends per room so same-room idempotent retries cannot race past the
+        // existing-fact lookup and collide at the INSERT boundary.
         let track = select_track_for_update_tx(&tx, &room_progression_id).await?;
         if let Some(existing) =
             find_existing_fact_by_idempotency(&tx, &room_progression_id, &fact_idempotency_key)

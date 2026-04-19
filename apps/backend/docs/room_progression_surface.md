@@ -60,6 +60,10 @@ participant-facing under-review posture always has writer-owned backing.
 - safe review posture fields when linked to ISSUE-12 review state
 - source watermark, source fact count, projection lag, and rebuild generation
 
+`rebuild_generation` is a monotonic `BIGINT` within this single projection surface. Unlike the
+UUID rebuild generations used by multi-projection happy-route rebuilds, it only needs to express
+local refresh ordering for room progression views.
+
 It does not expose:
 - raw evidence locators
 - internal operator notes
