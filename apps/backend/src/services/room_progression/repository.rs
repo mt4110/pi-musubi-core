@@ -52,14 +52,14 @@ pub struct RoomProgressionStore {
 }
 
 impl RoomProgressionStore {
-    pub async fn connect(config: &DbConfig) -> musubi_db_runtime::Result<Self> {
+    pub(crate) async fn connect(config: &DbConfig) -> musubi_db_runtime::Result<Self> {
         let client = connect_writer(config, "musubi-backend room-progression").await?;
         Ok(Self {
             client: Arc::new(Mutex::new(client)),
         })
     }
 
-    pub async fn reset_for_test(&self) -> Result<(), RoomProgressionError> {
+    pub(crate) async fn reset_for_test(&self) -> Result<(), RoomProgressionError> {
         let client = self.client.lock().await;
         client
             .batch_execute(
@@ -106,8 +106,6 @@ impl RoomProgressionStore {
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
-        ensure_account_exists_tx(&tx, &participants.0).await?;
-        ensure_account_exists_tx(&tx, &participants.1).await?;
 
         let row = if let Some(existing) =
             find_existing_track_by_idempotency(&tx, &request_idempotency_key).await?
@@ -117,6 +115,8 @@ impl RoomProgressionStore {
                 .await?;
             existing
         } else {
+            ensure_account_exists_tx(&tx, &participants.0).await?;
+            ensure_account_exists_tx(&tx, &participants.1).await?;
             let room_progression_id = Uuid::new_v4();
             let maybe_row = tx
                 .query_opt(
@@ -334,6 +334,12 @@ impl RoomProgressionStore {
             &fact_payload_hash,
         )
         .await?;
+        let current_review_case_id: Option<Uuid> = track.get("current_review_case_id");
+        let next_review_case_id = if input.to_stage == "sealed" {
+            review_case_id.or(current_review_case_id)
+        } else {
+            None
+        };
 
         tx.execute(
             "
@@ -341,7 +347,7 @@ impl RoomProgressionStore {
             SET current_stage = $2,
                 current_status_code = $3,
                 current_user_facing_reason_code = $4,
-                current_review_case_id = COALESCE($5, current_review_case_id),
+                current_review_case_id = $5,
                 updated_at = CURRENT_TIMESTAMP
             WHERE room_progression_id = $1
             ",
@@ -350,7 +356,7 @@ impl RoomProgressionStore {
                 &input.to_stage,
                 &status_code,
                 &input.user_facing_reason_code,
-                &review_case_id,
+                &next_review_case_id,
             ],
         )
         .await

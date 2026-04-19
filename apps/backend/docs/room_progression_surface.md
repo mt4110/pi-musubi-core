@@ -43,6 +43,8 @@ Relationship Room -> Sealed Room
 ```
 
 Sealed fallback is a calm safety/product posture, not a punishment narrative.
+While a room remains sealed, later writer-owned facts may keep `sealed -> sealed` to record
+follow-up posture such as `sealed_under_review -> sealed_restricted` without reopening the room.
 
 ## User-Facing Projection
 
