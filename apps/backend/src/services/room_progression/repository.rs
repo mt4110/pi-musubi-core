@@ -112,8 +112,8 @@ impl RoomProgressionStore {
             find_existing_track_by_idempotency(&tx, &request_idempotency_key).await?
         {
             ensure_track_matches_payload_hash(&existing, &request_payload_hash)?;
-            refresh_room_progression_view_tx(&tx, &existing.get("room_progression_id"), None)
-                .await?;
+            let room_progression_id: Uuid = existing.get("room_progression_id");
+            refresh_room_progression_view_tx(&tx, &room_progression_id, None).await?;
             existing
         } else {
             ensure_account_exists_tx(&tx, &participants.0).await?;
@@ -225,8 +225,8 @@ impl RoomProgressionStore {
                     )
                 })?;
                 ensure_track_matches_payload_hash(&existing, &request_payload_hash)?;
-                refresh_room_progression_view_tx(&tx, &existing.get("room_progression_id"), None)
-                    .await?;
+                let room_progression_id: Uuid = existing.get("room_progression_id");
+                refresh_room_progression_view_tx(&tx, &room_progression_id, None).await?;
                 existing
             }
         };
@@ -442,9 +442,10 @@ impl RoomProgressionStore {
             .map_err(db_error)?;
         let rebuild_generation: i64 = generation_row.get("rebuild_generation");
         for row in &rows {
+            let room_progression_id: Uuid = row.get("room_progression_id");
             refresh_room_progression_view_tx(
                 &*client,
-                &row.get("room_progression_id"),
+                &room_progression_id,
                 Some(rebuild_generation),
             )
             .await?;
