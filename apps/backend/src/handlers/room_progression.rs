@@ -127,12 +127,9 @@ pub async fn create_room_progression(
             user_facing_reason_code: payload.user_facing_reason_code,
             source_fact_kind: payload.source_fact_kind,
             source_fact_id: payload.source_fact_id,
-            source_snapshot_json: payload.source_snapshot_json.unwrap_or_else(|| {
-                serde_json::json!({
-                    "source": "room_progression",
-                    "note": "no source snapshot supplied"
-                })
-            }),
+            source_snapshot_json: payload
+                .source_snapshot_json
+                .unwrap_or_else(|| serde_json::json!({})),
             request_idempotency_key: payload.request_idempotency_key,
         })
         .await
@@ -160,12 +157,9 @@ pub async fn append_room_progression_fact(
                 triggered_by_account_id: payload.triggered_by_account_id,
                 source_fact_kind: payload.source_fact_kind,
                 source_fact_id: payload.source_fact_id,
-                source_snapshot_json: payload.source_snapshot_json.unwrap_or_else(|| {
-                    serde_json::json!({
-                        "source": "room_progression",
-                        "note": "no source snapshot supplied"
-                    })
-                }),
+                source_snapshot_json: payload
+                    .source_snapshot_json
+                    .unwrap_or_else(|| serde_json::json!({})),
                 review_case_id: payload.review_case_id,
                 fact_idempotency_key: payload.fact_idempotency_key,
             },

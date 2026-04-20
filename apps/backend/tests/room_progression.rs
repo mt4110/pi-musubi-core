@@ -596,6 +596,129 @@ async fn restricted_seal_rejects_participant_actor() {
 }
 
 #[tokio::test]
+async fn restricted_seal_cannot_downgrade_via_seal_follow_up() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-restrict-downgrade-a",
+        "room-restrict-downgrade-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-restrict-downgrade-b",
+        "room-restrict-downgrade-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-restrict-downgrade-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restrict-downgrade-sealed"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::OK);
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "restriction rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "room-restrict-downgrade-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("operator decision fact id must exist")
+        .to_owned();
+
+    let restricted = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "restricted_after_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": approver_id,
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": decision_fact_id,
+            "source_snapshot_json": {
+                "resolution": "restrict"
+            },
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-restrict-downgrade-follow-up"
+        }),
+    )
+    .await;
+    assert_eq!(restricted.status, StatusCode::OK);
+
+    let downgrade_attempt = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "participant_retry",
+            "source_fact_id": "room-restrict-downgrade-attempt",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-restrict-downgrade-attempt"
+        }),
+    )
+    .await;
+    assert_eq!(downgrade_attempt.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn fact_append_requires_idempotency_key() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1534,6 +1657,53 @@ async fn room_progression_idempotency_uses_canonical_payload_hashes() {
     assert_eq!(replayed.status, StatusCode::OK);
     assert_eq!(replayed.body["room_progression_id"], room_progression_id);
 
+    let omitted_snapshot_create_body = format!(
+        r#"{{
+            "realm_id": "realm-room-replay-missing",
+            "participant_account_ids": ["{subject_id}", "{counterparty_id}"],
+            "user_facing_reason_code": "room_created",
+            "source_fact_kind": "intent_room_request",
+            "source_fact_id": "room-replay-missing-source",
+            "request_idempotency_key": "room-replay-missing-create"
+        }}"#,
+        subject_id = subject.account_id,
+        counterparty_id = counterparty.account_id
+    );
+    let omitted_created = internal_post_raw_json(
+        &app,
+        "/api/internal/room-progressions",
+        &omitted_snapshot_create_body,
+    )
+    .await;
+    assert_eq!(omitted_created.status, StatusCode::OK);
+    let omitted_room_progression_id = omitted_created.body["room_progression_id"]
+        .as_str()
+        .expect("room progression id must exist")
+        .to_owned();
+
+    let explicit_empty_create = internal_post_json(
+        &app,
+        "/api/internal/room-progressions",
+        json!({
+            "realm_id": "realm-room-replay-missing",
+            "participant_account_ids": [
+                subject.account_id,
+                counterparty.account_id
+            ],
+            "user_facing_reason_code": "room_created",
+            "source_fact_kind": "intent_room_request",
+            "source_fact_id": "room-replay-missing-source",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-replay-missing-create"
+        }),
+    )
+    .await;
+    assert_eq!(explicit_empty_create.status, StatusCode::OK);
+    assert_eq!(
+        explicit_empty_create.body["room_progression_id"],
+        omitted_room_progression_id
+    );
+
     let mismatched = internal_post_json(
         &app,
         "/api/internal/room-progressions",
@@ -1597,6 +1767,53 @@ async fn room_progression_idempotency_uses_canonical_payload_hashes() {
     .await;
     assert_eq!(replay_fact.status, StatusCode::OK);
     assert_eq!(replay_fact.body["room_progression_fact_id"], fact_id);
+
+    let omitted_snapshot_fact_body = format!(
+        r#"{{
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": "{subject_id}",
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-replay-coordinate-missing",
+            "fact_idempotency_key": "room-replay-coordinate-missing"
+        }}"#,
+        subject_id = subject.account_id
+    );
+    let omitted_fact = internal_post_raw_json(
+        &app,
+        &format!("/api/internal/room-progressions/{omitted_room_progression_id}/facts"),
+        &omitted_snapshot_fact_body,
+    )
+    .await;
+    assert_eq!(omitted_fact.status, StatusCode::OK);
+    let omitted_fact_id = omitted_fact.body["room_progression_fact_id"]
+        .as_str()
+        .expect("fact id must exist")
+        .to_owned();
+
+    let explicit_empty_fact = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{omitted_room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-replay-coordinate-missing",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-replay-coordinate-missing"
+        }),
+    )
+    .await;
+    assert_eq!(explicit_empty_fact.status, StatusCode::OK);
+    assert_eq!(
+        explicit_empty_fact.body["room_progression_fact_id"],
+        omitted_fact_id
+    );
 
     let mismatched_fact = internal_post_json(
         &app,

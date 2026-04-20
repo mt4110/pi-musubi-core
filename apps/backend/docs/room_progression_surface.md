@@ -52,6 +52,8 @@ Restore transitions are operator-triggered only and must return the room to the 
 held immediately before the current sealed fallback began.
 Reviewed restriction outcomes are also not participant-attributed: a `sealed_restricted` fact must
 be recorded as operator- or system-triggered once a writer-owned restrict decision exists.
+Once a room is `sealed_restricted`, later `seal` follow-ups cannot soften it back to
+`sealed_under_review`; that posture only clears through the reviewed restore path.
 
 ## User-Facing Projection
 
@@ -85,6 +87,8 @@ It does not expose:
 Room progression create and transition writes use durable idempotency keys and canonical payload hashes.
 Create requests reject missing `request_idempotency_key` values, and fact appends reject missing
 `fact_idempotency_key` values, so retry safety is always explicit at the writer boundary.
+When `source_snapshot_json` is omitted, the writer treats it the same as `{}` so omission and an
+explicit empty object do not drift apart under idempotent replay.
 
 Reusing the same idempotency key with the same semantic JSON payload is a replay. Object key ordering does not change the payload hash. Reusing the same key with a different semantic payload is rejected.
 

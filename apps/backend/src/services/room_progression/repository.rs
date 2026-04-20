@@ -886,6 +886,11 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                 };
                 ensure_review_case_is_active_for_live_seal_tx(client, review_case_id).await?;
             }
+            if current_status_code == "sealed_restricted" && status_code != "sealed_restricted" {
+                return Err(RoomProgressionError::BadRequest(
+                    "restricted sealed rooms cannot downgrade via seal follow-up".to_owned(),
+                ));
+            }
             if status_code == "sealed_restricted" {
                 let Some(review_case_id) = review_case_id else {
                     return Err(RoomProgressionError::BadRequest(
