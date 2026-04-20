@@ -230,11 +230,11 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-musubi-operator-id",
-            HeaderValue::from_static(" operator-1 "),
+            HeaderValue::from_static(" 123e4567-e89b-12d3-a456-426614174000 "),
         );
         assert_eq!(
             require_operator_id(&headers).expect("operator id should parse"),
-            "operator-1"
+            "123e4567-e89b-12d3-a456-426614174000"
         );
     }
 }

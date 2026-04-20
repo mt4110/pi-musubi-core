@@ -182,7 +182,7 @@ fn resolved_triggered_by_account_id(
     triggered_by_kind: &str,
     triggered_by_account_id: &Option<String>,
 ) -> Result<Option<String>, ApiError> {
-    if triggered_by_kind.trim() != "operator" {
+    if triggered_by_kind != "operator" {
         return Ok(triggered_by_account_id.clone());
     }
 

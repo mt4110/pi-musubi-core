@@ -1488,6 +1488,45 @@ async fn operator_triggered_facts_reject_invalid_triggered_by_account_id_uuid() 
 }
 
 #[tokio::test]
+async fn operator_triggered_kind_with_whitespace_fails_service_validation_before_header_check() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-operator-whitespace-a",
+        "room-operator-whitespace-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-operator-whitespace-b",
+        "room-operator-whitespace-b",
+    )
+    .await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let response = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": " operator ",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "operator_hold",
+            "source_fact_id": "room-operator-whitespace",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-operator-whitespace"
+        }),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert_eq!(response.body["error"], "triggered_by_kind is not supported");
+}
+
+#[tokio::test]
 async fn linked_review_source_fact_count_matches_room_and_review_projection_counts() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
