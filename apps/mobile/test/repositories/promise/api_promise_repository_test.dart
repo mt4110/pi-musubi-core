@@ -100,6 +100,41 @@ void main() {
     expect(bundle.promise?.promiseIntentId, 'promise-1');
     expect(bundle.settlement?.settlementCaseId, 'settlement-1');
   });
+
+  test(
+      'api promise repository ignores settlement projection for another promise',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      switch (options.path) {
+        case '/api/projection/promise-views/promise-a':
+          return _jsonResponse(404, {'error': 'not found'});
+        case '/api/projection/settlement-views/settlement-b/expanded':
+          return _jsonResponse(200, {
+            'settlement_case_id': 'settlement-b',
+            'promise_intent_id': 'promise-b',
+            'realm_id': 'realm-1',
+            'current_settlement_status': 'funded',
+            'total_funded_minor_units': 10000,
+            'currency_code': 'PI',
+            'proof_status': 'verified',
+            'proof_signal_count': 1,
+          });
+      }
+      throw StateError('unexpected path: ${options.path}');
+    });
+    final repository = ApiPromiseRepository(ApiClient(dio));
+
+    final bundle = await repository.fetchPromiseStatus(
+      'promise-a',
+      settlementCaseId: 'settlement-b',
+    );
+
+    expect(bundle.promise, isNull);
+    expect(bundle.settlement, isNull);
+    expect(bundle.settlementStatus, 'pending_projection');
+    expect(bundle.proofStatus, 'unavailable');
+  });
 }
 
 class _StubHttpClientAdapter implements HttpClientAdapter {

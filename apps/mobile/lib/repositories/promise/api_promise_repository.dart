@@ -38,19 +38,29 @@ class ApiPromiseRepository implements PromiseRepository {
       if (settlementCaseId == null) {
         promise = await _fetchPromiseProjection(promiseIntentId);
         final caseId = promise?.latestSettlementCaseId;
-        settlement =
-            caseId == null ? null : await _fetchExpandedSettlementView(caseId);
+        settlement = caseId == null
+            ? null
+            : _matchingSettlement(
+                await _fetchExpandedSettlementView(caseId),
+                promiseIntentId,
+              );
       } else {
         final results = await Future.wait<Object?>([
           _fetchPromiseProjection(promiseIntentId),
           _fetchExpandedSettlementView(settlementCaseId),
         ]);
         promise = results[0] as PromiseProjectionView?;
-        settlement = results[1] as ExpandedSettlementView?;
+        settlement = _matchingSettlement(
+          results[1] as ExpandedSettlementView?,
+          promiseIntentId,
+        );
 
         final latestCaseId = promise?.latestSettlementCaseId;
         if (latestCaseId != null && latestCaseId != settlementCaseId) {
-          settlement = await _fetchExpandedSettlementView(latestCaseId);
+          settlement = _matchingSettlement(
+            await _fetchExpandedSettlementView(latestCaseId),
+            promiseIntentId,
+          );
         }
       }
       return PromiseStatusBundle(
@@ -98,6 +108,19 @@ class ApiPromiseRepository implements PromiseRepository {
       }
       rethrow;
     }
+  }
+
+  ExpandedSettlementView? _matchingSettlement(
+    ExpandedSettlementView? settlement,
+    String promiseIntentId,
+  ) {
+    if (settlement == null) {
+      return null;
+    }
+    if (settlement.promiseIntentId != promiseIntentId) {
+      return null;
+    }
+    return settlement;
   }
 
   AppException _mapPromiseError(Object error) {
