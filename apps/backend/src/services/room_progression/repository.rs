@@ -600,6 +600,7 @@ async fn refresh_room_progression_view_tx<C: GenericClient + Sync>(
                         COALESCE(review_view.source_watermark_at, track.updated_at)
                     ) AS source_watermark_at,
                     COALESCE(fact_stats.source_fact_count, 0)::bigint
+                        + COALESCE(review_view.source_fact_count, 0)::bigint
                         + CASE WHEN track.current_review_case_id IS NULL THEN 0 ELSE 1 END
                         AS source_fact_count
                 FROM dao.room_progression_tracks track
