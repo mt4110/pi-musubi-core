@@ -28,6 +28,7 @@ void main() {
           builder: (context, state) => PromiseStatusScreen(
             promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
             settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+            creationConfirmed: state.uri.queryParameters['created'] == 'true',
             replayedIntent: state.uri.queryParameters['replayed'] == 'true',
           ),
         ),

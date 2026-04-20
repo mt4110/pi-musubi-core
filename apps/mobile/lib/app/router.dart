@@ -53,10 +53,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/promises/:promiseIntentId',
         builder: (context, state) {
+          final created = state.uri.queryParameters['created'] == 'true';
           final replayed = state.uri.queryParameters['replayed'] == 'true';
           return PromiseStatusScreen(
             promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
             settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+            creationConfirmed: created,
             replayedIntent: replayed,
           );
         },
