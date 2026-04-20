@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:musubi_mobile/core/riverpod_compat.dart';
 
 import '../../../app/widgets/musubi_pressable.dart';
-import '../../../core/services/pi_sdk_service.dart';
+import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/random_hex.dart';
+import '../../../features/promise/models/promise_models.dart';
+import '../../../repositories/auth/auth_session_controller.dart';
+import '../../../repositories/repository_providers.dart';
 import '../models/demo_match_profile.dart';
 
 class MatchDetailScreen extends ConsumerStatefulWidget {
@@ -16,7 +21,7 @@ class MatchDetailScreen extends ConsumerStatefulWidget {
 
 class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   bool _isSubmitting = false;
-  PiSdkPaymentResult? _paymentResult;
+  String? _pendingIdempotencyKey;
 
   @override
   Widget build(BuildContext context) {
@@ -36,28 +41,13 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_paymentResult != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0x141CB86D),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0x221CB86D)),
-                ),
-                child: Text(
-                  'Stub payment accepted: ${_paymentResult!.paymentId}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
             MusubiPrimaryButton(
               label: _isSubmitting
-                  ? 'Pi デポジット処理を準備中...'
-                  : 'デポジットして本気のアプローチ（10 Pi）',
-              icon: Icons.lock_open_rounded,
+                  ? 'Promise を作成しています...'
+                  : 'Promise を作成して進む（10 Pi）',
+              icon: Icons.handshake_rounded,
               isBusy: _isSubmitting,
-              onPressed: _isSubmitting ? null : () => _submitDeposit(profile),
+              onPressed: _isSubmitting ? null : () => _createPromise(profile),
             ),
           ],
         ),
@@ -118,7 +108,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                           children: [
                             Text(
                               '${profile.name}, ${profile.age}',
-                              style: Theme.of(context).textTheme.headlineSmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.w700),
                             ),
                             const SizedBox(height: 8),
@@ -142,16 +134,44 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                       _InfoBlock(title: 'Intent', body: profile.intent),
                       const SizedBox(height: 18),
                       MusubiSurfaceCard(
+                        color: const Color(0xFF111A16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '相性の良さそうな時間',
+                              'Promise preview',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              '${profile.city} で、今週末の夕方以降に会える想定です。',
+                              profile.promisePurpose,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                            const SizedBox(height: 12),
+                            _PromisePreviewRow(
+                              label: 'Time',
+                              value: profile.promiseTimeWindow,
+                            ),
+                            const SizedBox(height: 8),
+                            _PromisePreviewRow(
+                              label: 'Place',
+                              value: profile.promiseVenueSummary,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      MusubiSurfaceCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '約束にする前の確認',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '${profile.city} で会う前提を、まずは bounded な Promise として記録します。',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                             const SizedBox(height: 16),
@@ -191,12 +211,12 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Deposit rule',
+                              'Promise rule',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              '10 Pi のデポジットは、冷やかし・Bot・ドタキャンを減らすための本気度シグナルです。',
+                              '10 Pi のデポジットは、相手へのアクセス権ではありません。約束を雑に扱わないための預かりです。',
                               style: Theme.of(context).textTheme.bodyLarge,
                             ),
                           ],
@@ -213,47 +233,55 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     );
   }
 
-  Future<void> _submitDeposit(DemoMatchProfile profile) async {
+  Future<void> _createPromise(DemoMatchProfile profile) async {
+    final session = ref.read(authSessionControllerProvider).valueOrNull;
+    if (session == null) {
+      _showSnack('サインイン状態を確認できませんでした。もう一度サインインしてください。');
+      return;
+    }
+
     setState(() => _isSubmitting = true);
+    _pendingIdempotencyKey ??=
+        'promise-ui-${session.userId}-${profile.id}-${randomHex(bytes: 8)}';
     try {
-      final result = await ref
-          .read(piSdkServiceProvider)
-          .createPayment(
-            PiSdkPaymentRequest(
-              amountPi: 10,
-              memo: 'Serious approach deposit for ${profile.name}',
-              recipientPiUid: profile.piUid,
-              metadata: <String, dynamic>{
-                'target_profile_id': profile.id,
-                'target_name': profile.name,
-              },
-            ),
-          );
+      final response =
+          await ref.read(promiseRepositoryProvider).createPromiseIntent(
+                CreatePromiseIntentRequest(
+                  internalIdempotencyKey: _pendingIdempotencyKey!,
+                  realmId: profile.realmId,
+                  counterpartyAccountId: profile.counterpartyAccountId,
+                  depositAmountMinorUnits: 10000,
+                  currencyCode: 'PI',
+                ),
+              );
       if (!mounted) {
         return;
       }
-      setState(() => _paymentResult = result);
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Pi デポジットのスタブを実行しました。payment_id=${result.paymentId}'),
-        ),
+      final uri = Uri(
+        path: '/promises/${response.promiseIntentId}',
+        queryParameters: {
+          'settlementCaseId': response.settlementCaseId,
+          if (response.replayedIntent) 'replayed': 'true',
+        },
       );
+      context.go(uri.toString());
     } catch (error) {
       if (!mounted) {
         return;
       }
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(content: Text('決済スタブの実行に失敗しました: $error')),
-      );
+      final appError = AppExceptionMapper.fromObject(error);
+      _showSnack(appError.message);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  void _showSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -271,6 +299,29 @@ class _InfoBlock extends StatelessWidget {
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(body, style: Theme.of(context).textTheme.bodyLarge),
+      ],
+    );
+  }
+}
+
+class _PromisePreviewRow extends StatelessWidget {
+  const _PromisePreviewRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 58,
+          child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+        ),
+        Expanded(
+          child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+        ),
       ],
     );
   }

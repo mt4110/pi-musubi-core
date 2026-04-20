@@ -4,6 +4,7 @@ import 'package:musubi_mobile/core/riverpod_compat.dart';
 import '../features/auth/presentation/pi_sign_in_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/home/presentation/match_detail_screen.dart';
+import '../features/promise/presentation/promise_status_screen.dart';
 import '../repositories/auth/auth_session_controller.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -15,7 +16,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     redirect: (_, state) {
       final path = state.uri.path;
       final isSignInRoute = path == '/sign-in';
-      final isHomeFlow = path == '/home' || path.startsWith('/detail/');
+      final isHomeFlow = path == '/home' ||
+          path.startsWith('/detail/') ||
+          path.startsWith('/promises/');
 
       if (authAsync.isLoading) {
         return isSignInRoute ? null : '/sign-in';
@@ -46,6 +49,17 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => MatchDetailScreen(
           profileId: state.pathParameters['profileId'] ?? '',
         ),
+      ),
+      GoRoute(
+        path: '/promises/:promiseIntentId',
+        builder: (context, state) {
+          final replayed = state.uri.queryParameters['replayed'] == 'true';
+          return PromiseStatusScreen(
+            promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
+            settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+            replayedIntent: replayed,
+          );
+        },
       ),
     ],
   );
