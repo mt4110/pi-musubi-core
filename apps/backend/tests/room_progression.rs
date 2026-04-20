@@ -1,11 +1,11 @@
 use axum::{
-    body::{to_bytes, Body},
-    http::{Request, StatusCode},
     Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
 };
 use musubi_backend::{build_app, new_state_from_config, new_test_state};
 use musubi_db_runtime::DbConfig;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -347,6 +347,68 @@ async fn withdrawn_room_becomes_terminal_without_changing_stage() {
 }
 
 #[tokio::test]
+async fn participant_safety_controls_require_participant_actor() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-controls-a", "room-controls-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-controls-b", "room-controls-b").await;
+    let operator_client = test_db_client().await;
+    let operator_id = insert_operator_account(&operator_client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    for (transition_kind, reason_code, source_fact_prefix) in [
+        ("mute", "user_muted", "room-control-mute"),
+        ("block", "user_blocked", "room-control-block"),
+        ("withdraw", "user_withdrew", "room-control-withdraw"),
+    ] {
+        let system_response = internal_post_json(
+            &app,
+            &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+            json!({
+                "transition_kind": transition_kind,
+                "to_stage": "intent",
+                "user_facing_reason_code": reason_code,
+                "triggered_by_kind": "system",
+                "source_fact_kind": "participant_safety_control",
+                "source_fact_id": format!("{source_fact_prefix}-system"),
+                "source_snapshot_json": {},
+                "fact_idempotency_key": format!("{source_fact_prefix}-system")
+            }),
+        )
+        .await;
+        assert_eq!(system_response.status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            system_response.body["error"],
+            "mute, block, and withdraw transitions must be participant-triggered"
+        );
+
+        let operator_response = internal_post_json_as_operator(
+            &app,
+            &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+            &operator_id,
+            json!({
+                "transition_kind": transition_kind,
+                "to_stage": "intent",
+                "user_facing_reason_code": reason_code,
+                "triggered_by_kind": "operator",
+                "triggered_by_account_id": operator_id,
+                "source_fact_kind": "participant_safety_control",
+                "source_fact_id": format!("{source_fact_prefix}-operator"),
+                "source_snapshot_json": {},
+                "fact_idempotency_key": format!("{source_fact_prefix}-operator")
+            }),
+        )
+        .await;
+        assert_eq!(operator_response.status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            operator_response.body["error"],
+            "mute, block, and withdraw transitions must be participant-triggered"
+        );
+    }
+}
+
+#[tokio::test]
 async fn room_progression_rejects_skipped_transition() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -522,9 +584,10 @@ async fn sealed_room_can_record_restriction_follow_up_without_reopening() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restricted = internal_post_json(
+    let restricted = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -569,9 +632,10 @@ async fn restricted_seal_requires_writer_owned_restrict_decision() {
     let room_progression_id =
         create_room(&app, &subject.account_id, &counterparty.account_id).await;
 
-    let missing_review = internal_post_json(
+    let missing_review = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -610,9 +674,10 @@ async fn restricted_seal_requires_writer_owned_restrict_decision() {
         .expect("review case id must exist")
         .to_owned();
 
-    let without_decision = internal_post_json(
+    let without_decision = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -783,9 +848,10 @@ async fn restricted_seal_rejects_participant_actor() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restricted = internal_post_json(
+    let restricted = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -888,9 +954,10 @@ async fn restricted_seal_cannot_downgrade_via_seal_follow_up() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restricted = internal_post_json(
+    let restricted = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -1132,9 +1199,10 @@ async fn sealed_room_cannot_rebind_review_case_on_follow_up_fact() {
         .expect("review case id must exist")
         .to_owned();
 
-    let rebind_attempt = internal_post_json(
+    let rebind_attempt = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "seal",
             "to_stage": "sealed",
@@ -1162,7 +1230,7 @@ async fn sealed_room_cannot_rebind_review_case_on_follow_up_fact() {
 }
 
 #[tokio::test]
-async fn operator_triggered_facts_require_operator_role_assignment() {
+async fn operator_triggered_facts_require_operator_header() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let subject = sign_in(&app, "pi-user-room-operator-role-a", "room-operator-role-a").await;
@@ -1186,7 +1254,85 @@ async fn operator_triggered_facts_require_operator_role_assignment() {
         }),
     )
     .await;
+    assert_eq!(unauthorized.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        unauthorized.body["error"],
+        "x-musubi-operator-id header is required"
+    );
+}
+
+#[tokio::test]
+async fn operator_triggered_facts_require_operator_role_assignment() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-operator-auth-a", "room-operator-auth-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-operator-auth-b", "room-operator-auth-b").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let unauthorized = internal_post_json_as_operator(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &subject.account_id,
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "operator_hold",
+            "source_fact_id": "room-operator-role-missing",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-operator-role-missing"
+        }),
+    )
+    .await;
     assert_eq!(unauthorized.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn operator_triggered_facts_reject_mismatched_operator_header() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-operator-mismatch-a",
+        "room-operator-mismatch-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-operator-mismatch-b",
+        "room-operator-mismatch-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let mismatched = internal_post_json_as_operator(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "operator_hold",
+            "source_fact_id": "room-operator-header-mismatch",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-operator-header-mismatch"
+        }),
+    )
+    .await;
+    assert_eq!(mismatched.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        mismatched.body["error"],
+        "triggered_by_account_id must match x-musubi-operator-id header"
+    );
 }
 
 #[tokio::test]
@@ -1280,9 +1426,10 @@ async fn restore_clears_review_link_from_live_room_projection() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restored = internal_post_json(
+    let restored = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "restore",
             "to_stage": "coordination",
@@ -1428,9 +1575,10 @@ async fn intent_room_restore_returns_to_intent_open() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restored = internal_post_json(
+    let restored = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "restore",
             "to_stage": "intent",
@@ -1631,9 +1779,10 @@ async fn restore_must_return_to_stage_before_current_seal() {
         .expect("operator decision fact id must exist")
         .to_owned();
 
-    let restored = internal_post_json(
+    let restored = internal_post_json_as_operator(
         &app,
         &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
         json!({
             "transition_kind": "restore",
             "to_stage": "relationship",
@@ -2240,6 +2389,15 @@ async fn operator_post_json(
 
 async fn internal_post_json(app: &Router, path: &str, body: Value) -> JsonResponse {
     request_json(app, "POST", path, None, None, Some(body)).await
+}
+
+async fn internal_post_json_as_operator(
+    app: &Router,
+    path: &str,
+    operator_id: &str,
+    body: Value,
+) -> JsonResponse {
+    request_json(app, "POST", path, None, Some(operator_id), Some(body)).await
 }
 
 async fn internal_post_raw_json(app: &Router, path: &str, body: &str) -> JsonResponse {

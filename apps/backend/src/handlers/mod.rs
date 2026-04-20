@@ -102,6 +102,16 @@ pub fn require_internal_bearer_token(headers: &HeaderMap) -> Result<(), ApiError
     )
 }
 
+pub fn require_operator_id(headers: &HeaderMap) -> Result<String, ApiError> {
+    headers
+        .get("x-musubi-operator-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| bad_request("x-musubi-operator-id header is required"))
+}
+
 fn require_internal_bearer_token_with_config(
     headers: &HeaderMap,
     debug_build: bool,
@@ -172,7 +182,7 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
 mod tests {
     use axum::http::{HeaderValue, header::AUTHORIZATION};
 
-    use super::{HeaderMap, require_internal_bearer_token_with_config};
+    use super::{HeaderMap, require_internal_bearer_token_with_config, require_operator_id};
 
     #[test]
     fn debug_build_internal_requests_do_not_require_token() {
@@ -205,6 +215,26 @@ mod tests {
         assert!(
             require_internal_bearer_token_with_config(&headers, false, Some("musubi-internal"))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn operator_id_header_is_required_and_trimmed() {
+        let headers = HeaderMap::new();
+        assert!(require_operator_id(&headers).is_err());
+
+        let mut blank_headers = HeaderMap::new();
+        blank_headers.insert("x-musubi-operator-id", HeaderValue::from_static("  "));
+        assert!(require_operator_id(&blank_headers).is_err());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-musubi-operator-id",
+            HeaderValue::from_static(" operator-1 "),
+        );
+        assert_eq!(
+            require_operator_id(&headers).expect("operator id should parse"),
+            "operator-1"
         );
     }
 }

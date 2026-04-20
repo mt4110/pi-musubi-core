@@ -11,7 +11,8 @@ use crate::{
     SharedState,
     handlers::{
         ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
-        require_bearer_token, require_internal_bearer_token, service_unavailable, unauthorized,
+        require_bearer_token, require_internal_bearer_token, require_operator_id,
+        service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
@@ -145,6 +146,11 @@ pub async fn append_room_progression_fact(
     Json(payload): Json<AppendRoomProgressionFactRequest>,
 ) -> ApiResult<RoomProgressionFactResponse> {
     require_internal_bearer_token(&headers)?;
+    let triggered_by_account_id = resolved_triggered_by_account_id(
+        &headers,
+        &payload.triggered_by_kind,
+        &payload.triggered_by_account_id,
+    )?;
     let snapshot = state
         .room_progression
         .append_room_progression_fact(
@@ -154,7 +160,7 @@ pub async fn append_room_progression_fact(
                 to_stage: payload.to_stage,
                 user_facing_reason_code: payload.user_facing_reason_code,
                 triggered_by_kind: payload.triggered_by_kind,
-                triggered_by_account_id: payload.triggered_by_account_id,
+                triggered_by_account_id,
                 source_fact_kind: payload.source_fact_kind,
                 source_fact_id: payload.source_fact_id,
                 source_snapshot_json: payload
@@ -168,6 +174,28 @@ pub async fn append_room_progression_fact(
         .map_err(map_room_progression_error)?;
 
     Ok(Json(room_progression_fact_response(snapshot)))
+}
+
+fn resolved_triggered_by_account_id(
+    headers: &HeaderMap,
+    triggered_by_kind: &str,
+    triggered_by_account_id: &Option<String>,
+) -> Result<Option<String>, ApiError> {
+    if triggered_by_kind.trim() != "operator" {
+        return Ok(triggered_by_account_id.clone());
+    }
+
+    let operator_id = require_operator_id(headers)?;
+    if let Some(body_operator_id) = triggered_by_account_id.as_deref() {
+        let body_operator_id = body_operator_id.trim();
+        if !body_operator_id.is_empty() && body_operator_id != operator_id {
+            return Err(bad_request(
+                "triggered_by_account_id must match x-musubi-operator-id header",
+            ));
+        }
+    }
+
+    Ok(Some(operator_id))
 }
 
 pub async fn get_room_progression_view(
