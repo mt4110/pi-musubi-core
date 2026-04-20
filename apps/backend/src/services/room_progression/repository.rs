@@ -1,10 +1,10 @@
 use std::{fmt::Write as _, sync::Arc};
 
-use musubi_db_runtime::{connect_writer, DbConfig};
-use serde_json::{json, Value};
+use musubi_db_runtime::{DbConfig, connect_writer};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{error::SqlState, Client, GenericClient, Row, Transaction};
+use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
 use uuid::Uuid;
 
 use super::types::{
@@ -600,8 +600,10 @@ async fn refresh_room_progression_view_tx<C: GenericClient + Sync>(
                         COALESCE(review_view.source_watermark_at, track.updated_at)
                     ) AS source_watermark_at,
                     COALESCE(fact_stats.source_fact_count, 0)::bigint
-                        + COALESCE(review_view.source_fact_count, 0)::bigint
-                        + CASE WHEN track.current_review_case_id IS NULL THEN 0 ELSE 1 END
+                        + COALESCE(
+                            review_view.source_fact_count,
+                            CASE WHEN track.current_review_case_id IS NULL THEN 0 ELSE 1 END
+                        )::bigint
                         AS source_fact_count
                 FROM dao.room_progression_tracks track
                 LEFT JOIN fact_stats
@@ -783,6 +785,13 @@ async fn validate_triggered_by_tx<C: GenericClient + Sync>(
     triggered_by_kind: &str,
     triggered_by_account_id: &Option<Uuid>,
 ) -> Result<(), RoomProgressionError> {
+    if matches!(transition_kind, "mute" | "block" | "withdraw")
+        && triggered_by_kind != "participant"
+    {
+        return Err(RoomProgressionError::BadRequest(
+            "mute, block, and withdraw transitions must be participant-triggered".to_owned(),
+        ));
+    }
     if transition_kind == "restore" && triggered_by_kind != "operator" {
         return Err(RoomProgressionError::BadRequest(
             "restore transitions must be operator-triggered".to_owned(),

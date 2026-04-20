@@ -11,7 +11,8 @@ use crate::{
     SharedState,
     handlers::{
         ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
-        require_bearer_token, require_internal_bearer_token, service_unavailable, unauthorized,
+        require_bearer_token, require_internal_bearer_token, require_operator_id,
+        service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
@@ -391,16 +392,6 @@ pub async fn get_review_status(
         .map_err(map_operator_review_error)?;
 
     Ok(Json(review_status_read_model_response(snapshot)))
-}
-
-fn require_operator_id(headers: &HeaderMap) -> Result<String, ApiError> {
-    headers
-        .get("x-musubi-operator-id")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| bad_request("x-musubi-operator-id header is required"))
 }
 
 fn map_operator_review_error(error: OperatorReviewError) -> ApiError {

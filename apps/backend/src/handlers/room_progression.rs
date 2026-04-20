@@ -6,12 +6,14 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::{
     SharedState,
     handlers::{
         ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
-        require_bearer_token, require_internal_bearer_token, service_unavailable, unauthorized,
+        require_bearer_token, require_internal_bearer_token, require_operator_id,
+        service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
@@ -145,6 +147,11 @@ pub async fn append_room_progression_fact(
     Json(payload): Json<AppendRoomProgressionFactRequest>,
 ) -> ApiResult<RoomProgressionFactResponse> {
     require_internal_bearer_token(&headers)?;
+    let triggered_by_account_id = resolved_triggered_by_account_id(
+        &headers,
+        &payload.triggered_by_kind,
+        &payload.triggered_by_account_id,
+    )?;
     let snapshot = state
         .room_progression
         .append_room_progression_fact(
@@ -154,7 +161,7 @@ pub async fn append_room_progression_fact(
                 to_stage: payload.to_stage,
                 user_facing_reason_code: payload.user_facing_reason_code,
                 triggered_by_kind: payload.triggered_by_kind,
-                triggered_by_account_id: payload.triggered_by_account_id,
+                triggered_by_account_id,
                 source_fact_kind: payload.source_fact_kind,
                 source_fact_id: payload.source_fact_id,
                 source_snapshot_json: payload
@@ -168,6 +175,41 @@ pub async fn append_room_progression_fact(
         .map_err(map_room_progression_error)?;
 
     Ok(Json(room_progression_fact_response(snapshot)))
+}
+
+fn resolved_triggered_by_account_id(
+    headers: &HeaderMap,
+    triggered_by_kind: &str,
+    triggered_by_account_id: &Option<String>,
+) -> Result<Option<String>, ApiError> {
+    if triggered_by_kind != "operator" {
+        return Ok(triggered_by_account_id.clone());
+    }
+
+    let operator_id = parse_uuid_string(
+        &require_operator_id(headers)?,
+        "x-musubi-operator-id header",
+    )?;
+    if let Some(body_operator_id) = triggered_by_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let body_operator_id = parse_uuid_string(body_operator_id, "triggered_by_account_id")?;
+        if body_operator_id != operator_id {
+            return Err(bad_request(
+                "triggered_by_account_id must match x-musubi-operator-id header",
+            ));
+        }
+    }
+
+    Ok(Some(operator_id))
+}
+
+fn parse_uuid_string(value: &str, label: &str) -> Result<String, ApiError> {
+    Uuid::parse_str(value.trim())
+        .map(|uuid| uuid.to_string())
+        .map_err(|_| bad_request(format!("{label} must be a valid UUID")))
 }
 
 pub async fn get_room_progression_view(
