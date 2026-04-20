@@ -45,8 +45,9 @@ Relationship Room -> Sealed Room
 Sealed fallback is a calm safety/product posture, not a punishment narrative.
 While a room remains sealed, later writer-owned facts may keep `sealed -> sealed` to record
 follow-up posture such as `sealed_under_review -> sealed_restricted` without reopening the room.
-Live-room seal transitions require a room-scoped `sealed_room_fallback` review case so the
-participant-facing under-review posture always has writer-owned backing.
+Live-room seal transitions require an active, room-scoped `sealed_room_fallback` review case so
+the participant-facing under-review posture always has writer-owned backing and does not reuse a
+stale decided review cycle.
 Restore transitions are operator-triggered only and must return the room to the live stage it
 held immediately before the current sealed fallback began.
 Reviewed restriction outcomes are also not participant-attributed: a `sealed_restricted` fact must
@@ -82,6 +83,8 @@ It does not expose:
 ## Idempotency
 
 Room progression create and transition writes use durable idempotency keys and canonical payload hashes.
+Fact appends reject missing `fact_idempotency_key` values so retry safety is always explicit at the
+writer boundary.
 
 Reusing the same idempotency key with the same semantic JSON payload is a replay. Object key ordering does not change the payload hash. Reusing the same key with a different semantic payload is rejected.
 

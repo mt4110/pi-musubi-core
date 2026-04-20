@@ -258,7 +258,13 @@ impl RoomProgressionStore {
         let triggered_by_account_id =
             parse_optional_uuid(&input.triggered_by_account_id, "triggered by account id")?;
         let review_case_id = parse_optional_uuid(&input.review_case_id, "review case id")?;
-        let fact_idempotency_key = normalize_optional(&input.fact_idempotency_key);
+        let fact_idempotency_key =
+            normalize_optional(&input.fact_idempotency_key).ok_or_else(|| {
+                RoomProgressionError::BadRequest(
+                    "room progression fact appends require fact_idempotency_key".to_owned(),
+                )
+            })?;
+        let fact_idempotency_key_param = Some(fact_idempotency_key.clone());
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
@@ -336,7 +342,7 @@ impl RoomProgressionStore {
             &input.source_fact_id,
             &input.source_snapshot_json,
             &review_case_id,
-            &fact_idempotency_key,
+            &fact_idempotency_key_param,
             &fact_payload_hash,
         )
         .await?;
@@ -710,11 +716,8 @@ async fn find_existing_track_by_idempotency<C: GenericClient + Sync>(
 async fn find_existing_fact_by_idempotency<C: GenericClient + Sync>(
     client: &C,
     room_progression_id: &Uuid,
-    fact_idempotency_key: &Option<String>,
+    fact_idempotency_key: &str,
 ) -> Result<Option<Row>, RoomProgressionError> {
-    let Some(fact_idempotency_key) = fact_idempotency_key else {
-        return Ok(None);
-    };
     client
         .query_opt(
             "
@@ -737,7 +740,7 @@ async fn find_existing_fact_by_idempotency<C: GenericClient + Sync>(
             WHERE room_progression_id = $1
               AND fact_idempotency_key = $2
             ",
-            &[room_progression_id, fact_idempotency_key],
+            &[room_progression_id, &fact_idempotency_key],
         )
         .await
         .map_err(db_error)
@@ -871,6 +874,14 @@ async fn validate_transition_tx<C: GenericClient + Sync>(
                 return Err(RoomProgressionError::BadRequest(
                     "seal transitions from live rooms require review_case_id".to_owned(),
                 ));
+            }
+            if from_stage != "sealed" {
+                let Some(review_case_id) = review_case_id else {
+                    return Err(RoomProgressionError::BadRequest(
+                        "seal transitions from live rooms require review_case_id".to_owned(),
+                    ));
+                };
+                ensure_review_case_is_active_for_live_seal_tx(client, review_case_id).await?;
             }
             if status_code == "sealed_restricted" {
                 let Some(review_case_id) = review_case_id else {
@@ -1030,6 +1041,32 @@ async fn ensure_review_case_matches_room_scope_tx<C: GenericClient + Sync>(
     } else {
         Err(RoomProgressionError::BadRequest(
             "review_case_id must reference the room's sealed fallback review case".to_owned(),
+        ))
+    }
+}
+
+async fn ensure_review_case_is_active_for_live_seal_tx<C: GenericClient + Sync>(
+    client: &C,
+    review_case_id: &Uuid,
+) -> Result<(), RoomProgressionError> {
+    let is_active = client
+        .query_opt(
+            "
+            SELECT 1
+            FROM dao.review_cases
+            WHERE review_case_id = $1
+              AND review_status IN ('open', 'triaged', 'under_review', 'awaiting_evidence')
+            ",
+            &[review_case_id],
+        )
+        .await
+        .map_err(db_error)?
+        .is_some();
+    if is_active {
+        Ok(())
+    } else {
+        Err(RoomProgressionError::BadRequest(
+            "live-room seal transitions require an active room-scoped review case".to_owned(),
         ))
     }
 }
