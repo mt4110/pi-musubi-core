@@ -152,6 +152,200 @@ async fn room_progression_create_requires_idempotency_key() {
 }
 
 #[tokio::test]
+async fn mute_transition_preserves_visible_stage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-mute-a", "room-mute-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-mute-b", "room-mute-b").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let coordination = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-mute-coordinate",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-mute-coordinate"
+        }),
+    )
+    .await;
+    assert_eq!(coordination.status, StatusCode::OK);
+
+    let muted = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "mute",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "user_muted",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "participant_safety_control",
+            "source_fact_id": "room-mute-toggle",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-mute-toggle"
+        }),
+    )
+    .await;
+    assert_eq!(muted.status, StatusCode::OK);
+    assert_eq!(muted.body["from_stage"], "coordination");
+    assert_eq!(muted.body["to_stage"], "coordination");
+    assert_eq!(muted.body["status_code"], "muted");
+
+    let view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK);
+    assert_eq!(view.body["visible_stage"], "coordination");
+    assert_eq!(view.body["status_code"], "muted");
+}
+
+#[tokio::test]
+async fn blocked_room_becomes_terminal_without_changing_stage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-block-a", "room-block-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-block-b", "room-block-b").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let blocked = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "block",
+            "to_stage": "intent",
+            "user_facing_reason_code": "user_blocked",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "participant_safety_control",
+            "source_fact_id": "room-block-toggle",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-block-toggle"
+        }),
+    )
+    .await;
+    assert_eq!(blocked.status, StatusCode::OK);
+    assert_eq!(blocked.body["from_stage"], "intent");
+    assert_eq!(blocked.body["to_stage"], "intent");
+    assert_eq!(blocked.body["status_code"], "blocked");
+
+    let view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK);
+    assert_eq!(view.body["visible_stage"], "intent");
+    assert_eq!(view.body["status_code"], "blocked");
+
+    let progression_after_block = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-block-after",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-block-after"
+        }),
+    )
+    .await;
+    assert_eq!(progression_after_block.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn withdrawn_room_becomes_terminal_without_changing_stage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-withdraw-a", "room-withdraw-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-withdraw-b", "room-withdraw-b").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let coordination = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-withdraw-coordinate",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-withdraw-coordinate"
+        }),
+    )
+    .await;
+    assert_eq!(coordination.status, StatusCode::OK);
+
+    let withdrawn = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "withdraw",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "user_withdrew",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "participant_safety_control",
+            "source_fact_id": "room-withdraw-toggle",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-withdraw-toggle"
+        }),
+    )
+    .await;
+    assert_eq!(withdrawn.status, StatusCode::OK);
+    assert_eq!(withdrawn.body["from_stage"], "coordination");
+    assert_eq!(withdrawn.body["to_stage"], "coordination");
+    assert_eq!(withdrawn.body["status_code"], "withdrawn");
+
+    let view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK);
+    assert_eq!(view.body["visible_stage"], "coordination");
+    assert_eq!(view.body["status_code"], "withdrawn");
+
+    let progression_after_withdraw = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_relationship",
+            "to_stage": "relationship",
+            "user_facing_reason_code": "qualifying_promise_completed",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "qualifying_promise_completion",
+            "source_fact_id": "room-withdraw-after",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-withdraw-after"
+        }),
+    )
+    .await;
+    assert_eq!(progression_after_withdraw.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn room_progression_rejects_skipped_transition() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
