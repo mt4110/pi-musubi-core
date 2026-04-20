@@ -264,7 +264,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           if (response.replayedIntent) 'replayed': 'true',
         },
       );
-      context.go(uri.toString());
+      context.push(uri.toString());
     } catch (error) {
       if (!mounted) {
         return;
