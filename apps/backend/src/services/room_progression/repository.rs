@@ -124,8 +124,8 @@ impl RoomProgressionStore {
             ensure_account_exists_tx(&tx, &participants.0).await?;
             ensure_account_exists_tx(&tx, &participants.1).await?;
             let room_progression_id = Uuid::new_v4();
-            let maybe_row = tx
-                .query_opt(
+            let row = tx
+                .query_one(
                     "
                     INSERT INTO dao.room_progression_tracks (
                         room_progression_id,
@@ -152,7 +152,8 @@ impl RoomProgressionStore {
                     )
                     ON CONFLICT (request_idempotency_key)
                         WHERE request_idempotency_key IS NOT NULL
-                    DO NOTHING
+                    DO UPDATE SET
+                        request_payload_hash = dao.room_progression_tracks.request_payload_hash
                     RETURNING
                         room_progression_id,
                         realm_id,
@@ -167,7 +168,8 @@ impl RoomProgressionStore {
                         source_fact_kind,
                         source_fact_id,
                         created_at,
-                        updated_at
+                        updated_at,
+                        request_payload_hash
                     ",
                     &[
                         &room_progression_id,
@@ -186,8 +188,10 @@ impl RoomProgressionStore {
                 )
                 .await
                 .map_err(db_error)?;
+            ensure_track_matches_payload_hash(&row, &request_payload_hash)?;
+            let persisted_room_progression_id: Uuid = row.get("room_progression_id");
 
-            if let Some(row) = maybe_row {
+            if persisted_room_progression_id == room_progression_id {
                 let fact_payload_hash = create_room_progression_fact_payload_hash(
                     "create",
                     "intent",
@@ -203,7 +207,7 @@ impl RoomProgressionStore {
                 );
                 insert_room_progression_fact_tx(
                     &tx,
-                    &room_progression_id,
+                    &persisted_room_progression_id,
                     "intent",
                     "intent",
                     "create",
@@ -219,21 +223,9 @@ impl RoomProgressionStore {
                     &fact_payload_hash,
                 )
                 .await?;
-                refresh_room_progression_view_tx(&tx, &room_progression_id, None).await?;
-                row
-            } else {
-                let existing =
-                    find_existing_track_by_idempotency(&tx, &request_idempotency_key).await?;
-                let existing = existing.ok_or_else(|| {
-                    RoomProgressionError::Internal(
-                        "room progression idempotency conflict could not be reloaded".to_owned(),
-                    )
-                })?;
-                ensure_track_matches_payload_hash(&existing, &request_payload_hash)?;
-                let room_progression_id: Uuid = existing.get("room_progression_id");
-                refresh_room_progression_view_tx(&tx, &room_progression_id, None).await?;
-                existing
             }
+            refresh_room_progression_view_tx(&tx, &persisted_room_progression_id, None).await?;
+            row
         };
 
         tx.commit().await.map_err(db_error)?;

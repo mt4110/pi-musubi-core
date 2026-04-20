@@ -3,7 +3,8 @@ use axum::{
     http::{Request, StatusCode},
     Router,
 };
-use musubi_backend::{build_app, new_test_state};
+use musubi_backend::{build_app, new_state_from_config, new_test_state};
+use musubi_db_runtime::DbConfig;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -1715,6 +1716,85 @@ async fn room_progression_create_replay_survives_participant_deactivation() {
     .await;
     assert_eq!(replayed.status, StatusCode::OK);
     assert_eq!(replayed.body["room_progression_id"], room_progression_id);
+}
+
+#[tokio::test]
+async fn concurrent_room_progression_create_replay_returns_existing_track_across_two_app_states() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let config = DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("local".to_owned()),
+        "DATABASE_URL" => Some(database_url.clone()),
+        _ => std::env::var(name).ok(),
+    })
+    .expect("db config");
+    let second_state = new_state_from_config(&config).await.expect("second state");
+    let second_app = build_app(second_state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-create-concurrent-a",
+        "room-create-concurrent-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-create-concurrent-b",
+        "room-create-concurrent-b",
+    )
+    .await;
+    let client = test_db_client().await;
+
+    let body = json!({
+        "realm_id": "realm-room-create-concurrent",
+        "participant_account_ids": [
+            subject.account_id,
+            counterparty.account_id
+        ],
+        "user_facing_reason_code": "room_created",
+        "source_fact_kind": "intent_room_request",
+        "source_fact_id": "room-create-concurrent-source",
+        "source_snapshot_json": {
+            "source": "intent"
+        },
+        "request_idempotency_key": "room-create-concurrent"
+    });
+
+    let (first, second) = tokio::join!(
+        internal_post_json(&app, "/api/internal/room-progressions", body.clone()),
+        internal_post_json(&second_app, "/api/internal/room-progressions", body)
+    );
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(
+        first.body["room_progression_id"],
+        second.body["room_progression_id"]
+    );
+
+    let row = client
+        .query_one(
+            "
+            SELECT
+                COUNT(*)::bigint AS track_count,
+                (
+                    SELECT COUNT(*)::bigint
+                    FROM dao.room_progression_facts
+                    WHERE room_progression_id = track.room_progression_id
+                ) AS fact_count
+            FROM dao.room_progression_tracks track
+            WHERE request_idempotency_key = $1
+            GROUP BY track.room_progression_id
+            ",
+            &[&"room-create-concurrent"],
+        )
+        .await
+        .expect("concurrent create track must exist");
+    let track_count: i64 = row.get("track_count");
+    let fact_count: i64 = row.get("fact_count");
+    assert_eq!(track_count, 1);
+    assert_eq!(fact_count, 1);
 }
 
 #[tokio::test]
