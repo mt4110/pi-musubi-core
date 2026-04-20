@@ -30,6 +30,7 @@ Owns:
 - settlement coordination facts
 - realm-scoped, pseudonymous references used to coordinate state progression
 - operator review cases, evidence bundles, appeal cases, and append-only operator decision facts that reference writer-owned source facts without overwriting them
+- room progression tracks and append-only room progression facts for Intent, Coordination, Relationship, and Sealed Room surface state
 
 Must not own:
 - immutable financial postings
@@ -68,6 +69,7 @@ Owns:
 - rebuildable settlement read models
 - rebuildable bounded trust read models
 - rebuildable user-facing review status models derived from operator review and appeal facts
+- rebuildable user-facing room progression models derived from room progression facts and safe ISSUE-12 review posture
 - freshness, lag, watermark, and rebuild metadata for projections
 
 Must not own:
@@ -130,3 +132,24 @@ Migration `0015_operator_review_hardening.sql` adds payload hash columns for rev
 The architectural boundary is strict: operator decisions are append-only facts and do not rewrite the original Promise, settlement, proof, or source writer truth. User-facing review status is projected from review, decision, evidence, and appeal facts using bounded status and reason codes.
 
 ISSUE-13 room progression and ISSUE-14 Promise UI are future consumers of this boundary. They are not implemented by this schema addition.
+
+## ISSUE-13 room progression additions
+
+Design source: ISSUE-13-room-progression.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0016_room_progression_surface.sql` adds the baseline room progression surface:
+- `dao.room_progression_tracks`
+- `dao.room_progression_facts`
+- `projection.room_progression_views`
+
+Migration `0017_room_progression_actor_consistency.sql` adds the actor-consistency constraint that
+governs room progression write validity, so both migrations are part of the schema surface
+operators and developers must apply for ISSUE-13 writes.
+
+Room progression tracks preserve the stable realm-scoped participant envelope. Room progression facts are append-only writer facts for transitions between Intent Room, Coordination Room, Relationship Room, and Sealed Room fallback. These facts may reference ISSUE-12 review cases, but they do not duplicate review/evidence/appeal storage and they do not overwrite Promise or settlement writer truth.
+
+`projection.room_progression_views` is a bounded user-facing read model. It is rebuilt from writer-owned room progression facts and may include safe review posture derived from ISSUE-12 projection for display only. State-changing room progression decisions must read writer-owned `dao` facts, not projection rows.
+
+ISSUE-14 Promise UI is a future consumer of this room progression surface. It is not implemented by this schema addition.

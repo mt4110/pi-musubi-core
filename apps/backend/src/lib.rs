@@ -24,6 +24,7 @@ pub type SharedState = Arc<AppState>;
 pub struct AppState {
     pub happy_route: services::happy_route::HappyRouteStore,
     pub operator_review: services::operator_review::OperatorReviewStore,
+    pub room_progression: services::room_progression::RoomProgressionStore,
     pub proof: RwLock<services::proof::ProofState>,
 }
 
@@ -43,6 +44,7 @@ pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Resu
     Ok(Arc::new(AppState {
         happy_route: services::happy_route::HappyRouteStore::connect(config).await?,
         operator_review: services::operator_review::OperatorReviewStore::connect(config).await?,
+        room_progression: services::room_progression::RoomProgressionStore::connect(config).await?,
         proof: RwLock::new(services::proof::ProofState::default()),
     }))
 }
@@ -91,6 +93,11 @@ pub async fn new_test_state() -> Result<TestState, String> {
         .map_err(|error| error.message().to_owned())?;
     state
         .operator_review
+        .reset_for_test()
+        .await
+        .map_err(|error| error.message().to_owned())?;
+    state
+        .room_progression
         .reset_for_test()
         .await
         .map_err(|error| error.message().to_owned())?;
@@ -149,6 +156,10 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/review-cases/{review_case_id}/status",
             get(handlers::operator_review::get_review_status),
+        )
+        .route(
+            "/api/projection/room-progression-views/{room_progression_id}",
+            get(handlers::room_progression::get_room_progression_view),
         );
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(
@@ -187,6 +198,18 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/internal/operator/review-cases/{review_case_id}/decisions",
             post(handlers::operator_review::record_operator_decision),
+        )
+        .route(
+            "/api/internal/room-progressions",
+            post(handlers::room_progression::create_room_progression),
+        )
+        .route(
+            "/api/internal/room-progressions/{room_progression_id}/facts",
+            post(handlers::room_progression::append_room_progression_fact),
+        )
+        .route(
+            "/api/internal/projection/room-progressions/rebuild",
+            post(handlers::room_progression::rebuild_room_progression_views),
         )
     } else {
         app
