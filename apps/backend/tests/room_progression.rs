@@ -1336,6 +1336,257 @@ async fn operator_triggered_facts_reject_mismatched_operator_header() {
 }
 
 #[tokio::test]
+async fn operator_triggered_facts_accept_matching_operator_uuid_with_different_casing() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-operator-casing-a",
+        "room-operator-casing-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-operator-casing-b",
+        "room-operator-casing-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-operator-casing-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-operator-casing-sealed"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::OK);
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "restriction rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "room-operator-casing-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("operator decision fact id must exist")
+        .to_owned();
+
+    let restricted = internal_post_json_as_operator(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "restricted_after_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": approver_id.to_uppercase(),
+            "source_fact_kind": "operator_decision",
+            "source_fact_id": decision_fact_id,
+            "source_snapshot_json": {
+                "resolution": "restrict"
+            },
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-operator-casing-follow-up"
+        }),
+    )
+    .await;
+    assert_eq!(restricted.status, StatusCode::OK);
+    assert_eq!(restricted.body["triggered_by_account_id"], approver_id);
+}
+
+#[tokio::test]
+async fn operator_triggered_facts_reject_invalid_triggered_by_account_id_uuid() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-operator-invalid-a",
+        "room-operator-invalid-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-operator-invalid-b",
+        "room-operator-invalid-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let invalid = internal_post_json_as_operator(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        &approver_id,
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "operator",
+            "triggered_by_account_id": "not-a-uuid",
+            "source_fact_kind": "operator_hold",
+            "source_fact_id": "room-operator-invalid-uuid",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-operator-invalid-uuid"
+        }),
+    )
+    .await;
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid.body["error"],
+        "triggered_by_account_id must be a valid UUID"
+    );
+}
+
+#[tokio::test]
+async fn linked_review_source_fact_count_matches_room_and_review_projection_counts() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-count-a", "room-count-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-count-b", "room-count-b").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-count-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let evidence = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/evidence-bundles"),
+        &approver_id,
+        json!({
+            "evidence_visibility": "summary_only",
+            "summary_json": {
+                "badge": "linked-review-count"
+            },
+            "raw_locator_json": {},
+            "retention_class": "R4"
+        }),
+    )
+    .await;
+    assert_eq!(evidence.status, StatusCode::OK);
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-count-sealed"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::OK);
+
+    let review_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(review_status.status, StatusCode::OK);
+    let review_source_fact_count = review_status.body["source_fact_count"]
+        .as_i64()
+        .expect("review source_fact_count must be numeric");
+
+    let rebuild = internal_post_json(
+        &app,
+        "/api/internal/projection/room-progressions/rebuild",
+        json!({}),
+    )
+    .await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    assert_eq!(rebuild.body["rebuilt_count"], 1);
+
+    let view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK);
+    assert_eq!(view.body["source_fact_count"], 2 + review_source_fact_count);
+    assert_eq!(view.body["review_case_id"], review_case_id);
+}
+
+#[tokio::test]
 async fn restore_clears_review_link_from_live_room_projection() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

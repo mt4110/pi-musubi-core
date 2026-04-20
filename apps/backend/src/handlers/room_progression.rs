@@ -6,6 +6,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::{
     SharedState,
@@ -185,10 +186,17 @@ fn resolved_triggered_by_account_id(
         return Ok(triggered_by_account_id.clone());
     }
 
-    let operator_id = require_operator_id(headers)?;
-    if let Some(body_operator_id) = triggered_by_account_id.as_deref() {
-        let body_operator_id = body_operator_id.trim();
-        if !body_operator_id.is_empty() && body_operator_id != operator_id {
+    let operator_id = parse_uuid_string(
+        &require_operator_id(headers)?,
+        "x-musubi-operator-id header",
+    )?;
+    if let Some(body_operator_id) = triggered_by_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let body_operator_id = parse_uuid_string(body_operator_id, "triggered_by_account_id")?;
+        if body_operator_id != operator_id {
             return Err(bad_request(
                 "triggered_by_account_id must match x-musubi-operator-id header",
             ));
@@ -196,6 +204,12 @@ fn resolved_triggered_by_account_id(
     }
 
     Ok(Some(operator_id))
+}
+
+fn parse_uuid_string(value: &str, label: &str) -> Result<String, ApiError> {
+    Uuid::parse_str(value.trim())
+        .map(|uuid| uuid.to_string())
+        .map_err(|_| bad_request(format!("{label} must be a valid UUID")))
 }
 
 pub async fn get_room_progression_view(
