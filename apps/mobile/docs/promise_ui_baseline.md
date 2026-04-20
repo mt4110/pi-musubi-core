@@ -21,6 +21,12 @@ The Promise status screen reads participant-safe projection endpoints when avail
 
 Projection rows are display data only. The UI must not use projection state to make writer-owned decisions.
 
+The current discovery cards are still static demo fixtures, not writer-owned
+match truth. In API mode, Promise creation only succeeds when the referenced
+counterparty account already exists in the backend writer DB. If that setup is
+missing, the UI must show calm unavailable copy instead of fabricating Promise
+truth client-side.
+
 ## Completion Posture
 
 The completion/proof area is intentionally informational in this baseline. It does not expose a local "complete Promise" mutation and does not update trust, settlement, room progression, reward, ranking, or unlock state.

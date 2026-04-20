@@ -6,7 +6,10 @@ import 'package:musubi_mobile/repositories/promise/dummy_promise_repository.dart
 void main() {
   test('dummy promise repository replays same idempotency key and payload',
       () async {
-    final repository = DummyPromiseRepository();
+    final repository = DummyPromiseRepository(
+      createDelay: Duration.zero,
+      fetchDelay: Duration.zero,
+    );
     const request = CreatePromiseIntentRequest(
       internalIdempotencyKey: 'promise-action-1',
       realmId: 'realm-1',
@@ -24,7 +27,10 @@ void main() {
   });
 
   test('dummy promise repository rejects idempotency payload drift', () async {
-    final repository = DummyPromiseRepository();
+    final repository = DummyPromiseRepository(
+      createDelay: Duration.zero,
+      fetchDelay: Duration.zero,
+    );
     const request = CreatePromiseIntentRequest(
       internalIdempotencyKey: 'promise-action-1',
       realmId: 'realm-1',

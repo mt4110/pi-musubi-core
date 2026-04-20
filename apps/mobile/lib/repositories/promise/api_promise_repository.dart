@@ -33,10 +33,26 @@ class ApiPromiseRepository implements PromiseRepository {
     String? settlementCaseId,
   }) async {
     try {
-      final promise = await _fetchPromiseProjection(promiseIntentId);
-      final caseId = promise?.latestSettlementCaseId ?? settlementCaseId;
-      final settlement =
-          caseId == null ? null : await _fetchExpandedSettlementView(caseId);
+      PromiseProjectionView? promise;
+      ExpandedSettlementView? settlement;
+      if (settlementCaseId == null) {
+        promise = await _fetchPromiseProjection(promiseIntentId);
+        final caseId = promise?.latestSettlementCaseId;
+        settlement =
+            caseId == null ? null : await _fetchExpandedSettlementView(caseId);
+      } else {
+        final results = await Future.wait<Object?>([
+          _fetchPromiseProjection(promiseIntentId),
+          _fetchExpandedSettlementView(settlementCaseId),
+        ]);
+        promise = results[0] as PromiseProjectionView?;
+        settlement = results[1] as ExpandedSettlementView?;
+
+        final latestCaseId = promise?.latestSettlementCaseId;
+        if (latestCaseId != null && latestCaseId != settlementCaseId) {
+          settlement = await _fetchExpandedSettlementView(latestCaseId);
+        }
+      }
       return PromiseStatusBundle(
         promiseIntentId: promiseIntentId,
         initialSettlementCaseId: settlementCaseId,
@@ -85,11 +101,33 @@ class ApiPromiseRepository implements PromiseRepository {
   }
 
   AppException _mapPromiseError(Object error) {
-    if (error is DioException && error.response?.statusCode == 404) {
-      return const BusinessException(
-        message: '相手または約束の準備がまだ整っていません。時間を置いてもう一度確認してください。',
-      );
+    if (error is DioException) {
+      final statusCode = error.response?.statusCode;
+      final responseMessage = _errorResponseMessage(error.response?.data);
+      if (statusCode == 404 ||
+          (statusCode == 400 &&
+              responseMessage == 'counterparty account was not found')) {
+        return const BusinessException(
+          message: '相手または約束の準備がまだ整っていません。時間を置いてもう一度確認してください。',
+        );
+      }
     }
     return AppExceptionMapper.fromObject(error);
+  }
+
+  String? _errorResponseMessage(Object? data) {
+    if (data is Map<String, dynamic>) {
+      final message = data['error'];
+      if (message is String && message.isNotEmpty) {
+        return message;
+      }
+    }
+    if (data is Map) {
+      final message = data['error'];
+      if (message is String && message.isNotEmpty) {
+        return message;
+      }
+    }
+    return null;
   }
 }

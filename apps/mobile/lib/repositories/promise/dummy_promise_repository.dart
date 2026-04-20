@@ -3,14 +3,21 @@ import '../../features/promise/models/promise_models.dart';
 import 'promise_repository.dart';
 
 class DummyPromiseRepository implements PromiseRepository {
+  DummyPromiseRepository({
+    this.createDelay = const Duration(milliseconds: 450),
+    this.fetchDelay = const Duration(milliseconds: 300),
+  });
+
   final Map<String, _DummyPromiseRecord> _recordsByKey = {};
   final Map<String, _DummyPromiseRecord> _recordsByIntentId = {};
+  final Duration createDelay;
+  final Duration fetchDelay;
 
   @override
   Future<CreatePromiseIntentResponse> createPromiseIntent(
     CreatePromiseIntentRequest request,
   ) async {
-    await Future.delayed(const Duration(milliseconds: 450));
+    await Future.delayed(createDelay);
     final fingerprint = _fingerprint(request);
     final existing = _recordsByKey[request.internalIdempotencyKey];
     if (existing != null) {
@@ -44,7 +51,7 @@ class DummyPromiseRepository implements PromiseRepository {
     String promiseIntentId, {
     String? settlementCaseId,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(fetchDelay);
     final record = _recordsByIntentId[promiseIntentId];
     if (record == null) {
       return PromiseStatusBundle(

@@ -16,4 +16,9 @@ when those projections are available. The completion area is informational only:
 it does not claim completion from a local button, and it does not mutate trust,
 settlement, room progression, reward, ranking, or unlock state.
 
+The current discovery cards remain static demo fixtures. When API repositories
+are enabled, Promise creation only succeeds if the referenced counterparty
+account already exists in the backend database; otherwise the UI shows bounded
+unavailable copy instead of inventing Promise truth on the client.
+
 See `docs/promise_ui_baseline.md` for the ISSUE-14 boundary.
