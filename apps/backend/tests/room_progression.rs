@@ -111,6 +111,32 @@ async fn room_progression_follows_normal_path_and_keeps_view_private() {
 }
 
 #[tokio::test]
+async fn room_progression_create_requires_idempotency_key() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-create-key-a", "room-create-key-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-create-key-b", "room-create-key-b").await;
+
+    let response = internal_post_json(
+        &app,
+        "/api/internal/room-progressions",
+        json!({
+            "realm_id": "realm-room-create-key",
+            "participant_account_ids": [
+                subject.account_id,
+                counterparty.account_id
+            ],
+            "user_facing_reason_code": "room_created",
+            "source_fact_kind": "intent_room_request",
+            "source_fact_id": "room-create-key-source",
+            "source_snapshot_json": {}
+        }),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn room_progression_rejects_skipped_transition() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1357,6 +1383,48 @@ async fn room_progression_create_replay_survives_participant_deactivation() {
     .await;
     assert_eq!(replayed.status, StatusCode::OK);
     assert_eq!(replayed.body["room_progression_id"], room_progression_id);
+}
+
+#[tokio::test]
+async fn participant_triggered_transitions_require_active_account() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-actor-active-a", "room-actor-active-a").await;
+    let counterparty = sign_in(&app, "pi-user-room-actor-active-b", "room-actor-active-b").await;
+    let client = test_db_client().await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    client
+        .execute(
+            "
+            UPDATE core.accounts
+            SET account_state = 'suspended',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE account_id::text = $1
+            ",
+            &[&subject.account_id],
+        )
+        .await
+        .expect("account state must update");
+
+    let response = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "advance_to_coordination",
+            "to_stage": "coordination",
+            "user_facing_reason_code": "mutual_intent_acknowledged",
+            "triggered_by_kind": "participant",
+            "triggered_by_account_id": subject.account_id,
+            "source_fact_kind": "mutual_intent_acknowledgment",
+            "source_fact_id": "room-actor-active-coordinate",
+            "source_snapshot_json": {},
+            "fact_idempotency_key": "room-actor-active-coordinate"
+        }),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

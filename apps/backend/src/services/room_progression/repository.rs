@@ -96,7 +96,12 @@ impl RoomProgressionStore {
             &input.related_settlement_case_id,
             "related settlement case id",
         )?;
-        let request_idempotency_key = normalize_optional(&input.request_idempotency_key);
+        let request_idempotency_key = normalize_optional(&input.request_idempotency_key)
+            .ok_or_else(|| {
+                RoomProgressionError::BadRequest(
+                    "room progression creation requires request_idempotency_key".to_owned(),
+                )
+            })?;
         let request_payload_hash = create_room_progression_payload_hash(
             &input,
             &realm_id,
@@ -175,7 +180,7 @@ impl RoomProgressionStore {
                         &input.source_fact_kind,
                         &input.source_fact_id,
                         &input.source_snapshot_json,
-                        &request_idempotency_key,
+                        &Some(request_idempotency_key.clone()),
                         &request_payload_hash,
                     ],
                 )
@@ -680,11 +685,8 @@ async fn refresh_room_progression_view_tx<C: GenericClient + Sync>(
 
 async fn find_existing_track_by_idempotency<C: GenericClient + Sync>(
     client: &C,
-    request_idempotency_key: &Option<String>,
+    request_idempotency_key: &str,
 ) -> Result<Option<Row>, RoomProgressionError> {
-    let Some(request_idempotency_key) = request_idempotency_key else {
-        return Ok(None);
-    };
     client
         .query_opt(
             "
@@ -707,7 +709,7 @@ async fn find_existing_track_by_idempotency<C: GenericClient + Sync>(
             FROM dao.room_progression_tracks
             WHERE request_idempotency_key = $1
             ",
-            &[request_idempotency_key],
+            &[&request_idempotency_key],
         )
         .await
         .map_err(db_error)
@@ -804,6 +806,7 @@ async fn validate_triggered_by_tx<C: GenericClient + Sync>(
                     "participant is not a room member".to_owned(),
                 ));
             }
+            ensure_account_exists_tx(client, account_id).await?;
             Ok(())
         }
         "operator" => {

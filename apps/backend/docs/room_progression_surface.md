@@ -83,8 +83,8 @@ It does not expose:
 ## Idempotency
 
 Room progression create and transition writes use durable idempotency keys and canonical payload hashes.
-Fact appends reject missing `fact_idempotency_key` values so retry safety is always explicit at the
-writer boundary.
+Create requests reject missing `request_idempotency_key` values, and fact appends reject missing
+`fact_idempotency_key` values, so retry safety is always explicit at the writer boundary.
 
 Reusing the same idempotency key with the same semantic JSON payload is a replay. Object key ordering does not change the payload hash. Reusing the same key with a different semantic payload is rejected.
 
