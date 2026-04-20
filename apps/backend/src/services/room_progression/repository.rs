@@ -1,10 +1,10 @@
 use std::{fmt::Write as _, sync::Arc};
 
-use musubi_db_runtime::{DbConfig, connect_writer};
-use serde_json::{Value, json};
+use musubi_db_runtime::{connect_writer, DbConfig};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, GenericClient, Row, Transaction, error::SqlState};
+use tokio_postgres::{error::SqlState, Client, GenericClient, Row, Transaction};
 use uuid::Uuid;
 
 use super::types::{
@@ -390,7 +390,10 @@ impl RoomProgressionStore {
         room_progression_id: &str,
     ) -> Result<RoomProgressionViewSnapshot, RoomProgressionError> {
         let account_id = parse_uuid(account_id, "account id")?;
-        let room_progression_id = parse_uuid(room_progression_id, "room progression id")?;
+        let room_progression_id =
+            parse_uuid(room_progression_id, "room progression id").map_err(|_| {
+                RoomProgressionError::NotFound("room progression view was not found".to_owned())
+            })?;
         let client = self.client.lock().await;
         let row = client
             .query_opt(

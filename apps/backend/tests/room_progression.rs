@@ -1,10 +1,10 @@
 use axum::{
-    Router,
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     http::{Request, StatusCode},
+    Router,
 };
 use musubi_backend::{build_app, new_test_state};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -108,6 +108,21 @@ async fn room_progression_follows_normal_path_and_keeps_view_private() {
     assert!(!view.body.to_string().contains("must not leak"));
     assert!(view.body.get("source_snapshot_json").is_none());
     assert!(view.body.get("triggered_by_account_id").is_none());
+}
+
+#[tokio::test]
+async fn room_progression_view_treats_invalid_id_as_not_found() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(&app, "pi-user-room-invalid-view-a", "room-invalid-view-a").await;
+
+    let response = get_json(
+        &app,
+        "/api/projection/room-progression-views/not-a-uuid",
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
