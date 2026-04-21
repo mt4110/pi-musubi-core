@@ -429,8 +429,7 @@ impl RealmBootstrapStore {
             ensure_active_account_exists_tx(&tx, sponsor_account_id).await?;
             let quota_total = input.sponsor_quota_total.ok_or_else(|| {
                 RealmBootstrapError::BadRequest(
-                    "limited bootstrap approval with a proposed sponsor requires sponsor_quota_total"
-                        .to_owned(),
+                    "approval with a proposed sponsor requires sponsor_quota_total".to_owned(),
                 )
             })?;
             let sponsor_payload_hash = create_sponsor_record_payload_hash(
@@ -652,19 +651,19 @@ impl RealmBootstrapStore {
                     "admission creation requires request_idempotency_key".to_owned(),
                 )
             })?;
-        let granted_by_actor_kind = operator_actor_kind(operator_id, self).await?;
-        let payload_hash = create_admission_payload_hash(
-            &input,
-            &account_id,
-            &sponsor_record_id,
-            &granted_by_actor_kind,
-        );
 
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
         ensure_active_account_exists_tx(&tx, &account_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
+        let granted_by_actor_kind = operator_actor_kind_tx(&tx, &operator_id).await?;
+        let payload_hash = create_admission_payload_hash(
+            &input,
+            &account_id,
+            &sponsor_record_id,
+            &granted_by_actor_kind,
+        );
 
         let row = if let Some(existing) =
             find_admission_by_idempotency_tx(&tx, &realm_id, &operator_id, &request_idempotency_key)
@@ -777,7 +776,7 @@ impl RealmBootstrapStore {
         let realm_id = normalize_required(realm_id, "realm id")?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
-        lock_realm_tx(&tx, &realm_id).await?;
+        ensure_realm_exists_tx(&tx, &realm_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
         refresh_realm_projection_bundle_tx(&tx, &realm_id, Some(&viewer_account_id)).await?;
 
@@ -856,7 +855,7 @@ impl RealmBootstrapStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_READ_ROLES).await?;
-        lock_realm_tx(&tx, &realm_id).await?;
+        ensure_realm_exists_tx(&tx, &realm_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
         refresh_realm_projection_bundle_tx(&tx, &realm_id, None).await?;
         let row = tx
@@ -919,6 +918,7 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
+        let rebuild_generation = current_rebuild_generation_tx(&tx).await?;
         tx.execute("DELETE FROM projection.realm_admission_views", &[])
             .await
             .map_err(db_error)?;
@@ -929,7 +929,6 @@ impl RealmBootstrapStore {
             .await
             .map_err(db_error)?;
 
-        let rebuild_generation = current_rebuild_generation_tx(&tx).await?;
         for row in &realm_rows {
             let realm_id: String = row.get("realm_id");
             refresh_realm_bootstrap_view_tx(&tx, &realm_id, Some(rebuild_generation)).await?;
@@ -2222,6 +2221,24 @@ async fn lock_realm_tx<C: GenericClient + Sync>(
         .ok_or_else(|| RealmBootstrapError::NotFound("realm was not found".to_owned()))
 }
 
+async fn ensure_realm_exists_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+) -> Result<(), RealmBootstrapError> {
+    if client
+        .query_opt("SELECT 1 FROM dao.realms WHERE realm_id = $1", &[&realm_id])
+        .await
+        .map_err(db_error)?
+        .is_some()
+    {
+        Ok(())
+    } else {
+        Err(RealmBootstrapError::NotFound(
+            "realm was not found".to_owned(),
+        ))
+    }
+}
+
 async fn lock_sponsor_record_tx<C: GenericClient + Sync>(
     client: &C,
     sponsor_record_id: &Uuid,
@@ -2725,11 +2742,10 @@ async fn current_rebuild_generation_tx<C: GenericClient + Sync>(
         .get("rebuild_generation"))
 }
 
-async fn operator_actor_kind(
-    operator_id: Uuid,
-    store: &RealmBootstrapStore,
+async fn operator_actor_kind_tx<C: GenericClient + Sync>(
+    client: &C,
+    operator_id: &Uuid,
 ) -> Result<String, RealmBootstrapError> {
-    let client = store.client.lock().await;
     let row = client
         .query_one(
             "
@@ -2741,7 +2757,7 @@ async fn operator_actor_kind(
                   AND revoked_at IS NULL
             ) AS is_steward
             ",
-            &[&operator_id],
+            &[operator_id],
         )
         .await
         .map_err(db_error)?;
@@ -2941,14 +2957,36 @@ fn db_error(error: tokio_postgres::Error) -> RealmBootstrapError {
         .and_then(|db_error| db_error.constraint().map(str::to_owned));
     if matches!(error.code(), Some(&SqlState::UNIQUE_VIOLATION)) {
         match constraint.as_deref() {
+            Some("realm_requests_open_slug_candidate_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "slug_candidate already has an open realm request".to_owned(),
+                );
+            }
+            Some("realm_requests_request_idempotency_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "request_idempotency_key was already used by this requester".to_owned(),
+                );
+            }
             Some("realm_sponsor_records_active_unique") => {
                 return RealmBootstrapError::BadRequest(
                     "sponsor account already has an open sponsor record for this realm".to_owned(),
                 );
             }
+            Some("realm_sponsor_records_idempotency_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "request_idempotency_key was already used by this operator for this realm"
+                        .to_owned(),
+                );
+            }
             Some("realm_admissions_active_unique") => {
                 return RealmBootstrapError::BadRequest(
                     "account already has a pending or admitted realm admission".to_owned(),
+                );
+            }
+            Some("realm_admissions_idempotency_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "request_idempotency_key was already used by this operator for this realm"
+                        .to_owned(),
                 );
             }
             _ => {}
