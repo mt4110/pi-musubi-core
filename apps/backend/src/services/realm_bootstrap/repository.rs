@@ -896,6 +896,16 @@ impl RealmBootstrapStore {
     ) -> Result<RealmBootstrapRebuildSnapshot, RealmBootstrapError> {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
+        tx.query_one(
+            "
+            SELECT pg_advisory_xact_lock(
+                hashtext('projection.realm_bootstrap_views.rebuild')::bigint
+            )
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
         update_expired_corridors_tx(&tx, None).await?;
 
         let realm_rows = tx
@@ -1646,7 +1656,7 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($12, projection.realm_bootstrap_views.rebuild_generation),
+                rebuild_generation = COALESCE($12, projection.realm_bootstrap_views.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
@@ -1745,7 +1755,7 @@ async fn refresh_realm_admission_view_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($9, projection.realm_admission_views.rebuild_generation),
+                rebuild_generation = COALESCE($9, projection.realm_admission_views.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
@@ -1899,7 +1909,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($14, projection.realm_review_summaries.rebuild_generation),
+                rebuild_generation = COALESCE($14, projection.realm_review_summaries.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
