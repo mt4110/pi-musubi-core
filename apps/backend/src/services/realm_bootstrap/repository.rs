@@ -164,7 +164,11 @@ impl RealmBootstrapStore {
                         'request_received',
                         $11, $12
                     )
-                    RETURNING *
+                    ON CONFLICT (requested_by_account_id, request_idempotency_key)
+                        WHERE request_idempotency_key IS NOT NULL
+                    DO UPDATE SET
+                        request_payload_hash = dao.realm_requests.request_payload_hash
+                    RETURNING *, (xmax = 0) AS was_inserted
                     ",
                     &[
                         &Uuid::new_v4(),
@@ -186,6 +190,11 @@ impl RealmBootstrapStore {
                 )
                 .await
                 .map_err(db_error)?;
+            if !request_row.get::<_, bool>("was_inserted") {
+                ensure_request_payload_hash_matches(&request_row, &request_payload_hash)?;
+                tx.commit().await.map_err(db_error)?;
+                return realm_request_from_row(&request_row);
+            }
             let realm_request_id: Uuid = request_row.get("realm_request_id");
             let requires_review = maybe_open_realm_request_triggers_tx(
                 &tx,
@@ -432,6 +441,11 @@ impl RealmBootstrapStore {
                     "approval with a proposed sponsor requires sponsor_quota_total".to_owned(),
                 )
             })?;
+            if quota_total <= 0 {
+                return Err(RealmBootstrapError::BadRequest(
+                    "sponsor_quota_total must be positive".to_owned(),
+                ));
+            }
             let sponsor_payload_hash = create_sponsor_record_payload_hash(
                 &CreateRealmSponsorRecordInput {
                     sponsor_account_id: sponsor_account_id.to_string(),

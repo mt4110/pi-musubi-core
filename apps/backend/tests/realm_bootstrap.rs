@@ -318,6 +318,75 @@ async fn approval_with_changed_slug_releases_original_slug_candidate() {
 }
 
 #[tokio::test]
+async fn concurrent_realm_request_replay_returns_existing_request() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let config = DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("local".to_owned()),
+        "DATABASE_URL" => Some(database_url.clone()),
+        _ => std::env::var(name).ok(),
+    })
+    .expect("db config");
+    let second_state = new_state_from_config(&config).await.expect("second state");
+    let second_app = build_app(second_state.clone());
+    let requester = sign_in(&app, "pi-user-realm-request-race", "realm-request-race").await;
+    let client = test_db_client().await;
+
+    let request_body = json!({
+        "display_name": "Concurrent request realm",
+        "slug_candidate": "concurrent-request-realm",
+        "purpose_text": "Concurrent duplicate delivery should replay.",
+        "venue_context_json": {
+            "city": "Tokyo",
+            "venue_type": "library"
+        },
+        "expected_member_shape_json": {
+            "pace": "quiet"
+        },
+        "bootstrap_rationale_text": "Idempotency race regression coverage.",
+        "request_idempotency_key": "realm-request-race"
+    });
+    let (first, second) = tokio::join!(
+        post_json(
+            &app,
+            "/api/realms/requests",
+            Some(requester.token.as_str()),
+            request_body.clone()
+        ),
+        post_json(
+            &second_app,
+            "/api/realms/requests",
+            Some(requester.token.as_str()),
+            request_body
+        )
+    );
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(
+        first.body["realm_request_id"],
+        second.body["realm_request_id"]
+    );
+
+    let request_count: i64 = client
+        .query_one(
+            "
+            SELECT COUNT(*) AS request_count
+            FROM dao.realm_requests
+            WHERE requested_by_account_id::text = $1
+              AND request_idempotency_key = 'realm-request-race'
+            ",
+            &[&requester.account_id],
+        )
+        .await
+        .expect("realm request count must query")
+        .get("request_count");
+    assert_eq!(request_count, 1);
+}
+
+#[tokio::test]
 async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -616,6 +685,66 @@ async fn approval_rejects_already_expired_corridor() {
             "corridor_sponsor_cap": 1,
             "review_threshold_json": {},
             "review_decision_idempotency_key": "expired-corridor-approval"
+        }),
+    )
+    .await;
+    assert_eq!(approval.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn approval_rejects_non_positive_sponsor_quota_total() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-approval-a",
+        "realm-sponsor-quota-approval-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-approval-b",
+        "realm-sponsor-quota-approval-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "Sponsor quota approval",
+            "slug_candidate": "sponsor-quota-approval",
+            "purpose_text": "Sponsor quota must be validated before insert.",
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "community_space"
+            },
+            "expected_member_shape_json": {
+                "size": "small"
+            },
+            "bootstrap_rationale_text": "Non-positive quota should be rejected.",
+            "proposed_sponsor_account_id": sponsor.account_id,
+            "request_idempotency_key": "realm-sponsor-quota-approval-request"
+        }),
+    )
+    .await;
+    assert_eq!(request.status, StatusCode::OK);
+    let realm_request_id = request.body["realm_request_id"]
+        .as_str()
+        .expect("realm request id must exist");
+
+    let approval = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
+        &approver_id,
+        json!({
+            "target_realm_status": "active",
+            "review_reason_code": "active_after_review",
+            "sponsor_quota_total": 0,
+            "review_decision_idempotency_key": "realm-sponsor-quota-approval"
         }),
     )
     .await;
