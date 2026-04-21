@@ -46,6 +46,8 @@ const REASON_CODES: &[&str] = &[
     "suspended_after_review",
     "operator_restriction",
 ];
+const APPROVAL_REASON_CODES: &[&str] = &["limited_bootstrap_active", "active_after_review"];
+const REJECTION_REASON_CODES: &[&str] = &["request_rejected", "duplicate_or_invalid"];
 const OPERATOR_READ_ROLES: &[&str] = &["reviewer", "approver", "steward", "auditor", "support"];
 const OPERATOR_WRITE_ROLES: &[&str] = &["approver", "steward"];
 
@@ -327,8 +329,18 @@ impl RealmBootstrapStore {
         validate_allowed(
             "review_reason_code",
             &input.review_reason_code,
-            REASON_CODES,
+            APPROVAL_REASON_CODES,
         )?;
+        let expected_reason_code = if input.target_realm_status == "active" {
+            "active_after_review"
+        } else {
+            "limited_bootstrap_active"
+        };
+        if input.review_reason_code != expected_reason_code {
+            return Err(RealmBootstrapError::BadRequest(
+                "review_reason_code must match target_realm_status".to_owned(),
+            ));
+        }
         let review_decision_idempotency_key = normalize_optional(
             input.review_decision_idempotency_key.as_deref(),
         )
@@ -479,6 +491,7 @@ impl RealmBootstrapStore {
             UPDATE dao.realm_requests
             SET request_state = 'approved',
                 slug_candidate = $6,
+                display_name = $7,
                 review_reason_code = $2,
                 reviewed_by_operator_id = $3,
                 review_decision_idempotency_key = $4,
@@ -494,6 +507,7 @@ impl RealmBootstrapStore {
                 &Some(review_decision_idempotency_key),
                 &Some(decision_payload_hash),
                 &approved_slug,
+                &approved_display_name,
             ],
         )
         .await
@@ -515,7 +529,7 @@ impl RealmBootstrapStore {
         validate_allowed(
             "review_reason_code",
             &input.review_reason_code,
-            REASON_CODES,
+            REJECTION_REASON_CODES,
         )?;
         let review_decision_idempotency_key = normalize_optional(
             input.review_decision_idempotency_key.as_deref(),

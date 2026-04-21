@@ -691,13 +691,19 @@ fn map_realm_bootstrap_error(error: RealmBootstrapError) -> ApiError {
         RealmBootstrapError::BadRequest(message) => bad_request(message),
         RealmBootstrapError::Unauthorized(message) => unauthorized(message),
         RealmBootstrapError::NotFound(message) => not_found(message),
-        RealmBootstrapError::Database { retryable, .. } => {
+        RealmBootstrapError::Database {
+            message, retryable, ..
+        } => {
+            eprintln!("database realm bootstrap error: {message}");
             if retryable {
                 service_unavailable("temporarily unavailable")
             } else {
                 internal_server_error("internal server error")
             }
         }
-        RealmBootstrapError::Internal(_) => internal_server_error("internal server error"),
+        RealmBootstrapError::Internal(message) => {
+            eprintln!("internal realm bootstrap error: {message}");
+            internal_server_error("internal server error")
+        }
     }
 }

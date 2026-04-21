@@ -274,6 +274,7 @@ async fn approval_with_changed_slug_releases_original_slug_candidate() {
         json!({
             "target_realm_status": "active",
             "approved_slug": "approved-slug-candidate",
+            "approved_display_name": "Approved display realm",
             "review_reason_code": "active_after_review",
             "review_decision_idempotency_key": "realm-approved-slug-approve"
         }),
@@ -281,6 +282,7 @@ async fn approval_with_changed_slug_releases_original_slug_candidate() {
     .await;
     assert_eq!(approval.status, StatusCode::OK);
     assert_eq!(approval.body["slug"], "approved-slug-candidate");
+    assert_eq!(approval.body["display_name"], "Approved display realm");
 
     let requester_view = get_json(
         &app,
@@ -292,6 +294,10 @@ async fn approval_with_changed_slug_releases_original_slug_candidate() {
     assert_eq!(
         requester_view.body["slug_candidate"],
         "approved-slug-candidate"
+    );
+    assert_eq!(
+        requester_view.body["display_name"],
+        "Approved display realm"
     );
 
     let second_request = post_json(
@@ -516,6 +522,74 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     .await;
     assert_eq!(repeated_request.status, StatusCode::OK);
     assert_eq!(repeated_request.body["request_state"], "pending_review");
+}
+
+#[tokio::test]
+async fn realm_review_decision_reason_codes_are_path_specific() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-review-reason-a",
+        "realm-review-reason-a",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "Review reason realm",
+            "slug_candidate": "review-reason-realm",
+            "purpose_text": "Decision reason validation.",
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "gallery"
+            },
+            "expected_member_shape_json": {
+                "pace": "slow"
+            },
+            "bootstrap_rationale_text": "Keep decision paths semantically narrow.",
+            "request_idempotency_key": "realm-review-reason-request"
+        }),
+    )
+    .await;
+    assert_eq!(request.status, StatusCode::OK);
+    let realm_request_id = request.body["realm_request_id"]
+        .as_str()
+        .expect("realm request id must exist")
+        .to_owned();
+
+    let mismatched_approval_reason = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
+        &approver_id,
+        json!({
+            "target_realm_status": "active",
+            "review_reason_code": "limited_bootstrap_active",
+            "review_decision_idempotency_key": "realm-review-reason-bad-approve"
+        }),
+    )
+    .await;
+    assert_eq!(mismatched_approval_reason.status, StatusCode::BAD_REQUEST);
+
+    let rejected_with_activation_reason = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/reject"),
+        &approver_id,
+        json!({
+            "review_reason_code": "active_after_review",
+            "review_decision_idempotency_key": "realm-review-reason-bad-reject"
+        }),
+    )
+    .await;
+    assert_eq!(
+        rejected_with_activation_reason.status,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[tokio::test]
