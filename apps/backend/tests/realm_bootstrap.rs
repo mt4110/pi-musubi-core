@@ -4,7 +4,8 @@ use axum::{
     http::{Request, StatusCode},
 };
 use chrono::{Duration, Utc};
-use musubi_backend::{build_app, new_test_state};
+use musubi_backend::{build_app, new_state_from_config, new_test_state};
+use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -759,6 +760,119 @@ async fn sponsor_backed_admission_respects_corridor_member_cap() {
         review_summary.body["open_review_triggers"][0]["trigger_kind"],
         "corridor_cap_pressure"
     );
+}
+
+#[tokio::test]
+async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let config = DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("local".to_owned()),
+        "DATABASE_URL" => Some(database_url.clone()),
+        _ => std::env::var(name).ok(),
+    })
+    .expect("db config");
+    let second_state = new_state_from_config(&config).await.expect("second state");
+    let second_app = build_app(second_state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-corridor-race-requester",
+        "realm-corridor-race-requester",
+    )
+    .await;
+    let first_member = sign_in(
+        &app,
+        "pi-user-realm-corridor-race-first",
+        "realm-corridor-race-first",
+    )
+    .await;
+    let second_member = sign_in(
+        &app,
+        "pi-user-realm-corridor-race-second",
+        "realm-corridor-race-second",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-corridor-race",
+    )
+    .await;
+    client
+        .execute(
+            "
+            UPDATE dao.bootstrap_corridors
+            SET member_cap = 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("corridor member cap must update");
+
+    let path = format!("/api/internal/realms/{realm_id}/admissions");
+    let first_body = json!({
+        "account_id": first_member.account_id,
+        "source_fact_kind": "manual_review",
+        "source_fact_id": "realm-corridor-race-first",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-corridor-race-first"
+    });
+    let second_body = json!({
+        "account_id": second_member.account_id,
+        "source_fact_kind": "manual_review",
+        "source_fact_id": "realm-corridor-race-second",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-corridor-race-second"
+    });
+
+    let (first, second) = tokio::join!(
+        operator_post_json(&app, &path, &approver_id, first_body),
+        operator_post_json(&second_app, &path, &approver_id, second_body)
+    );
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    let responses = [&first, &second];
+    assert_eq!(
+        responses
+            .iter()
+            .filter(|response| response.body["admission_kind"] == "corridor")
+            .count(),
+        1
+    );
+    assert_eq!(
+        responses
+            .iter()
+            .filter(|response| response.body["review_reason_code"] == "bootstrap_capacity_reached")
+            .count(),
+        1
+    );
+    let admitted_count: i64 = client
+        .query_one(
+            "
+            SELECT COUNT(*) AS admitted_count
+            FROM dao.realm_admissions
+            WHERE realm_id = $1
+              AND bootstrap_corridor_id IS NOT NULL
+              AND admission_status = 'admitted'
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("admission count must query")
+        .get("admitted_count");
+    assert_eq!(admitted_count, 1);
 }
 
 #[tokio::test]

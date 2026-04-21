@@ -2087,6 +2087,7 @@ async fn find_current_corridor_tx<C: GenericClient + Sync>(
               AND ends_at > CURRENT_TIMESTAMP
             ORDER BY updated_at DESC, bootstrap_corridor_id DESC
             LIMIT 1
+            FOR UPDATE
             ",
             &[&realm_id],
         )
@@ -2965,6 +2966,11 @@ fn db_error(error: tokio_postgres::Error) -> RealmBootstrapError {
             Some("realm_requests_request_idempotency_unique") => {
                 return RealmBootstrapError::BadRequest(
                     "request_idempotency_key was already used by this requester".to_owned(),
+                );
+            }
+            Some("realms_slug_key") => {
+                return RealmBootstrapError::BadRequest(
+                    "approved slug is already in use".to_owned(),
                 );
             }
             Some("realm_sponsor_records_active_unique") => {
