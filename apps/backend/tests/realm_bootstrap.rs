@@ -1757,6 +1757,83 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
 }
 
 #[tokio::test]
+async fn sponsor_lineage_can_progress_from_proposed_or_approved_to_active() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-progress-a",
+        "realm-sponsor-progress-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-progress-b",
+        "realm-sponsor-progress-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-sponsor-progress",
+    )
+    .await;
+
+    let proposed = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "proposed",
+            "quota_total": 2,
+            "status_reason_code": "request_received",
+            "request_idempotency_key": "realm-sponsor-progress-proposed"
+        }),
+    )
+    .await;
+    assert_eq!(proposed.status, StatusCode::OK);
+
+    let approved = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "approved",
+            "quota_total": 2,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-progress-approved"
+        }),
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK);
+
+    let active = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 2,
+            "status_reason_code": "active_after_review",
+            "request_idempotency_key": "realm-sponsor-progress-active"
+        }),
+    )
+    .await;
+    assert_eq!(active.status, StatusCode::OK);
+    assert_eq!(active.body["sponsor_status"], "active");
+}
+
+#[tokio::test]
 async fn stale_sponsor_record_id_uses_latest_sponsor_status() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -2580,6 +2657,28 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
         realm_admission_id
     );
 
+    grant_operator_role(&client, &approver_id, "steward").await;
+    let role_changed_replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-idem-admission",
+            "source_snapshot_json": {
+                "safe_summary": "first admission"
+            },
+            "request_idempotency_key": "realm-idem-admission"
+        }),
+    )
+    .await;
+    assert_eq!(role_changed_replay.status, StatusCode::OK);
+    assert_eq!(
+        role_changed_replay.body["realm_admission_id"],
+        realm_admission_id
+    );
+
     let mismatched_admission = operator_post_json(
         &app,
         &format!("/api/internal/realms/{realm_id}/admissions"),
@@ -2992,6 +3091,25 @@ async fn insert_operator_account(client: &tokio_postgres::Client, role: &str) ->
         .await
         .expect("operator role assignment must insert");
     account_id.to_string()
+}
+
+async fn grant_operator_role(client: &tokio_postgres::Client, operator_id: &str, role: &str) {
+    let operator_id = Uuid::parse_str(operator_id).expect("operator id must be a uuid");
+    client
+        .execute(
+            "
+            INSERT INTO core.operator_role_assignments (
+                operator_role_assignment_id,
+                operator_account_id,
+                operator_role,
+                grant_reason
+            )
+            VALUES ($1, $2, $3, 'realm bootstrap test role')
+            ",
+            &[&Uuid::new_v4(), &operator_id, &role],
+        )
+        .await
+        .expect("operator role assignment must insert");
 }
 
 async fn test_db_client() -> tokio_postgres::Client {

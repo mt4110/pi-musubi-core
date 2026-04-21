@@ -696,12 +696,7 @@ impl RealmBootstrapStore {
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
         ensure_active_account_exists_tx(&tx, &account_id).await?;
         let granted_by_actor_kind = operator_actor_kind_tx(&tx, &operator_id).await?;
-        let payload_hash = create_admission_payload_hash(
-            &input,
-            &account_id,
-            &sponsor_record_id,
-            &granted_by_actor_kind,
-        );
+        let payload_hash = create_admission_payload_hash(&input, &account_id, &sponsor_record_id);
 
         let row = if let Some(existing) =
             find_admission_by_idempotency_tx(&tx, &realm_id, &operator_id, &request_idempotency_key)
@@ -2522,10 +2517,17 @@ async fn ensure_sponsor_status_transition_allowed_tx<C: GenericClient + Sync>(
         .map_err(db_error)?
         .map(|row| row.get::<_, String>("sponsor_status"));
 
-    if current_status
-        .as_deref()
-        .is_some_and(|status| matches!(status, "proposed" | "approved" | "active"))
-    {
+    let transition_allowed = matches!(
+        (current_status.as_deref(), next_sponsor_status),
+        (None, _)
+            | (Some("proposed"), "approved" | "active")
+            | (Some("approved"), "active")
+            | (
+                Some("rate_limited" | "revoked"),
+                "proposed" | "approved" | "active"
+            )
+    );
+    if !transition_allowed {
         return Err(RealmBootstrapError::BadRequest(
             "sponsor account already has an open sponsor record for this realm".to_owned(),
         ));
@@ -2693,7 +2695,6 @@ fn create_admission_payload_hash(
     input: &CreateRealmAdmissionInput,
     account_id: &Uuid,
     sponsor_record_id: &Option<Uuid>,
-    granted_by_actor_kind: &str,
 ) -> String {
     hash_json_value(&json!({
         "schema_version": 1,
@@ -2702,7 +2703,6 @@ fn create_admission_payload_hash(
         "source_fact_kind": &input.source_fact_kind,
         "source_fact_id": &input.source_fact_id,
         "source_snapshot_json": &input.source_snapshot_json,
-        "granted_by_actor_kind": granted_by_actor_kind,
     }))
 }
 
