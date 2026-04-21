@@ -270,6 +270,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_active_unique
 CREATE INDEX IF NOT EXISTS realm_admissions_realm_status_idx
     ON dao.realm_admissions (realm_id, admission_status, created_at);
 
+CREATE INDEX IF NOT EXISTS realm_admissions_account_latest_idx
+    ON dao.realm_admissions (realm_id, account_id, updated_at DESC, created_at DESC, realm_admission_id DESC);
+
 CREATE INDEX IF NOT EXISTS realm_admissions_sponsor_idx
     ON dao.realm_admissions (sponsor_record_id, admission_status)
     WHERE sponsor_record_id IS NOT NULL;

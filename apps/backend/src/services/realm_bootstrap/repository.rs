@@ -3245,11 +3245,6 @@ fn db_error(error: tokio_postgres::Error) -> RealmBootstrapError {
                     "approved slug is already in use".to_owned(),
                 );
             }
-            Some("realm_sponsor_records_active_unique") => {
-                return RealmBootstrapError::BadRequest(
-                    "sponsor account already has an open sponsor record for this realm".to_owned(),
-                );
-            }
             Some("realm_sponsor_records_idempotency_unique") => {
                 return RealmBootstrapError::BadRequest(
                     "request_idempotency_key was already used by this operator for this realm"
