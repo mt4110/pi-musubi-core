@@ -642,6 +642,13 @@ impl RealmBootstrapStore {
             ensure_sponsor_record_payload_hash_matches(&existing, &payload_hash)?;
             existing
         } else {
+            ensure_sponsor_status_transition_allowed_tx(
+                &tx,
+                &realm_id,
+                &sponsor_account_id,
+                &input.sponsor_status,
+            )
+            .await?;
             let row = insert_sponsor_record_tx(
                 &tx,
                 &realm_id,
@@ -841,12 +848,16 @@ impl RealmBootstrapStore {
             .query_opt(
                 "
                 SELECT *
-                FROM dao.realm_admissions
-                WHERE realm_id = $1
-                  AND account_id = $2
-                  AND admission_status = 'admitted'
+                FROM (
+                    SELECT *
+                    FROM dao.realm_admissions
+                    WHERE realm_id = $1
+                      AND account_id = $2
+                    ORDER BY updated_at DESC, created_at DESC, realm_admission_id DESC
+                    LIMIT 1
+                ) latest_admission
+                WHERE admission_status = 'admitted'
                 ORDER BY updated_at DESC, realm_admission_id DESC
-                LIMIT 1
                 ",
                 &[&realm_id, &viewer_account_id],
             )
@@ -2484,6 +2495,42 @@ async fn lock_sponsor_lineage_for_record_tx<C: GenericClient + Sync>(
     }
     let sponsor_account_id: Uuid = sponsor_row.get("sponsor_account_id");
     lock_sponsor_lineage_tx(client, realm_id, &sponsor_account_id).await
+}
+
+async fn ensure_sponsor_status_transition_allowed_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    sponsor_account_id: &Uuid,
+    next_sponsor_status: &str,
+) -> Result<(), RealmBootstrapError> {
+    if !matches!(next_sponsor_status, "proposed" | "approved" | "active") {
+        return Ok(());
+    }
+    let current_status = client
+        .query_opt(
+            "
+            SELECT sponsor_status
+            FROM dao.realm_sponsor_records
+            WHERE realm_id = $1
+              AND sponsor_account_id = $2
+            ORDER BY updated_at DESC, created_at DESC, realm_sponsor_record_id DESC
+            LIMIT 1
+            ",
+            &[&realm_id, sponsor_account_id],
+        )
+        .await
+        .map_err(db_error)?
+        .map(|row| row.get::<_, String>("sponsor_status"));
+
+    if current_status
+        .as_deref()
+        .is_some_and(|status| matches!(status, "proposed" | "approved" | "active"))
+    {
+        return Err(RealmBootstrapError::BadRequest(
+            "sponsor account already has an open sponsor record for this realm".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 async fn ensure_slug_available_for_approval_tx<C: GenericClient + Sync>(

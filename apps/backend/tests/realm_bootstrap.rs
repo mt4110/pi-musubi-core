@@ -709,6 +709,79 @@ async fn active_realm_uses_normal_admission_kind_and_open_posture() {
 }
 
 #[tokio::test]
+async fn bootstrap_summary_authorizes_against_latest_admission_status() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-summary-latest-a",
+        "realm-summary-latest-a",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-summary-latest-b",
+        "realm-summary-latest-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-summary-latest",
+    )
+    .await;
+    let admission = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-summary-latest-admission",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-summary-latest-admission"
+        }),
+    )
+    .await;
+    assert_eq!(admission.status, StatusCode::OK);
+    assert_eq!(admission.body["admission_status"], "admitted");
+
+    let admitted_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(member.token.as_str()),
+    )
+    .await;
+    assert_eq!(admitted_summary.status, StatusCode::OK);
+
+    append_admission_status_for_test(
+        &client,
+        &realm_id,
+        &member.account_id,
+        &approver_id,
+        "revoked",
+        "operator_restriction",
+        "realm-summary-latest-revoked",
+    )
+    .await;
+
+    let revoked_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(member.token.as_str()),
+    )
+    .await;
+    assert_eq!(revoked_summary.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn approval_rejects_already_expired_corridor() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1544,6 +1617,7 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
     let sponsor = sign_in(&app, "pi-user-realm-sponsor-b", "realm-sponsor-b").await;
     let first_member = sign_in(&app, "pi-user-realm-sponsor-c", "realm-sponsor-c").await;
     let second_member = sign_in(&app, "pi-user-realm-sponsor-d", "realm-sponsor-d").await;
+    let third_member = sign_in(&app, "pi-user-realm-sponsor-e", "realm-sponsor-e").await;
     let client = test_db_client().await;
     let approver_id = insert_operator_account(&client, "approver").await;
 
@@ -1601,6 +1675,46 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
     assert_eq!(
         rate_limited.body["sponsor_record_id"],
         latest_rate_limited_sponsor_record_id
+    );
+
+    let active_record = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{rate_limited_realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 2,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-reactivated-record"
+        }),
+    )
+    .await;
+    assert_eq!(active_record.status, StatusCode::OK);
+    let active_sponsor_record_id = active_record.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("active sponsor record id must exist");
+
+    let reactivated = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{rate_limited_realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": third_member.account_id,
+            "sponsor_record_id": rate_limited_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-reactivated-admission",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-reactivated-admission"
+        }),
+    )
+    .await;
+    assert_eq!(reactivated.status, StatusCode::OK);
+    assert_eq!(reactivated.body["admission_kind"], "sponsor_backed");
+    assert_eq!(reactivated.body["admission_status"], "admitted");
+    assert_eq!(
+        reactivated.body["sponsor_record_id"],
+        active_sponsor_record_id
     );
 
     let (revoked_realm_id, _) = create_realm(
@@ -2700,6 +2814,59 @@ async fn current_corridor_status(client: &tokio_postgres::Client, realm_id: &str
         .await
         .expect("corridor row must exist")
         .get("corridor_status")
+}
+
+async fn append_admission_status_for_test(
+    client: &tokio_postgres::Client,
+    realm_id: &str,
+    account_id: &str,
+    operator_id: &str,
+    admission_status: &str,
+    review_reason_code: &str,
+    request_idempotency_key: &str,
+) {
+    let account_uuid = Uuid::parse_str(account_id).expect("account id must be a uuid");
+    let operator_uuid = Uuid::parse_str(operator_id).expect("operator id must be a uuid");
+    client
+        .execute(
+            "
+            INSERT INTO dao.realm_admissions (
+                realm_admission_id,
+                realm_id,
+                account_id,
+                admission_kind,
+                admission_status,
+                granted_by_actor_kind,
+                granted_by_actor_id,
+                review_reason_code,
+                source_fact_kind,
+                source_fact_id,
+                source_snapshot_json,
+                request_idempotency_key,
+                request_payload_hash,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                $1, $2, $3, 'normal', $4, 'operator', $5, $6,
+                'realm_admin_invite', $7, '{}'::jsonb, $8, repeat('0', 64),
+                CURRENT_TIMESTAMP + interval '1 minute',
+                CURRENT_TIMESTAMP + interval '1 minute'
+            )
+            ",
+            &[
+                &Uuid::new_v4(),
+                &realm_id,
+                &account_uuid,
+                &admission_status,
+                &operator_uuid,
+                &review_reason_code,
+                &request_idempotency_key,
+                &request_idempotency_key,
+            ],
+        )
+        .await
+        .expect("admission status row must insert");
 }
 
 async fn lock_sponsor_lineage_for_test(

@@ -155,10 +155,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS realm_sponsor_records_idempotency_unique
     ON dao.realm_sponsor_records (realm_id, approved_by_operator_id, request_idempotency_key)
     WHERE request_idempotency_key IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS realm_sponsor_records_active_unique
-    ON dao.realm_sponsor_records (realm_id, sponsor_account_id)
-    WHERE sponsor_status IN ('proposed', 'approved', 'active');
-
 CREATE UNIQUE INDEX IF NOT EXISTS realm_sponsor_records_id_realm_unique
     ON dao.realm_sponsor_records (realm_sponsor_record_id, realm_id);
 
