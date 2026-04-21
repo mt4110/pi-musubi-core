@@ -840,7 +840,11 @@ impl RealmBootstrapStore {
             .await
             .map_err(db_error)?;
 
-        if request_row.is_none() && admission_row.is_none() {
+        let admission_is_admitted = admission_row
+            .as_ref()
+            .map(|row| row.get::<_, String>("admission_status") == "admitted")
+            .unwrap_or(false);
+        if request_row.is_none() && !admission_is_admitted {
             return Err(RealmBootstrapError::NotFound(
                 "realm bootstrap summary was not found".to_owned(),
             ));

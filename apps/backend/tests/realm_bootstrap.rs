@@ -837,6 +837,14 @@ async fn sponsor_backed_admission_respects_quota_and_review_summary_is_redacted(
         "bootstrap_capacity_reached"
     );
 
+    let pending_member_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(second_member.token.as_str()),
+    )
+    .await;
+    assert_eq!(pending_member_summary.status, StatusCode::NOT_FOUND);
+
     let review_summary = operator_get_json(
         &app,
         &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
@@ -1288,13 +1296,23 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
     .await;
     let rate_limited_sponsor_record_id =
         sponsor_record_id_for_realm(&client, &rate_limited_realm_id).await;
-    set_sponsor_status(
-        &client,
-        &rate_limited_sponsor_record_id,
-        "rate_limited",
-        "sponsor_rate_limited",
+    let rate_limit_record = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{rate_limited_realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "rate_limited",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_rate_limited",
+            "request_idempotency_key": "realm-sponsor-rate-limited-record"
+        }),
     )
     .await;
+    assert_eq!(rate_limit_record.status, StatusCode::OK);
+    let latest_rate_limited_sponsor_record_id = rate_limit_record.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("rate-limited sponsor record id must exist");
 
     let rate_limited = operator_post_json(
         &app,
@@ -1316,6 +1334,10 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
     assert_eq!(
         rate_limited.body["review_reason_code"],
         "sponsor_rate_limited"
+    );
+    assert_eq!(
+        rate_limited.body["sponsor_record_id"],
+        latest_rate_limited_sponsor_record_id
     );
 
     let (revoked_realm_id, _) = create_realm(
