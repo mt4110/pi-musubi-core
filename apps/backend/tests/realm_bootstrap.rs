@@ -1331,6 +1331,124 @@ async fn sponsor_lineage_churn_counts_sponsor_accounts_for_caps_and_summary() {
 }
 
 #[tokio::test]
+async fn sponsor_quota_counts_reactivated_sponsor_lineage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-lineage-a",
+        "realm-sponsor-quota-lineage-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-lineage-b",
+        "realm-sponsor-quota-lineage-b",
+    )
+    .await;
+    let first_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-lineage-c",
+        "realm-sponsor-quota-lineage-c",
+    )
+    .await;
+    let second_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-quota-lineage-d",
+        "realm-sponsor-quota-lineage-d",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-sponsor-quota-lineage",
+    )
+    .await;
+    let initial_sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": first_member.account_id,
+            "sponsor_record_id": initial_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-sponsor-quota-lineage-first",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-sponsor-quota-lineage-first"
+        }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(first.body["admission_kind"], "sponsor_backed");
+    assert_eq!(first.body["admission_status"], "admitted");
+
+    let rate_limited = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "rate_limited",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_rate_limited",
+            "request_idempotency_key": "realm-sponsor-quota-lineage-rate-limited"
+        }),
+    )
+    .await;
+    assert_eq!(rate_limited.status, StatusCode::OK);
+
+    let reactivated = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 1,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-quota-lineage-reactivated"
+        }),
+    )
+    .await;
+    assert_eq!(reactivated.status, StatusCode::OK);
+    let current_sponsor_record_id = reactivated.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("current sponsor record id must exist");
+
+    let second = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": second_member.account_id,
+            "sponsor_record_id": initial_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-sponsor-quota-lineage-second",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-sponsor-quota-lineage-second"
+        }),
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(second.body["admission_kind"], "review_required");
+    assert_eq!(second.body["admission_status"], "pending");
+    assert_eq!(
+        second.body["review_reason_code"],
+        "bootstrap_capacity_reached"
+    );
+    assert_eq!(second.body["sponsor_record_id"], current_sponsor_record_id);
+}
+
+#[tokio::test]
 async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

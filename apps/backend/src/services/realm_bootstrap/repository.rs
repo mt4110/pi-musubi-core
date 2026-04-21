@@ -1330,7 +1330,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
         let sponsor_status: String = sponsor_row.get("sponsor_status");
         let sponsor_quota_total: i64 = sponsor_row.get("quota_total");
         let sponsor_used_count =
-            count_sponsor_backed_admissions_tx(client, &current_sponsor_record_id).await?;
+            count_sponsor_backed_admissions_tx(client, realm_id, &sponsor_account_id).await?;
         if sponsor_status == "revoked" {
             return Ok(AdmissionContext {
                 admission_kind: "review_required",
@@ -2115,17 +2115,23 @@ async fn count_corridor_admissions_tx<C: GenericClient + Sync>(
 
 async fn count_sponsor_backed_admissions_tx<C: GenericClient + Sync>(
     client: &C,
-    sponsor_record_id: &Uuid,
+    realm_id: &str,
+    sponsor_account_id: &Uuid,
 ) -> Result<i64, RealmBootstrapError> {
     Ok(client
         .query_one(
             "
             SELECT COUNT(*) AS count
-            FROM dao.realm_admissions
-            WHERE sponsor_record_id = $1
-              AND admission_status IN ('pending', 'admitted')
+            FROM dao.realm_admissions admission
+            JOIN dao.realm_sponsor_records sponsor
+              ON sponsor.realm_sponsor_record_id = admission.sponsor_record_id
+             AND sponsor.realm_id = admission.realm_id
+            WHERE sponsor.realm_id = $1
+              AND sponsor.sponsor_account_id = $2
+              AND admission.admission_kind = 'sponsor_backed'
+              AND admission.admission_status IN ('pending', 'admitted')
             ",
-            &[sponsor_record_id],
+            &[&realm_id, sponsor_account_id],
         )
         .await
         .map_err(db_error)?
