@@ -223,6 +223,101 @@ async fn duplicate_venue_request_enters_pending_review_and_rejected_request_crea
 }
 
 #[tokio::test]
+async fn approval_with_changed_slug_releases_original_slug_candidate() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester_a = sign_in(
+        &app,
+        "pi-user-realm-approved-slug-a",
+        "realm-approved-slug-a",
+    )
+    .await;
+    let requester_b = sign_in(
+        &app,
+        "pi-user-realm-approved-slug-b",
+        "realm-approved-slug-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let first_request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester_a.token.as_str()),
+        json!({
+            "display_name": "Original slug realm",
+            "slug_candidate": "original-slug-candidate",
+            "purpose_text": "The operator will approve a different slug.",
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "gallery"
+            },
+            "expected_member_shape_json": {
+                "pace": "slow"
+            },
+            "bootstrap_rationale_text": "Slug release regression coverage.",
+            "request_idempotency_key": "realm-approved-slug-first"
+        }),
+    )
+    .await;
+    assert_eq!(first_request.status, StatusCode::OK);
+    let realm_request_id = first_request.body["realm_request_id"]
+        .as_str()
+        .expect("realm request id must exist")
+        .to_owned();
+
+    let approval = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
+        &approver_id,
+        json!({
+            "target_realm_status": "active",
+            "approved_slug": "approved-slug-candidate",
+            "review_reason_code": "active_after_review",
+            "review_decision_idempotency_key": "realm-approved-slug-approve"
+        }),
+    )
+    .await;
+    assert_eq!(approval.status, StatusCode::OK);
+    assert_eq!(approval.body["slug"], "approved-slug-candidate");
+
+    let requester_view = get_json(
+        &app,
+        &format!("/api/realms/requests/{realm_request_id}"),
+        Some(requester_a.token.as_str()),
+    )
+    .await;
+    assert_eq!(requester_view.status, StatusCode::OK);
+    assert_eq!(
+        requester_view.body["slug_candidate"],
+        "approved-slug-candidate"
+    );
+
+    let second_request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester_b.token.as_str()),
+        json!({
+            "display_name": "Reused original slug realm",
+            "slug_candidate": "original-slug-candidate",
+            "purpose_text": "The original candidate should be available again.",
+            "venue_context_json": {
+                "city": "Osaka",
+                "venue_type": "bookstore"
+            },
+            "expected_member_shape_json": {
+                "pace": "quiet"
+            },
+            "bootstrap_rationale_text": "The first request no longer reserves this slug.",
+            "request_idempotency_key": "realm-approved-slug-second"
+        }),
+    )
+    .await;
+    assert_eq!(second_request.status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1131,6 +1226,84 @@ async fn rate_limited_and_revoked_sponsor_do_not_auto_admit() {
     assert_eq!(revoked.body["admission_kind"], "review_required");
     assert_eq!(revoked.body["admission_status"], "pending");
     assert_eq!(revoked.body["review_reason_code"], "sponsor_revoked");
+}
+
+#[tokio::test]
+async fn stale_sponsor_record_id_uses_latest_sponsor_status() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-stale-sponsor-a",
+        "realm-stale-sponsor-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-stale-sponsor-b",
+        "realm-stale-sponsor-b",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-stale-sponsor-c",
+        "realm-stale-sponsor-c",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "active",
+        "realm-stale-sponsor",
+    )
+    .await;
+    let stale_active_sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+    let revoked_sponsor_record = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "revoked",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_revoked",
+            "request_idempotency_key": "realm-stale-sponsor-revoked"
+        }),
+    )
+    .await;
+    assert_eq!(revoked_sponsor_record.status, StatusCode::OK);
+    let revoked_sponsor_record_id = revoked_sponsor_record.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("revoked sponsor record id must exist");
+
+    let admission = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "sponsor_record_id": stale_active_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-stale-sponsor-admission",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-stale-sponsor-admission"
+        }),
+    )
+    .await;
+    assert_eq!(admission.status, StatusCode::OK);
+    assert_eq!(admission.body["admission_kind"], "review_required");
+    assert_eq!(admission.body["admission_status"], "pending");
+    assert_eq!(admission.body["review_reason_code"], "sponsor_revoked");
+    assert_eq!(
+        admission.body["sponsor_record_id"],
+        revoked_sponsor_record_id
+    );
 }
 
 #[tokio::test]

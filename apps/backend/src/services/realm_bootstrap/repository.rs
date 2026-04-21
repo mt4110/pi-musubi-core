@@ -464,6 +464,7 @@ impl RealmBootstrapStore {
             "
             UPDATE dao.realm_requests
             SET request_state = 'approved',
+                slug_candidate = $6,
                 review_reason_code = $2,
                 reviewed_by_operator_id = $3,
                 review_decision_idempotency_key = $4,
@@ -478,6 +479,7 @@ impl RealmBootstrapStore {
                 &operator_id,
                 &Some(review_decision_idempotency_key),
                 &Some(decision_payload_hash),
+                &approved_slug,
             ],
         )
         .await
@@ -699,7 +701,7 @@ impl RealmBootstrapStore {
                     trigger.reason_code,
                     Some(&account_id),
                     None,
-                    sponsor_record_id.as_ref(),
+                    admission_context.sponsor_record_id.as_ref(),
                     &trigger.context_json,
                     &trigger.fingerprint,
                 )
@@ -738,7 +740,7 @@ impl RealmBootstrapStore {
                         &account_id,
                         &admission_context.admission_kind,
                         &admission_context.admission_status,
-                        &sponsor_record_id,
+                        &admission_context.sponsor_record_id,
                         &admission_context.bootstrap_corridor_id,
                         &granted_by_actor_kind,
                         &operator_id,
@@ -1000,6 +1002,7 @@ struct AdmissionContext {
     admission_kind: &'static str,
     admission_status: &'static str,
     reason_code: &'static str,
+    sponsor_record_id: Option<Uuid>,
     bootstrap_corridor_id: Option<Uuid>,
     open_trigger: Option<TriggerIntent>,
 }
@@ -1016,6 +1019,7 @@ fn limited_bootstrap_without_active_corridor_context(
         admission_kind: "review_required",
         admission_status: "pending",
         reason_code,
+        sponsor_record_id: None,
         bootstrap_corridor_id: None,
         open_trigger: None,
     }
@@ -1226,33 +1230,39 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
     };
 
     if let Some(sponsor_record_id) = sponsor_record_id {
-        let sponsor_row = lock_sponsor_record_tx(client, sponsor_record_id).await?;
-        let sponsor_realm_id: String = sponsor_row.get("realm_id");
+        let requested_sponsor_row = lock_sponsor_record_tx(client, sponsor_record_id).await?;
+        let sponsor_realm_id: String = requested_sponsor_row.get("realm_id");
         if sponsor_realm_id != realm_id {
             return Err(RealmBootstrapError::BadRequest(
                 "sponsor record does not belong to this realm".to_owned(),
             ));
         }
+        let sponsor_account_id: Uuid = requested_sponsor_row.get("sponsor_account_id");
+        let sponsor_row =
+            lock_current_sponsor_record_tx(client, realm_id, &sponsor_account_id).await?;
+        let current_sponsor_record_id: Uuid = sponsor_row.get("realm_sponsor_record_id");
         if realm_status == "limited_bootstrap" && active_corridor.is_none() {
-            return Ok(limited_bootstrap_without_active_corridor_context(
-                latest_corridor_status,
-            ));
+            let mut context =
+                limited_bootstrap_without_active_corridor_context(latest_corridor_status);
+            context.sponsor_record_id = Some(current_sponsor_record_id);
+            return Ok(context);
         }
         let sponsor_status: String = sponsor_row.get("sponsor_status");
         let sponsor_quota_total: i64 = sponsor_row.get("quota_total");
         let sponsor_used_count =
-            count_sponsor_backed_admissions_tx(client, sponsor_record_id).await?;
+            count_sponsor_backed_admissions_tx(client, &current_sponsor_record_id).await?;
         if sponsor_status == "revoked" {
             return Ok(AdmissionContext {
                 admission_kind: "review_required",
                 admission_status: "pending",
                 reason_code: "sponsor_revoked",
+                sponsor_record_id: Some(current_sponsor_record_id),
                 bootstrap_corridor_id: active_corridor_id,
                 open_trigger: Some(trigger_intent(
                     "revoked_sponsor_lineage",
                     "sponsor_revoked",
-                    json!({ "sponsor_record_id": sponsor_record_id.to_string() }),
-                    format!("revoked-sponsor:{sponsor_record_id}"),
+                    json!({ "sponsor_record_id": current_sponsor_record_id.to_string() }),
+                    format!("revoked-sponsor:{current_sponsor_record_id}"),
                 )),
             });
         }
@@ -1261,12 +1271,13 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 admission_kind: "review_required",
                 admission_status: "pending",
                 reason_code: "sponsor_rate_limited",
+                sponsor_record_id: Some(current_sponsor_record_id),
                 bootstrap_corridor_id: active_corridor_id,
                 open_trigger: Some(trigger_intent(
                     "quota_abuse",
                     "sponsor_rate_limited",
-                    json!({ "sponsor_record_id": sponsor_record_id.to_string() }),
-                    format!("quota-abuse:{sponsor_record_id}"),
+                    json!({ "sponsor_record_id": current_sponsor_record_id.to_string() }),
+                    format!("quota-abuse:{current_sponsor_record_id}"),
                 )),
             });
         }
@@ -1275,6 +1286,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 admission_kind: "review_required",
                 admission_status: "pending",
                 reason_code: "review_required",
+                sponsor_record_id: Some(current_sponsor_record_id),
                 bootstrap_corridor_id: active_corridor_id,
                 open_trigger: None,
             });
@@ -1284,16 +1296,17 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 admission_kind: "review_required",
                 admission_status: "pending",
                 reason_code: "bootstrap_capacity_reached",
+                sponsor_record_id: Some(current_sponsor_record_id),
                 bootstrap_corridor_id: active_corridor_id,
                 open_trigger: Some(trigger_intent(
                     "quota_exceeded",
                     "bootstrap_capacity_reached",
                     json!({
-                        "sponsor_record_id": sponsor_record_id.to_string(),
+                        "sponsor_record_id": current_sponsor_record_id.to_string(),
                         "quota_total": sponsor_quota_total,
                         "used_count": sponsor_used_count,
                     }),
-                    format!("quota-exceeded:{sponsor_record_id}"),
+                    format!("quota-exceeded:{current_sponsor_record_id}"),
                 )),
             });
         }
@@ -1304,6 +1317,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                     admission_kind: "review_required",
                     admission_status: "pending",
                     reason_code: "bootstrap_capacity_reached",
+                    sponsor_record_id: Some(current_sponsor_record_id),
                     bootstrap_corridor_id: active_corridor_id,
                     open_trigger: Some(trigger_intent(
                         "corridor_cap_pressure",
@@ -1321,17 +1335,24 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 });
             }
             let sponsor_cap: i64 = corridor_row.get("sponsor_cap");
-            let sponsor_slots =
-                count_distinct_corridor_sponsors_tx(client, sponsor_record_id, corridor_row)
-                    .await?;
-            let sponsor_already_present =
-                corridor_contains_sponsor_record_tx(client, sponsor_record_id, corridor_row)
-                    .await?;
+            let sponsor_slots = count_distinct_corridor_sponsors_tx(
+                client,
+                &current_sponsor_record_id,
+                corridor_row,
+            )
+            .await?;
+            let sponsor_already_present = corridor_contains_sponsor_record_tx(
+                client,
+                &current_sponsor_record_id,
+                corridor_row,
+            )
+            .await?;
             if !sponsor_already_present && sponsor_slots >= sponsor_cap {
                 return Ok(AdmissionContext {
                     admission_kind: "review_required",
                     admission_status: "pending",
                     reason_code: "bootstrap_capacity_reached",
+                    sponsor_record_id: Some(current_sponsor_record_id),
                     bootstrap_corridor_id: active_corridor_id,
                     open_trigger: Some(trigger_intent(
                         "corridor_cap_pressure",
@@ -1358,6 +1379,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
             admission_kind: "sponsor_backed",
             admission_status: "admitted",
             reason_code,
+            sponsor_record_id: Some(current_sponsor_record_id),
             bootstrap_corridor_id: active_corridor_id,
             open_trigger: None,
         });
@@ -1370,6 +1392,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 admission_kind: "review_required",
                 admission_status: "pending",
                 reason_code: "bootstrap_capacity_reached",
+                sponsor_record_id: None,
                 bootstrap_corridor_id: active_corridor_id,
                 open_trigger: Some(trigger_intent(
                     "corridor_cap_pressure",
@@ -1390,6 +1413,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
             admission_kind: "corridor",
             admission_status: "admitted",
             reason_code: "limited_bootstrap_active",
+            sponsor_record_id: None,
             bootstrap_corridor_id: active_corridor_id,
             open_trigger: None,
         });
@@ -1414,6 +1438,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
             "pending"
         },
         reason_code,
+        sponsor_record_id: None,
         bootstrap_corridor_id: None,
         open_trigger: None,
     })
@@ -2253,6 +2278,31 @@ async fn lock_sponsor_record_tx<C: GenericClient + Sync>(
             FOR UPDATE
             ",
             &[sponsor_record_id],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| {
+            RealmBootstrapError::NotFound("realm sponsor record was not found".to_owned())
+        })
+}
+
+async fn lock_current_sponsor_record_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    sponsor_account_id: &Uuid,
+) -> Result<Row, RealmBootstrapError> {
+    client
+        .query_opt(
+            "
+            SELECT *
+            FROM dao.realm_sponsor_records
+            WHERE realm_id = $1
+              AND sponsor_account_id = $2
+            ORDER BY updated_at DESC, created_at DESC, realm_sponsor_record_id DESC
+            LIMIT 1
+            FOR UPDATE
+            ",
+            &[&realm_id, sponsor_account_id],
         )
         .await
         .map_err(db_error)?
