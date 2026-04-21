@@ -816,24 +816,6 @@ impl RealmBootstrapStore {
         let realm_id = normalize_required(realm_id, "realm id")?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
-        ensure_realm_exists_tx(&tx, &realm_id).await?;
-        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
-        refresh_realm_projection_bundle_tx(&tx, &realm_id, Some(&viewer_account_id)).await?;
-
-        let bootstrap_row = tx
-            .query_opt(
-                "
-                SELECT *
-                FROM projection.realm_bootstrap_views
-                WHERE realm_id = $1
-                ",
-                &[&realm_id],
-            )
-            .await
-            .map_err(db_error)?
-            .ok_or_else(|| {
-                RealmBootstrapError::NotFound("realm bootstrap summary was not found".to_owned())
-            })?;
 
         let request_row = tx
             .query_opt(
@@ -851,6 +833,45 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
+        let admitted_row = tx
+            .query_opt(
+                "
+                SELECT *
+                FROM dao.realm_admissions
+                WHERE realm_id = $1
+                  AND account_id = $2
+                  AND admission_status = 'admitted'
+                ORDER BY updated_at DESC, realm_admission_id DESC
+                LIMIT 1
+                ",
+                &[&realm_id, &viewer_account_id],
+            )
+            .await
+            .map_err(db_error)?;
+
+        if request_row.is_none() && admitted_row.is_none() {
+            return Err(RealmBootstrapError::NotFound(
+                "realm bootstrap summary was not found".to_owned(),
+            ));
+        }
+
+        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
+        refresh_realm_projection_bundle_tx(&tx, &realm_id, Some(&viewer_account_id)).await?;
+
+        let bootstrap_row = tx
+            .query_opt(
+                "
+                SELECT *
+                FROM projection.realm_bootstrap_views
+                WHERE realm_id = $1
+                ",
+                &[&realm_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| {
+                RealmBootstrapError::NotFound("realm bootstrap summary was not found".to_owned())
+            })?;
         let admission_row = tx
             .query_opt(
                 "
@@ -863,16 +884,6 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
-
-        let admission_is_admitted = admission_row
-            .as_ref()
-            .map(|row| row.get::<_, String>("admission_status") == "admitted")
-            .unwrap_or(false);
-        if request_row.is_none() && !admission_is_admitted {
-            return Err(RealmBootstrapError::NotFound(
-                "realm bootstrap summary was not found".to_owned(),
-            ));
-        }
 
         let snapshot = RealmBootstrapSummarySnapshot {
             realm_request: request_row

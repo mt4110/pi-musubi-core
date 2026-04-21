@@ -1893,6 +1893,69 @@ async fn summary_reads_refresh_expired_corridor_without_unrelated_write() {
 }
 
 #[tokio::test]
+async fn unauthorized_summary_read_does_not_expire_corridor_or_refresh_projection() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-summary-unauthorized-a",
+        "realm-summary-unauthorized-a",
+    )
+    .await;
+    let outsider = sign_in(
+        &app,
+        "pi-user-realm-summary-unauthorized-b",
+        "realm-summary-unauthorized-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-summary-unauthorized",
+    )
+    .await;
+    expire_corridor_without_rebuild(&client, &realm_id).await;
+    assert_eq!(current_corridor_status(&client, &realm_id).await, "active");
+    assert_eq!(
+        current_projection_corridor_status(&client, &realm_id).await,
+        "active"
+    );
+
+    let unauthorized_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(unauthorized_summary.status, StatusCode::NOT_FOUND);
+    assert_eq!(current_corridor_status(&client, &realm_id).await, "active");
+    assert_eq!(
+        current_projection_corridor_status(&client, &realm_id).await,
+        "active"
+    );
+
+    let requester_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(requester.token.as_str()),
+    )
+    .await;
+    assert_eq!(requester_summary.status, StatusCode::OK);
+    assert_eq!(current_corridor_status(&client, &realm_id).await, "expired");
+    assert_eq!(
+        requester_summary.body["bootstrap_view"]["corridor_status"],
+        "expired"
+    );
+}
+
+#[tokio::test]
 async fn expired_or_disabled_corridor_blocks_sponsor_backed_auto_admission() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -2504,6 +2567,23 @@ async fn current_projection_corridor_status(
         )
         .await
         .expect("projection row must exist")
+        .get("corridor_status")
+}
+
+async fn current_corridor_status(client: &tokio_postgres::Client, realm_id: &str) -> String {
+    client
+        .query_one(
+            "
+            SELECT corridor_status
+            FROM dao.bootstrap_corridors
+            WHERE realm_id = $1
+            ORDER BY updated_at DESC, bootstrap_corridor_id DESC
+            LIMIT 1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("corridor row must exist")
         .get("corridor_status")
 }
 
