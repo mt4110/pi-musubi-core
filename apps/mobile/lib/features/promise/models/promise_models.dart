@@ -202,7 +202,7 @@ String proofStatusLabel(String status) {
 
 String participantNextActionCopy(PromiseStatusBundle bundle) {
   if (!bundle.hasParticipantSafeProjection) {
-    return '作成は受け付けました。表示の準備が整うまで少し待ってください。';
+    return '表示の準備を確認しています。反映まで少し時間がかかることがあります。';
   }
   if (bundle.proofStatus == 'unavailable') {
     return '完了はまだこの画面だけでは確定しません。証明機能が使える状態になるまで、約束の状態をここで確認できます。';

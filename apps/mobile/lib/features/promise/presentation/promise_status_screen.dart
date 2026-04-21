@@ -11,11 +11,13 @@ class PromiseStatusScreen extends ConsumerStatefulWidget {
     super.key,
     required this.promiseIntentId,
     this.settlementCaseId,
+    this.creationConfirmed = false,
     this.replayedIntent = false,
   });
 
   final String promiseIntentId;
   final String? settlementCaseId;
+  final bool creationConfirmed;
   final bool replayedIntent;
 
   @override
@@ -45,6 +47,16 @@ class _PromiseStatusScreenState extends ConsumerState<PromiseStatusScreen> {
     });
   }
 
+  _PromiseStatusViewState _viewStateFor(PromiseStatusBundle bundle) {
+    if (bundle.promise != null) {
+      return _PromiseStatusViewState.confirmed;
+    }
+    if (bundle.settlement != null || widget.creationConfirmed) {
+      return _PromiseStatusViewState.pending;
+    }
+    return _PromiseStatusViewState.unavailable;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -69,9 +81,34 @@ class _PromiseStatusScreenState extends ConsumerState<PromiseStatusScreen> {
           }
 
           final bundle = snapshot.data!;
+          final viewState = _viewStateFor(bundle);
+          if (viewState == _PromiseStatusViewState.unavailable) {
+            return _PromiseStatusFrame(
+              title: '約束を表示できませんでした',
+              subtitle: 'URL が古いか、表示対象が見つからない可能性があります。',
+              children: [
+                const _GuidancePanel(
+                  copy: '最初の画面からもう一度開くか、正しいリンクかを確認してください。',
+                ),
+                MusubiGhostButton(label: '再読み込み', onPressed: _retry),
+              ],
+            );
+          }
+
+          final title = switch (viewState) {
+            _PromiseStatusViewState.confirmed =>
+              widget.replayedIntent ? '同じ約束を確認しました' : '約束を作成しました',
+            _PromiseStatusViewState.pending => '約束の表示を確認しています',
+            _PromiseStatusViewState.unavailable => '',
+          };
+          final subtitle = switch (viewState) {
+            _PromiseStatusViewState.confirmed => '約束の進み具合だけを、落ち着いて確認できます。',
+            _PromiseStatusViewState.pending => '作成直後は表示の反映に少し時間がかかることがあります。',
+            _PromiseStatusViewState.unavailable => '',
+          };
           return _PromiseStatusFrame(
-            title: widget.replayedIntent ? '同じ約束を確認しました' : '約束を作成しました',
-            subtitle: '約束の進み具合だけを、落ち着いて確認できます。',
+            title: title,
+            subtitle: subtitle,
             children: [
               _StatusRow(
                 label: '約束',
@@ -94,6 +131,12 @@ class _PromiseStatusScreenState extends ConsumerState<PromiseStatusScreen> {
       ),
     );
   }
+}
+
+enum _PromiseStatusViewState {
+  confirmed,
+  pending,
+  unavailable,
 }
 
 class _PromiseStatusFrame extends StatelessWidget {

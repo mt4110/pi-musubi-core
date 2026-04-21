@@ -43,6 +43,19 @@ void main() {
     expect(copy, isNot(contains('ランキング')));
   });
 
+  test('missing projection copy stays neutral while the screen waits', () {
+    const bundle = PromiseStatusBundle(
+      promiseIntentId: 'promise-1',
+      initialSettlementCaseId: 'settlement-1',
+      promise: null,
+      settlement: null,
+    );
+
+    final copy = participantNextActionCopy(bundle);
+    expect(copy, '表示の準備を確認しています。反映まで少し時間がかかることがあります。');
+    expect(copy, isNot(contains('作成は受け付けました')));
+  });
+
   test('projection parsing ignores internal fields not modeled by the UI', () {
     final view = PromiseProjectionView.fromJson({
       'promise_intent_id': 'promise-1',
