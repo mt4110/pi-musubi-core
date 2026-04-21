@@ -650,9 +650,10 @@ impl RealmBootstrapStore {
                 &input.status_reason_code,
                 &operator_id,
                 Some(request_idempotency_key),
-                Some(payload_hash),
+                Some(payload_hash.clone()),
             )
             .await?;
+            ensure_sponsor_record_payload_hash_matches(&row, &payload_hash)?;
             maybe_open_sponsor_concentration_trigger_tx(&tx, &realm_id, &sponsor_account_id)
                 .await?;
             row
@@ -760,6 +761,14 @@ impl RealmBootstrapStore {
                         $1, $2, $3, $4, $5, $6, $7,
                         $8, $9, $10, $11, $12, $13, $14, $15
                     )
+                    ON CONFLICT (
+                        realm_id,
+                        granted_by_actor_id,
+                        request_idempotency_key
+                    )
+                    WHERE request_idempotency_key IS NOT NULL
+                    DO UPDATE
+                    SET request_payload_hash = dao.realm_admissions.request_payload_hash
                     RETURNING *
                     ",
                     &[
@@ -782,6 +791,7 @@ impl RealmBootstrapStore {
                 )
                 .await
                 .map_err(db_error)?;
+            ensure_admission_payload_hash_matches(&row, &payload_hash)?;
             maybe_open_member_overlap_trigger_tx(&tx, &realm_id, &account_id).await?;
             row
         };
@@ -1218,10 +1228,23 @@ async fn maybe_open_sponsor_concentration_trigger_tx<C: GenericClient + Sync>(
     let count = client
         .query_one(
             "
+            WITH current_sponsor_lineages AS (
+                SELECT DISTINCT ON (realm_id, sponsor_account_id)
+                    realm_id,
+                    sponsor_account_id,
+                    sponsor_status
+                FROM dao.realm_sponsor_records
+                WHERE sponsor_account_id = $1
+                ORDER BY
+                    realm_id,
+                    sponsor_account_id,
+                    updated_at DESC,
+                    created_at DESC,
+                    realm_sponsor_record_id DESC
+            )
             SELECT COUNT(*) AS count
-            FROM dao.realm_sponsor_records
-            WHERE sponsor_account_id = $1
-              AND sponsor_status IN ('approved', 'active', 'rate_limited')
+            FROM current_sponsor_lineages
+            WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
             ",
             &[sponsor_account_id],
         )
@@ -1237,7 +1260,7 @@ async fn maybe_open_sponsor_concentration_trigger_tx<C: GenericClient + Sync>(
             Some(sponsor_account_id),
             None,
             None,
-            &json!({ "active_sponsor_record_count": count }),
+            &json!({ "active_sponsor_realm_count": count }),
             &format!("sponsor-concentration:{realm_id}:{sponsor_account_id}"),
         )
         .await?;
@@ -1373,7 +1396,7 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
                 corridor_row,
             )
             .await?;
-            let sponsor_already_present = corridor_contains_sponsor_record_tx(
+            let sponsor_already_present = corridor_contains_sponsor_account_tx(
                 client,
                 &current_sponsor_record_id,
                 corridor_row,
@@ -1502,6 +1525,14 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
                 request_payload_hash
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, repeat('0', 64)))
+            ON CONFLICT (
+                realm_id,
+                approved_by_operator_id,
+                request_idempotency_key
+            )
+            WHERE request_idempotency_key IS NOT NULL
+            DO UPDATE
+            SET request_payload_hash = dao.realm_sponsor_records.request_payload_hash
             RETURNING *
             ",
             &[
@@ -1622,8 +1653,18 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
             sponsor_counts AS (
                 SELECT
                     COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS active_sponsor_count
-                FROM dao.realm_sponsor_records
-                WHERE realm_id = $1
+                FROM (
+                    SELECT DISTINCT ON (sponsor_account_id)
+                        sponsor_account_id,
+                        sponsor_status
+                    FROM dao.realm_sponsor_records
+                    WHERE realm_id = $1
+                    ORDER BY
+                        sponsor_account_id,
+                        updated_at DESC,
+                        created_at DESC,
+                        realm_sponsor_record_id DESC
+                ) current_sponsor_lineages
             ),
             source_counts AS (
                 SELECT
@@ -1848,9 +1889,19 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
             ),
             active_sponsors AS (
                 SELECT COUNT(*) AS active_sponsor_count
-                FROM dao.realm_sponsor_records
-                WHERE realm_id = $1
-                  AND sponsor_status IN ('approved', 'active', 'rate_limited')
+                FROM (
+                    SELECT DISTINCT ON (sponsor_account_id)
+                        sponsor_account_id,
+                        sponsor_status
+                    FROM dao.realm_sponsor_records
+                    WHERE realm_id = $1
+                    ORDER BY
+                        sponsor_account_id,
+                        updated_at DESC,
+                        created_at DESC,
+                        realm_sponsor_record_id DESC
+                ) current_sponsor_lineages
+                WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
             ),
             sponsor_backed_admissions AS (
                 SELECT COUNT(*) AS sponsor_backed_admission_count
@@ -2055,37 +2106,61 @@ async fn count_distinct_corridor_sponsors_tx<C: GenericClient + Sync>(
     Ok(client
         .query_one(
             "
-            SELECT COUNT(DISTINCT sponsor_record_id) AS count
-            FROM dao.realm_admissions
-            WHERE bootstrap_corridor_id = $1
-              AND sponsor_record_id IS NOT NULL
-              AND admission_status IN ('pending', 'admitted')
+            SELECT COUNT(DISTINCT sponsor.sponsor_account_id) AS count
+            FROM dao.realm_admissions admission
+            JOIN dao.realm_sponsor_records sponsor
+              ON sponsor.realm_sponsor_record_id = admission.sponsor_record_id
+            WHERE admission.bootstrap_corridor_id = $1
+              AND sponsor.realm_id = $2
+              AND admission.admission_status IN ('pending', 'admitted')
             ",
-            &[&corridor_id],
+            &[&corridor_id, &sponsor_realm_id],
         )
         .await
         .map_err(db_error)?
         .get("count"))
 }
 
-async fn corridor_contains_sponsor_record_tx<C: GenericClient + Sync>(
+async fn corridor_contains_sponsor_account_tx<C: GenericClient + Sync>(
     client: &C,
     sponsor_record_id: &Uuid,
     corridor_row: &Row,
 ) -> Result<bool, RealmBootstrapError> {
     let corridor_id: Uuid = corridor_row.get("bootstrap_corridor_id");
+    let sponsor_realm_id: String = corridor_row.get("realm_id");
+    let sponsor_row = client
+        .query_one(
+            "
+            SELECT realm_id, sponsor_account_id
+            FROM dao.realm_sponsor_records
+            WHERE realm_sponsor_record_id = $1
+            ",
+            &[sponsor_record_id],
+        )
+        .await
+        .map_err(db_error)?;
+    let current_sponsor_realm_id: String = sponsor_row.get("realm_id");
+    if current_sponsor_realm_id != sponsor_realm_id {
+        return Err(RealmBootstrapError::BadRequest(
+            "sponsor record does not belong to the same realm".to_owned(),
+        ));
+    }
+    let sponsor_account_id: Uuid = sponsor_row.get("sponsor_account_id");
     Ok(client
         .query_one(
             "
             SELECT EXISTS (
                 SELECT 1
-                FROM dao.realm_admissions
-                WHERE bootstrap_corridor_id = $1
-                  AND sponsor_record_id = $2
-                  AND admission_status IN ('pending', 'admitted')
+                FROM dao.realm_admissions admission
+                JOIN dao.realm_sponsor_records sponsor
+                  ON sponsor.realm_sponsor_record_id = admission.sponsor_record_id
+                WHERE admission.bootstrap_corridor_id = $1
+                  AND sponsor.realm_id = $2
+                  AND sponsor.sponsor_account_id = $3
+                  AND admission.admission_status IN ('pending', 'admitted')
             ) AS sponsor_present
             ",
-            &[&corridor_id, sponsor_record_id],
+            &[&corridor_id, &sponsor_realm_id, &sponsor_account_id],
         )
         .await
         .map_err(db_error)?

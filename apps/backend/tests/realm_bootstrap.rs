@@ -1069,6 +1069,195 @@ async fn sponsor_backed_admission_respects_corridor_member_cap() {
 }
 
 #[tokio::test]
+async fn sponsor_lineage_churn_counts_sponsor_accounts_for_caps_and_summary() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-lineage-a",
+        "realm-sponsor-lineage-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-lineage-b",
+        "realm-sponsor-lineage-b",
+    )
+    .await;
+    let first_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-lineage-c",
+        "realm-sponsor-lineage-c",
+    )
+    .await;
+    let second_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-lineage-d",
+        "realm-sponsor-lineage-d",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "Sponsor lineage realm",
+            "slug_candidate": "sponsor-lineage-realm",
+            "purpose_text": "Sponsor status churn must not consume extra sponsor slots.",
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "gallery"
+            },
+            "expected_member_shape_json": {
+                "size": "small"
+            },
+            "bootstrap_rationale_text": "One sponsor account may have multiple records over time.",
+            "proposed_sponsor_account_id": sponsor.account_id,
+            "request_idempotency_key": "realm-sponsor-lineage-request"
+        }),
+    )
+    .await;
+    assert_eq!(request.status, StatusCode::OK);
+    let realm_request_id = request.body["realm_request_id"]
+        .as_str()
+        .expect("realm request id must exist");
+
+    let approval = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
+        &approver_id,
+        json!({
+            "target_realm_status": "limited_bootstrap",
+            "review_reason_code": "limited_bootstrap_active",
+            "sponsor_quota_total": 3,
+            "corridor_starts_at": (Utc::now() - Duration::minutes(5)).to_rfc3339(),
+            "corridor_ends_at": (Utc::now() + Duration::days(3)).to_rfc3339(),
+            "corridor_member_cap": 3,
+            "corridor_sponsor_cap": 1,
+            "review_threshold_json": {},
+            "review_decision_idempotency_key": "realm-sponsor-lineage-approve"
+        }),
+    )
+    .await;
+    assert_eq!(approval.status, StatusCode::OK);
+    let realm_id = approval.body["realm_id"]
+        .as_str()
+        .expect("realm id must exist")
+        .to_owned();
+    let initial_sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": first_member.account_id,
+            "sponsor_record_id": initial_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-sponsor-lineage-first",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-sponsor-lineage-first"
+        }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(first.body["admission_kind"], "sponsor_backed");
+    assert_eq!(first.body["admission_status"], "admitted");
+
+    set_sponsor_status(
+        &client,
+        &initial_sponsor_record_id,
+        "rate_limited",
+        "sponsor_rate_limited",
+    )
+    .await;
+    let reactivated_once = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 3,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-lineage-reactivate-once"
+        }),
+    )
+    .await;
+    assert_eq!(reactivated_once.status, StatusCode::OK);
+    let reactivated_once_id = reactivated_once.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("reactivated sponsor record id must exist");
+
+    set_sponsor_status(
+        &client,
+        reactivated_once_id,
+        "rate_limited",
+        "sponsor_rate_limited",
+    )
+    .await;
+    let reactivated_twice = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 3,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-lineage-reactivate-twice"
+        }),
+    )
+    .await;
+    assert_eq!(reactivated_twice.status, StatusCode::OK);
+    let current_sponsor_record_id = reactivated_twice.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("current sponsor record id must exist");
+
+    let review_summary = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_summary.status, StatusCode::OK);
+    assert_eq!(review_summary.body["active_sponsor_count"], 1);
+    let trigger_kinds = review_summary.body["open_review_triggers"]
+        .as_array()
+        .expect("open review triggers must be an array")
+        .iter()
+        .map(|value| {
+            value["trigger_kind"]
+                .as_str()
+                .expect("trigger kind must be present")
+        })
+        .collect::<Vec<_>>();
+    assert!(!trigger_kinds.contains(&"sponsor_concentration"));
+
+    let second = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": second_member.account_id,
+            "sponsor_record_id": initial_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-sponsor-lineage-second",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-sponsor-lineage-second"
+        }),
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(second.body["admission_kind"], "sponsor_backed");
+    assert_eq!(second.body["admission_status"], "admitted");
+    assert_eq!(second.body["sponsor_record_id"], current_sponsor_record_id);
+}
+
+#[tokio::test]
 async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1906,6 +2095,77 @@ async fn duplicate_sponsor_record_conflict_is_bad_request() {
     )
     .await;
     assert_eq!(duplicate.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn concurrent_sponsor_and_admission_replays_return_existing_rows() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let config = DbConfig::from_lookup(|name| match name {
+        "APP_ENV" => Some("local".to_owned()),
+        "DATABASE_URL" => Some(database_url.clone()),
+        _ => std::env::var(name).ok(),
+    })
+    .expect("db config");
+    let second_state = new_state_from_config(&config).await.expect("second state");
+    let second_app = build_app(second_state.clone());
+    let requester = sign_in(&app, "pi-user-realm-idem-race-a", "realm-idem-race-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-idem-race-b", "realm-idem-race-b").await;
+    let member = sign_in(&app, "pi-user-realm-idem-race-c", "realm-idem-race-c").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-idem-race",
+    )
+    .await;
+
+    let sponsor_path = format!("/api/internal/realms/{realm_id}/sponsor-records");
+    let sponsor_body = json!({
+        "sponsor_account_id": sponsor.account_id,
+        "sponsor_status": "active",
+        "quota_total": 2,
+        "status_reason_code": "active_after_review",
+        "request_idempotency_key": "realm-idem-race-sponsor"
+    });
+    let (first_sponsor, second_sponsor) = tokio::join!(
+        operator_post_json(&app, &sponsor_path, &approver_id, sponsor_body.clone()),
+        operator_post_json(&second_app, &sponsor_path, &approver_id, sponsor_body)
+    );
+    assert_eq!(first_sponsor.status, StatusCode::OK);
+    assert_eq!(second_sponsor.status, StatusCode::OK);
+    assert_eq!(
+        first_sponsor.body["realm_sponsor_record_id"],
+        second_sponsor.body["realm_sponsor_record_id"]
+    );
+
+    let admission_path = format!("/api/internal/realms/{realm_id}/admissions");
+    let admission_body = json!({
+        "account_id": member.account_id,
+        "source_fact_kind": "realm_admin_invite",
+        "source_fact_id": "realm-idem-race-admission",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-idem-race-admission"
+    });
+    let (first_admission, second_admission) = tokio::join!(
+        operator_post_json(&app, &admission_path, &approver_id, admission_body.clone()),
+        operator_post_json(&second_app, &admission_path, &approver_id, admission_body)
+    );
+    assert_eq!(first_admission.status, StatusCode::OK);
+    assert_eq!(second_admission.status, StatusCode::OK);
+    assert_eq!(
+        first_admission.body["realm_admission_id"],
+        second_admission.body["realm_admission_id"]
+    );
 }
 
 #[tokio::test]
