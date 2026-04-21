@@ -628,6 +628,7 @@ impl RealmBootstrapStore {
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
         ensure_active_account_exists_tx(&tx, &sponsor_account_id).await?;
         lock_realm_tx(&tx, &realm_id).await?;
+        lock_sponsor_lineage_tx(&tx, &realm_id, &sponsor_account_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
 
         let row = if let Some(existing) = find_sponsor_record_by_idempotency_tx(
@@ -687,7 +688,6 @@ impl RealmBootstrapStore {
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
         ensure_active_account_exists_tx(&tx, &account_id).await?;
-        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
         let granted_by_actor_kind = operator_actor_kind_tx(&tx, &operator_id).await?;
         let payload_hash = create_admission_payload_hash(
             &input,
@@ -710,6 +710,10 @@ impl RealmBootstrapStore {
                     "restricted or suspended realms cannot admit new members".to_owned(),
                 ));
             }
+            if let Some(sponsor_record_id) = sponsor_record_id.as_ref() {
+                lock_sponsor_lineage_for_record_tx(&tx, &realm_id, sponsor_record_id).await?;
+            }
+            update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
             let active_corridor = find_current_corridor_tx(&tx, &realm_id).await?;
             let latest_corridor_status = find_latest_corridor_status_tx(&tx, &realm_id).await?;
             let admission_context = derive_admission_context_tx(
@@ -947,9 +951,12 @@ impl RealmBootstrapStore {
 
     pub async fn rebuild_realm_bootstrap_views(
         &self,
+        operator_id: &str,
     ) -> Result<RealmBootstrapRebuildSnapshot, RealmBootstrapError> {
+        let operator_id = parse_uuid(operator_id, "operator id")?;
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
+        ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
         tx.query_one(
             "
             SELECT pg_advisory_xact_lock(
@@ -2427,6 +2434,56 @@ async fn lock_current_sponsor_record_tx<C: GenericClient + Sync>(
         .ok_or_else(|| {
             RealmBootstrapError::NotFound("realm sponsor record was not found".to_owned())
         })
+}
+
+async fn lock_sponsor_lineage_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    sponsor_account_id: &Uuid,
+) -> Result<(), RealmBootstrapError> {
+    let sponsor_account_id_text = sponsor_account_id.to_string();
+    client
+        .query_one(
+            "
+            SELECT pg_advisory_xact_lock(
+                hashtext('realm_bootstrap.sponsor_lineage'),
+                hashtext($1 || ':' || $2::text)
+            )
+            ",
+            &[&realm_id, &sponsor_account_id_text],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(())
+}
+
+async fn lock_sponsor_lineage_for_record_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    sponsor_record_id: &Uuid,
+) -> Result<(), RealmBootstrapError> {
+    let sponsor_row = client
+        .query_opt(
+            "
+            SELECT realm_id, sponsor_account_id
+            FROM dao.realm_sponsor_records
+            WHERE realm_sponsor_record_id = $1
+            ",
+            &[sponsor_record_id],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| {
+            RealmBootstrapError::NotFound("realm sponsor record was not found".to_owned())
+        })?;
+    let sponsor_realm_id: String = sponsor_row.get("realm_id");
+    if sponsor_realm_id != realm_id {
+        return Err(RealmBootstrapError::BadRequest(
+            "sponsor record does not belong to the same realm".to_owned(),
+        ));
+    }
+    let sponsor_account_id: Uuid = sponsor_row.get("sponsor_account_id");
+    lock_sponsor_lineage_tx(client, realm_id, &sponsor_account_id).await
 }
 
 async fn ensure_slug_available_for_approval_tx<C: GenericClient + Sync>(

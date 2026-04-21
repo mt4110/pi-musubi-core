@@ -466,9 +466,10 @@ pub async fn rebuild_realm_bootstrap_views(
     headers: HeaderMap,
 ) -> ApiResult<RealmBootstrapRebuildResponse> {
     require_internal_bearer_token(&headers)?;
+    let operator_id = require_operator_id(&headers)?;
     let snapshot = state
         .realm_bootstrap
-        .rebuild_realm_bootstrap_views()
+        .rebuild_realm_bootstrap_views(&operator_id)
         .await
         .map_err(map_realm_bootstrap_error)?;
     Ok(Json(realm_bootstrap_rebuild_response(snapshot)))

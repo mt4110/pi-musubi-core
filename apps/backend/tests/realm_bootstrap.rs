@@ -1721,6 +1721,74 @@ async fn stale_sponsor_record_id_uses_latest_sponsor_status() {
 }
 
 #[tokio::test]
+async fn sponsor_backed_admission_waits_for_sponsor_lineage_lock() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-sponsor-lock-a", "realm-sponsor-lock-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-sponsor-lock-b", "realm-sponsor-lock-b").await;
+    let member = sign_in(&app, "pi-user-realm-sponsor-lock-c", "realm-sponsor-lock-c").await;
+    let mut lock_client = test_db_client().await;
+    let approver_id = insert_operator_account(&lock_client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "active",
+        "realm-sponsor-lock",
+    )
+    .await;
+    let active_sponsor_record_id = sponsor_record_id_for_realm(&lock_client, &realm_id).await;
+    let sponsor_account_id =
+        Uuid::parse_str(&sponsor.account_id).expect("sponsor account id must be a uuid");
+
+    let lock_tx = lock_client
+        .transaction()
+        .await
+        .expect("lock transaction must start");
+    lock_sponsor_lineage_for_test(&lock_tx, &realm_id, &sponsor_account_id).await;
+
+    let admission_app = app.clone();
+    let admission_path = format!("/api/internal/realms/{realm_id}/admissions");
+    let admission_operator_id = approver_id.clone();
+    let admission_member_id = member.account_id.clone();
+    let admission_sponsor_record_id = active_sponsor_record_id.clone();
+    let mut admission_task = tokio::spawn(async move {
+        operator_post_json(
+            &admission_app,
+            &admission_path,
+            &admission_operator_id,
+            json!({
+                "account_id": admission_member_id,
+                "sponsor_record_id": admission_sponsor_record_id,
+                "source_fact_kind": "sponsor_invite",
+                "source_fact_id": "realm-sponsor-lock-admission",
+                "source_snapshot_json": {},
+                "request_idempotency_key": "realm-sponsor-lock-admission"
+            }),
+        )
+        .await
+    });
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), &mut admission_task)
+            .await
+            .is_err()
+    );
+
+    lock_tx
+        .commit()
+        .await
+        .expect("lock transaction must commit");
+
+    let admission = admission_task.await.expect("admission task must complete");
+    assert_eq!(admission.status, StatusCode::OK);
+    assert_eq!(admission.body["admission_kind"], "sponsor_backed");
+    assert_eq!(admission.body["admission_status"], "admitted");
+}
+
+#[tokio::test]
 async fn expired_and_disabled_corridor_do_not_grant_corridor_benefits_even_if_projection_is_stale()
 {
     let test_state = new_test_state().await.expect("test database state");
@@ -1953,6 +2021,53 @@ async fn unauthorized_summary_read_does_not_expire_corridor_or_refresh_projectio
         requester_summary.body["bootstrap_view"]["corridor_status"],
         "expired"
     );
+}
+
+#[tokio::test]
+async fn realm_bootstrap_rebuild_requires_operator_role() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let ordinary = sign_in(
+        &app,
+        "pi-user-realm-rebuild-ordinary",
+        "realm-rebuild-ordinary",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let missing_operator = request_json(
+        &app,
+        "POST",
+        "/api/internal/projection/realms/rebuild",
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(missing_operator.status, StatusCode::BAD_REQUEST);
+
+    let ordinary_operator = request_json(
+        &app,
+        "POST",
+        "/api/internal/projection/realms/rebuild",
+        None,
+        Some(&ordinary.account_id),
+        None,
+    )
+    .await;
+    assert_eq!(ordinary_operator.status, StatusCode::UNAUTHORIZED);
+
+    let rebuild = request_json(
+        &app,
+        "POST",
+        "/api/internal/projection/realms/rebuild",
+        None,
+        Some(&approver_id),
+        None,
+    )
+    .await;
+    assert_eq!(rebuild.status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -2585,6 +2700,25 @@ async fn current_corridor_status(client: &tokio_postgres::Client, realm_id: &str
         .await
         .expect("corridor row must exist")
         .get("corridor_status")
+}
+
+async fn lock_sponsor_lineage_for_test(
+    tx: &tokio_postgres::Transaction<'_>,
+    realm_id: &str,
+    sponsor_account_id: &Uuid,
+) {
+    let sponsor_account_id_text = sponsor_account_id.to_string();
+    tx.query_one(
+        "
+        SELECT pg_advisory_xact_lock(
+            hashtext('realm_bootstrap.sponsor_lineage'),
+            hashtext($1 || ':' || $2::text)
+        )
+        ",
+        &[&realm_id, &sponsor_account_id_text],
+    )
+    .await
+    .expect("sponsor lineage lock must be acquired");
 }
 
 async fn current_projection_rebuild_generation(
