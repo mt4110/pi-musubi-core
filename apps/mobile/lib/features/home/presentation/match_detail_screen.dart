@@ -260,12 +260,16 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       final uri = Uri(
         path: '/promises/${response.promiseIntentId}',
         queryParameters: {
-          'created': 'true',
           'settlementCaseId': response.settlementCaseId,
-          if (response.replayedIntent) 'replayed': 'true',
         },
       );
-      context.push(uri.toString());
+      context.push(
+        uri.toString(),
+        extra: {
+          'created': true,
+          'replayed': response.replayedIntent,
+        },
+      );
     } catch (error) {
       if (!mounted) {
         return;

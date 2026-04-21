@@ -25,12 +25,17 @@ void main() {
         ),
         GoRoute(
           path: '/promises/:promiseIntentId',
-          builder: (context, state) => PromiseStatusScreen(
-            promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
-            settlementCaseId: state.uri.queryParameters['settlementCaseId'],
-            creationConfirmed: state.uri.queryParameters['created'] == 'true',
-            replayedIntent: state.uri.queryParameters['replayed'] == 'true',
-          ),
+          builder: (context, state) {
+            final navigationState = state.extra;
+            return PromiseStatusScreen(
+              promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
+              settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+              creationConfirmed: navigationState is Map<Object?, Object?> &&
+                  navigationState['created'] == true,
+              replayedIntent: navigationState is Map<Object?, Object?> &&
+                  navigationState['replayed'] == true,
+            );
+          },
         ),
       ],
     );
@@ -55,6 +60,45 @@ void main() {
 
     expect(find.text('約束を作成しました'), findsOneWidget);
     expect(router.canPop(), isTrue);
+  });
+
+  testWidgets('created query parameters alone do not keep stale links pending',
+      (tester) async {
+    final router = GoRouter(
+      initialLocation:
+          '/promises/promise-missing?created=true&replayed=true&settlementCaseId=settlement-1',
+      routes: [
+        GoRoute(
+          path: '/promises/:promiseIntentId',
+          builder: (context, state) {
+            final navigationState = state.extra;
+            return PromiseStatusScreen(
+              promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
+              settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+              creationConfirmed: navigationState is Map<Object?, Object?> &&
+                  navigationState['created'] == true,
+              replayedIntent: navigationState is Map<Object?, Object?> &&
+                  navigationState['replayed'] == true,
+            );
+          },
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          promiseRepositoryProvider.overrideWith(
+            (ref) => const _MissingProjectionPromiseRepository(),
+          ),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('約束を表示できませんでした'), findsOneWidget);
+    expect(find.text('約束の表示を確認しています'), findsNothing);
   });
 }
 
@@ -133,6 +177,30 @@ class _FakePromiseRepository implements PromiseRepository {
         proofStatus: 'unavailable',
         proofSignalCount: 0,
       ),
+    );
+  }
+}
+
+class _MissingProjectionPromiseRepository implements PromiseRepository {
+  const _MissingProjectionPromiseRepository();
+
+  @override
+  Future<CreatePromiseIntentResponse> createPromiseIntent(
+    CreatePromiseIntentRequest request,
+  ) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<PromiseStatusBundle> fetchPromiseStatus(
+    String promiseIntentId, {
+    String? settlementCaseId,
+  }) async {
+    return PromiseStatusBundle(
+      promiseIntentId: promiseIntentId,
+      initialSettlementCaseId: settlementCaseId,
+      promise: null,
+      settlement: null,
     );
   }
 }

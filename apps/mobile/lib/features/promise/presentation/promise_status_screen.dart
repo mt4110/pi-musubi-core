@@ -48,10 +48,10 @@ class _PromiseStatusScreenState extends ConsumerState<PromiseStatusScreen> {
   }
 
   _PromiseStatusViewState _viewStateFor(PromiseStatusBundle bundle) {
-    if (bundle.hasParticipantSafeProjection) {
+    if (bundle.promise != null) {
       return _PromiseStatusViewState.confirmed;
     }
-    if (widget.creationConfirmed) {
+    if (bundle.settlement != null || widget.creationConfirmed) {
       return _PromiseStatusViewState.pending;
     }
     return _PromiseStatusViewState.unavailable;
@@ -102,10 +102,8 @@ class _PromiseStatusScreenState extends ConsumerState<PromiseStatusScreen> {
             _PromiseStatusViewState.unavailable => '',
           };
           final subtitle = switch (viewState) {
-            _PromiseStatusViewState.confirmed =>
-              '約束の進み具合だけを、落ち着いて確認できます。',
-            _PromiseStatusViewState.pending =>
-              '作成直後は表示の反映に少し時間がかかることがあります。',
+            _PromiseStatusViewState.confirmed => '約束の進み具合だけを、落ち着いて確認できます。',
+            _PromiseStatusViewState.pending => '作成直後は表示の反映に少し時間がかかることがあります。',
             _PromiseStatusViewState.unavailable => '',
           };
           return _PromiseStatusFrame(
