@@ -31,6 +31,7 @@ Owns:
 - realm-scoped, pseudonymous references used to coordinate state progression
 - operator review cases, evidence bundles, appeal cases, and append-only operator decision facts that reference writer-owned source facts without overwriting them
 - room progression tracks and append-only room progression facts for Intent, Coordination, Relationship, and Sealed Room surface state
+- realm creation requests, sponsor-backed bootstrap records, bootstrap corridors, realm admissions, and internal review triggers for bounded Day 1 realm growth
 
 Must not own:
 - immutable financial postings
@@ -70,6 +71,8 @@ Owns:
 - rebuildable bounded trust read models
 - rebuildable user-facing review status models derived from operator review and appeal facts
 - rebuildable user-facing room progression models derived from room progression facts and safe ISSUE-12 review posture
+- rebuildable participant-safe realm bootstrap and admission views
+- rebuildable operator-safe realm bootstrap health summaries
 - freshness, lag, watermark, and rebuild metadata for projections
 
 Must not own:
@@ -153,3 +156,29 @@ Room progression tracks preserve the stable realm-scoped participant envelope. R
 `projection.room_progression_views` is a bounded user-facing read model. It is rebuilt from writer-owned room progression facts and may include safe review posture derived from ISSUE-12 projection for display only. State-changing room progression decisions must read writer-owned `dao` facts, not projection rows.
 
 ISSUE-14 Promise UI is a future consumer of this room progression surface. It is not implemented by this schema addition.
+
+## ISSUE-15 realm bootstrap and admission additions
+
+Design source: ISSUE-15-realm-bootstrap-and-admission.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0018_realm_bootstrap_admission.sql` adds the bounded realm bootstrap baseline:
+- `dao.realm_requests`
+- `dao.realms`
+- `dao.realm_sponsor_records`
+- `dao.bootstrap_corridors`
+- `dao.realm_admissions`
+- `dao.realm_review_triggers`
+- `projection.realm_bootstrap_views`
+- `projection.realm_admission_views`
+- `projection.realm_review_summaries`
+
+The architectural boundary is strict:
+- realm creation requests do not become public self-serve realm issuance
+- sponsor authority is explicit, quota-bounded, auditable, and revocable
+- corridor expiry, corridor caps, sponsor quota, and restricted/suspended realm blocking are enforced server-side on writer truth
+- participant-safe projections are rebuildable convenience views and do not expose operator IDs, raw review triggers, source fact IDs/counts, or moderation internals
+- operator/steward summaries are redacted, rebuildable, and still non-authoritative
+
+ISSUE-12 operator review remains the review/evidence system of record, ISSUE-13 room progression remains the room surface baseline, and ISSUE-14 Promise UI remains out of scope for this schema addition.
