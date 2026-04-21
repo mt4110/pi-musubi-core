@@ -762,6 +762,98 @@ async fn sponsor_backed_admission_respects_corridor_member_cap() {
 }
 
 #[tokio::test]
+async fn realm_scoped_review_trigger_fingerprints_do_not_collapse_across_realms() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-scoped-trigger-requester",
+        "realm-scoped-trigger-requester",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-scoped-trigger-sponsor",
+        "realm-scoped-trigger-sponsor",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-scoped-trigger-member",
+        "realm-scoped-trigger-member",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let mut realm_ids = Vec::new();
+    for index in 1..=4 {
+        let (realm_id, _) = create_realm(
+            &app,
+            &requester,
+            None,
+            None,
+            &approver_id,
+            "active",
+            &format!("realm-scoped-trigger-{index}"),
+        )
+        .await;
+        let sponsor_record = operator_post_json(
+            &app,
+            &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+            &approver_id,
+            json!({
+                "sponsor_account_id": sponsor.account_id,
+                "sponsor_status": "active",
+                "quota_total": 4,
+                "status_reason_code": "active_after_review",
+                "request_idempotency_key": format!("realm-scoped-trigger-sponsor-{index}")
+            }),
+        )
+        .await;
+        assert_eq!(sponsor_record.status, StatusCode::OK);
+        let admission = operator_post_json(
+            &app,
+            &format!("/api/internal/realms/{realm_id}/admissions"),
+            &approver_id,
+            json!({
+                "account_id": member.account_id,
+                "source_fact_kind": "manual_review",
+                "source_fact_id": format!("realm-scoped-trigger-admission-{index}"),
+                "source_snapshot_json": {},
+                "request_idempotency_key": format!("realm-scoped-trigger-admission-{index}")
+            }),
+        )
+        .await;
+        assert_eq!(admission.status, StatusCode::OK);
+        realm_ids.push(realm_id);
+    }
+
+    for realm_id in &realm_ids[2..] {
+        let review_summary = operator_get_json(
+            &app,
+            &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
+            &approver_id,
+        )
+        .await;
+        assert_eq!(review_summary.status, StatusCode::OK);
+        assert_eq!(review_summary.body["open_review_trigger_count"], 2);
+        let trigger_kinds = review_summary.body["open_review_triggers"]
+            .as_array()
+            .expect("open review triggers must be an array")
+            .iter()
+            .map(|value| {
+                value["trigger_kind"]
+                    .as_str()
+                    .expect("trigger kind must be present")
+            })
+            .collect::<Vec<_>>();
+        assert!(trigger_kinds.contains(&"sponsor_concentration"));
+        assert!(trigger_kinds.contains(&"suspicious_member_overlap"));
+    }
+}
+
+#[tokio::test]
 async fn cross_realm_sponsor_record_cannot_grant_admission() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

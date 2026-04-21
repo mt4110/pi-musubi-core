@@ -1167,7 +1167,7 @@ async fn maybe_open_member_overlap_trigger_tx<C: GenericClient + Sync>(
             None,
             None,
             &json!({ "active_realm_count": count }),
-            &format!("member-overlap:{account_id}"),
+            &format!("member-overlap:{realm_id}:{account_id}"),
         )
         .await?;
     }
@@ -1202,7 +1202,7 @@ async fn maybe_open_sponsor_concentration_trigger_tx<C: GenericClient + Sync>(
             None,
             None,
             &json!({ "active_sponsor_record_count": count }),
-            &format!("sponsor-concentration:{sponsor_account_id}"),
+            &format!("sponsor-concentration:{realm_id}:{sponsor_account_id}"),
         )
         .await?;
     }
