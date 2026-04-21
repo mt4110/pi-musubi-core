@@ -866,7 +866,8 @@ impl RealmBootstrapStore {
         }
 
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
-        refresh_realm_projection_bundle_tx(&tx, &realm_id, Some(&viewer_account_id)).await?;
+        refresh_realm_bootstrap_view_tx(&tx, &realm_id, None).await?;
+        refresh_realm_admission_view_tx(&tx, &realm_id, &viewer_account_id, None).await?;
 
         let bootstrap_row = tx
             .query_opt(
@@ -922,7 +923,7 @@ impl RealmBootstrapStore {
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_READ_ROLES).await?;
         ensure_realm_exists_tx(&tx, &realm_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
-        refresh_realm_projection_bundle_tx(&tx, &realm_id, None).await?;
+        refresh_realm_review_summary_tx(&tx, &realm_id, None).await?;
         let row = tx
             .query_opt(
                 "
@@ -1779,6 +1780,16 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
                 rebuild_generation = COALESCE($12, projection.realm_bootstrap_views.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
+            WHERE projection.realm_bootstrap_views.slug IS DISTINCT FROM EXCLUDED.slug
+               OR projection.realm_bootstrap_views.display_name IS DISTINCT FROM EXCLUDED.display_name
+               OR projection.realm_bootstrap_views.realm_status IS DISTINCT FROM EXCLUDED.realm_status
+               OR projection.realm_bootstrap_views.admission_posture IS DISTINCT FROM EXCLUDED.admission_posture
+               OR projection.realm_bootstrap_views.corridor_status IS DISTINCT FROM EXCLUDED.corridor_status
+               OR projection.realm_bootstrap_views.public_reason_code IS DISTINCT FROM EXCLUDED.public_reason_code
+               OR projection.realm_bootstrap_views.sponsor_display_state IS DISTINCT FROM EXCLUDED.sponsor_display_state
+               OR projection.realm_bootstrap_views.source_watermark_at IS DISTINCT FROM EXCLUDED.source_watermark_at
+               OR projection.realm_bootstrap_views.source_fact_count IS DISTINCT FROM EXCLUDED.source_fact_count
+               OR projection.realm_bootstrap_views.rebuild_generation IS DISTINCT FROM COALESCE($12, projection.realm_bootstrap_views.rebuild_generation, 1::bigint)
             ",
             &[
                 &realm_id,
@@ -1878,6 +1889,12 @@ async fn refresh_realm_admission_view_tx<C: GenericClient + Sync>(
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
                 rebuild_generation = COALESCE($9, projection.realm_admission_views.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
+            WHERE projection.realm_admission_views.admission_status IS DISTINCT FROM EXCLUDED.admission_status
+               OR projection.realm_admission_views.admission_kind IS DISTINCT FROM EXCLUDED.admission_kind
+               OR projection.realm_admission_views.public_reason_code IS DISTINCT FROM EXCLUDED.public_reason_code
+               OR projection.realm_admission_views.source_watermark_at IS DISTINCT FROM EXCLUDED.source_watermark_at
+               OR projection.realm_admission_views.source_fact_count IS DISTINCT FROM EXCLUDED.source_fact_count
+               OR projection.realm_admission_views.rebuild_generation IS DISTINCT FROM COALESCE($9, projection.realm_admission_views.rebuild_generation, 1::bigint)
             ",
             &[
                 &realm_id,
@@ -2042,6 +2059,18 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
                 rebuild_generation = COALESCE($14, projection.realm_review_summaries.rebuild_generation, 1::bigint),
                 last_projected_at = CURRENT_TIMESTAMP
+            WHERE projection.realm_review_summaries.realm_status IS DISTINCT FROM EXCLUDED.realm_status
+               OR projection.realm_review_summaries.corridor_status IS DISTINCT FROM EXCLUDED.corridor_status
+               OR projection.realm_review_summaries.corridor_remaining_seconds IS DISTINCT FROM EXCLUDED.corridor_remaining_seconds
+               OR projection.realm_review_summaries.active_sponsor_count IS DISTINCT FROM EXCLUDED.active_sponsor_count
+               OR projection.realm_review_summaries.sponsor_backed_admission_count IS DISTINCT FROM EXCLUDED.sponsor_backed_admission_count
+               OR projection.realm_review_summaries.recent_admission_count_7d IS DISTINCT FROM EXCLUDED.recent_admission_count_7d
+               OR projection.realm_review_summaries.open_review_trigger_count IS DISTINCT FROM EXCLUDED.open_review_trigger_count
+               OR projection.realm_review_summaries.open_review_case_count IS DISTINCT FROM EXCLUDED.open_review_case_count
+               OR projection.realm_review_summaries.latest_redacted_reason_code IS DISTINCT FROM EXCLUDED.latest_redacted_reason_code
+               OR projection.realm_review_summaries.source_watermark_at IS DISTINCT FROM EXCLUDED.source_watermark_at
+               OR projection.realm_review_summaries.source_fact_count IS DISTINCT FROM EXCLUDED.source_fact_count
+               OR projection.realm_review_summaries.rebuild_generation IS DISTINCT FROM COALESCE($14, projection.realm_review_summaries.rebuild_generation, 1::bigint)
             ",
             &[
                 &realm_id,

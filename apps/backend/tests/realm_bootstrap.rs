@@ -3,7 +3,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use musubi_backend::{build_app, new_state_from_config, new_test_state};
 use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
@@ -2168,6 +2168,45 @@ async fn summary_reads_refresh_expired_corridor_without_unrelated_write() {
 }
 
 #[tokio::test]
+async fn participant_summary_read_skips_noop_operator_projection_refresh() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-summary-noop-a", "realm-summary-noop-a").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-summary-noop",
+    )
+    .await;
+    let bootstrap_projected_at = current_bootstrap_last_projected_at(&client, &realm_id).await;
+    let review_projected_at = current_review_summary_last_projected_at(&client, &realm_id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(requester.token.as_str()),
+    )
+    .await;
+    assert_eq!(summary.status, StatusCode::OK);
+    assert_eq!(
+        current_bootstrap_last_projected_at(&client, &realm_id).await,
+        bootstrap_projected_at
+    );
+    assert_eq!(
+        current_review_summary_last_projected_at(&client, &realm_id).await,
+        review_projected_at
+    );
+}
+
+#[tokio::test]
 async fn unauthorized_summary_read_does_not_expire_corridor_or_refresh_projection() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -3019,6 +3058,42 @@ async fn current_projection_rebuild_generation(
         .await
         .expect("projection row must exist")
         .get("rebuild_generation")
+}
+
+async fn current_bootstrap_last_projected_at(
+    client: &tokio_postgres::Client,
+    realm_id: &str,
+) -> DateTime<Utc> {
+    client
+        .query_one(
+            "
+            SELECT last_projected_at
+            FROM projection.realm_bootstrap_views
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("bootstrap projection row must exist")
+        .get("last_projected_at")
+}
+
+async fn current_review_summary_last_projected_at(
+    client: &tokio_postgres::Client,
+    realm_id: &str,
+) -> DateTime<Utc> {
+    client
+        .query_one(
+            "
+            SELECT last_projected_at
+            FROM projection.realm_review_summaries
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("review summary projection row must exist")
+        .get("last_projected_at")
 }
 
 async fn set_realm_status(
