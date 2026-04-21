@@ -2088,6 +2088,22 @@ async fn expired_and_disabled_corridor_do_not_grant_corridor_benefits_even_if_pr
         disabled_summary.body["bootstrap_view"]["admission_posture"],
         "review_required"
     );
+
+    let disabled_review_summary = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/{disabled_realm_id}/review-summary"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(disabled_review_summary.status, StatusCode::OK);
+    assert_eq!(
+        disabled_review_summary.body["corridor_status"],
+        "disabled_by_operator"
+    );
+    assert_eq!(
+        disabled_review_summary.body["corridor_remaining_seconds"],
+        0
+    );
 }
 
 #[tokio::test]

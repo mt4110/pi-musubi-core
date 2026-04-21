@@ -1985,7 +1985,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 realm.realm_status,
                 COALESCE((SELECT corridor_status FROM latest_corridor), 'none') AS corridor_status,
                 CASE
-                    WHEN EXISTS (SELECT 1 FROM latest_corridor)
+                    WHEN (SELECT corridor_status FROM latest_corridor) = 'active'
                         THEN GREATEST(EXTRACT(EPOCH FROM ((SELECT ends_at FROM latest_corridor) - CURRENT_TIMESTAMP))::bigint, 0)
                     ELSE 0
                 END AS corridor_remaining_seconds,
