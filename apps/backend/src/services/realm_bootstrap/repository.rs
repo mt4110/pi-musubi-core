@@ -775,9 +775,13 @@ impl RealmBootstrapStore {
     ) -> Result<RealmBootstrapSummarySnapshot, RealmBootstrapError> {
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         let realm_id = normalize_required(realm_id, "realm id")?;
-        let client = self.client.lock().await;
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        lock_realm_tx(&tx, &realm_id).await?;
+        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
+        refresh_realm_projection_bundle_tx(&tx, &realm_id, Some(&viewer_account_id)).await?;
 
-        let bootstrap_row = client
+        let bootstrap_row = tx
             .query_opt(
                 "
                 SELECT *
@@ -792,7 +796,7 @@ impl RealmBootstrapStore {
                 RealmBootstrapError::NotFound("realm bootstrap summary was not found".to_owned())
             })?;
 
-        let request_row = client
+        let request_row = tx
             .query_opt(
                 "
                 SELECT
@@ -808,7 +812,7 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
-        let admission_row = client
+        let admission_row = tx
             .query_opt(
                 "
                 SELECT *
@@ -827,7 +831,7 @@ impl RealmBootstrapStore {
             ));
         }
 
-        Ok(RealmBootstrapSummarySnapshot {
+        let snapshot = RealmBootstrapSummarySnapshot {
             realm_request: request_row
                 .as_ref()
                 .map(realm_request_from_row)
@@ -837,7 +841,9 @@ impl RealmBootstrapStore {
                 .as_ref()
                 .map(realm_admission_view_from_row)
                 .transpose()?,
-        })
+        };
+        tx.commit().await.map_err(db_error)?;
+        Ok(snapshot)
     }
 
     pub async fn get_review_summary_for_operator(
@@ -847,9 +853,13 @@ impl RealmBootstrapStore {
     ) -> Result<RealmReviewSummarySnapshot, RealmBootstrapError> {
         let operator_id = parse_uuid(operator_id, "operator id")?;
         let realm_id = normalize_required(realm_id, "realm id")?;
-        let client = self.client.lock().await;
-        ensure_operator_role_tx(&*client, &operator_id, OPERATOR_READ_ROLES).await?;
-        let row = client
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        ensure_operator_role_tx(&tx, &operator_id, OPERATOR_READ_ROLES).await?;
+        lock_realm_tx(&tx, &realm_id).await?;
+        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
+        refresh_realm_projection_bundle_tx(&tx, &realm_id, None).await?;
+        let row = tx
             .query_opt(
                 "
                 SELECT *
@@ -863,7 +873,7 @@ impl RealmBootstrapStore {
             .ok_or_else(|| {
                 RealmBootstrapError::NotFound("realm review summary was not found".to_owned())
             })?;
-        let trigger_rows = client
+        let trigger_rows = tx
             .query(
                 "
                 SELECT *
@@ -876,7 +886,9 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
-        realm_review_summary_from_row(&row, &trigger_rows)
+        let snapshot = realm_review_summary_from_row(&row, &trigger_rows)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(snapshot)
     }
 
     pub async fn rebuild_realm_bootstrap_views(
@@ -1634,7 +1646,7 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($12, projection.realm_bootstrap_views.rebuild_generation + 1),
+                rebuild_generation = COALESCE($12, projection.realm_bootstrap_views.rebuild_generation),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
@@ -1733,7 +1745,7 @@ async fn refresh_realm_admission_view_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($9, projection.realm_admission_views.rebuild_generation + 1),
+                rebuild_generation = COALESCE($9, projection.realm_admission_views.rebuild_generation),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
@@ -1887,7 +1899,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 source_watermark_at = EXCLUDED.source_watermark_at,
                 source_fact_count = EXCLUDED.source_fact_count,
                 projection_lag_ms = EXCLUDED.projection_lag_ms,
-                rebuild_generation = COALESCE($14, projection.realm_review_summaries.rebuild_generation + 1),
+                rebuild_generation = COALESCE($14, projection.realm_review_summaries.rebuild_generation),
                 last_projected_at = CURRENT_TIMESTAMP
             ",
             &[
@@ -2327,8 +2339,8 @@ fn create_realm_request_payload_hash(
         "display_name": normalize_optional(Some(input.display_name.as_str())),
         "slug_candidate": slug_candidate,
         "purpose_text": normalize_optional(Some(input.purpose_text.as_str())),
-        "venue_context_json": input.venue_context_json,
-        "expected_member_shape_json": input.expected_member_shape_json,
+        "venue_context_json": &input.venue_context_json,
+        "expected_member_shape_json": &input.expected_member_shape_json,
         "bootstrap_rationale_text": normalize_optional(Some(input.bootstrap_rationale_text.as_str())),
         "proposed_sponsor_account_id": optional_uuid_hash_value(proposed_sponsor_account_id),
         "proposed_steward_account_id": optional_uuid_hash_value(proposed_steward_account_id),
@@ -2343,24 +2355,24 @@ fn approve_request_payload_hash(
 ) -> String {
     hash_json_value(&json!({
         "schema_version": 1,
-        "target_realm_status": input.target_realm_status,
+        "target_realm_status": &input.target_realm_status,
         "approved_slug": approved_slug,
         "approved_display_name": approved_display_name,
-        "review_reason_code": input.review_reason_code,
+        "review_reason_code": &input.review_reason_code,
         "steward_account_id": optional_uuid_hash_value(steward_account_id),
         "sponsor_quota_total": input.sponsor_quota_total,
-        "corridor_starts_at": input.corridor_starts_at.map(|value| value.to_rfc3339()),
-        "corridor_ends_at": input.corridor_ends_at.map(|value| value.to_rfc3339()),
+        "corridor_starts_at": input.corridor_starts_at.as_ref().map(|value| value.to_rfc3339()),
+        "corridor_ends_at": input.corridor_ends_at.as_ref().map(|value| value.to_rfc3339()),
         "corridor_member_cap": input.corridor_member_cap,
         "corridor_sponsor_cap": input.corridor_sponsor_cap,
-        "review_threshold_json": input.review_threshold_json,
+        "review_threshold_json": &input.review_threshold_json,
     }))
 }
 
 fn reject_request_payload_hash(input: &RejectRealmRequestInput) -> String {
     hash_json_value(&json!({
         "schema_version": 1,
-        "review_reason_code": input.review_reason_code,
+        "review_reason_code": &input.review_reason_code,
     }))
 }
 
@@ -2371,9 +2383,9 @@ fn create_sponsor_record_payload_hash(
     hash_json_value(&json!({
         "schema_version": 1,
         "sponsor_account_id": sponsor_account_id.to_string(),
-        "sponsor_status": input.sponsor_status,
+        "sponsor_status": &input.sponsor_status,
         "quota_total": input.quota_total,
-        "status_reason_code": input.status_reason_code,
+        "status_reason_code": &input.status_reason_code,
     }))
 }
 
@@ -2387,9 +2399,9 @@ fn create_admission_payload_hash(
         "schema_version": 1,
         "account_id": account_id.to_string(),
         "sponsor_record_id": optional_uuid_hash_value(sponsor_record_id),
-        "source_fact_kind": input.source_fact_kind,
-        "source_fact_id": input.source_fact_id,
-        "source_snapshot_json": input.source_snapshot_json,
+        "source_fact_kind": &input.source_fact_kind,
+        "source_fact_id": &input.source_fact_id,
+        "source_snapshot_json": &input.source_snapshot_json,
         "granted_by_actor_kind": granted_by_actor_kind,
     }))
 }
@@ -2645,6 +2657,7 @@ async fn open_trigger_tx<C: GenericClient + Sync>(
 ) -> Result<(), RealmBootstrapError> {
     validate_allowed("trigger_kind", trigger_kind, REVIEW_TRIGGER_KINDS)?;
     validate_allowed("redacted_reason_code", redacted_reason_code, REASON_CODES)?;
+    let realm_id_param = realm_id.map(str::to_owned);
     client
         .execute(
             "
@@ -2668,7 +2681,7 @@ async fn open_trigger_tx<C: GenericClient + Sync>(
             ",
             &[
                 &Uuid::new_v4(),
-                &realm_id.map(str::to_owned),
+                &realm_id_param,
                 &trigger_kind,
                 &redacted_reason_code,
                 &related_account_id,
@@ -2916,11 +2929,32 @@ fn db_error(error: tokio_postgres::Error) -> RealmBootstrapError {
     let constraint = error
         .as_db_error()
         .and_then(|db_error| db_error.constraint().map(str::to_owned));
+    if matches!(error.code(), Some(&SqlState::UNIQUE_VIOLATION)) {
+        match constraint.as_deref() {
+            Some("realm_sponsor_records_active_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "sponsor account already has an open sponsor record for this realm".to_owned(),
+                );
+            }
+            Some("realm_admissions_active_unique") => {
+                return RealmBootstrapError::BadRequest(
+                    "account already has a pending or admitted realm admission".to_owned(),
+                );
+            }
+            _ => {}
+        }
+    }
     let retryable = matches!(
         error.code(),
         Some(&SqlState::T_R_SERIALIZATION_FAILURE)
             | Some(&SqlState::T_R_DEADLOCK_DETECTED)
             | Some(&SqlState::CONNECTION_EXCEPTION)
+            | Some(&SqlState::CONNECTION_DOES_NOT_EXIST)
+            | Some(&SqlState::CONNECTION_FAILURE)
+            | Some(&SqlState::SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION)
+            | Some(&SqlState::SQLSERVER_REJECTED_ESTABLISHMENT_OF_SQLCONNECTION)
+            | Some(&SqlState::TRANSACTION_RESOLUTION_UNKNOWN)
+            | Some(&SqlState::PROTOCOL_VIOLATION)
     );
     RealmBootstrapError::Database {
         message: error.to_string(),

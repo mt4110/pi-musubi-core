@@ -1039,6 +1039,67 @@ async fn expired_and_disabled_corridor_do_not_grant_corridor_benefits_even_if_pr
 }
 
 #[tokio::test]
+async fn summary_reads_refresh_expired_corridor_without_unrelated_write() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-summary-expiry-a",
+        "realm-summary-expiry-a",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-summary-expiry",
+    )
+    .await;
+    let rebuild_generation = current_projection_rebuild_generation(&client, &realm_id).await;
+    assert_eq!(
+        current_projection_corridor_status(&client, &realm_id).await,
+        "active"
+    );
+    expire_corridor_without_rebuild(&client, &realm_id).await;
+
+    let participant_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(requester.token.as_str()),
+    )
+    .await;
+    assert_eq!(participant_summary.status, StatusCode::OK);
+    assert_eq!(
+        participant_summary.body["bootstrap_view"]["corridor_status"],
+        "expired"
+    );
+    assert_eq!(
+        participant_summary.body["bootstrap_view"]["admission_posture"],
+        "review_required"
+    );
+    assert_eq!(
+        current_projection_rebuild_generation(&client, &realm_id).await,
+        rebuild_generation
+    );
+
+    let review_summary = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_summary.status, StatusCode::OK);
+    assert_eq!(review_summary.body["corridor_status"], "expired");
+    assert_eq!(review_summary.body["corridor_remaining_seconds"], 0);
+}
+
+#[tokio::test]
 async fn expired_or_disabled_corridor_blocks_sponsor_backed_auto_admission() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1208,6 +1269,42 @@ async fn restricted_and_suspended_realms_block_new_admissions() {
 }
 
 #[tokio::test]
+async fn duplicate_sponsor_record_conflict_is_bad_request() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-sponsor-dup-a", "realm-sponsor-dup-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-sponsor-dup-b", "realm-sponsor-dup-b").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-sponsor-duplicate",
+    )
+    .await;
+
+    let duplicate = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 1,
+            "status_reason_code": "limited_bootstrap_active",
+            "request_idempotency_key": "realm-sponsor-duplicate-second-key"
+        }),
+    )
+    .await;
+    assert_eq!(duplicate.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1343,6 +1440,21 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
     )
     .await;
     assert_eq!(mismatched_admission.status, StatusCode::BAD_REQUEST);
+
+    let duplicate_admission = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-idem-admission-second-key",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-idem-admission-second-key"
+        }),
+    )
+    .await;
+    assert_eq!(duplicate_admission.status, StatusCode::BAD_REQUEST);
 }
 
 async fn create_realm(
@@ -1529,6 +1641,24 @@ async fn current_projection_corridor_status(
         .await
         .expect("projection row must exist")
         .get("corridor_status")
+}
+
+async fn current_projection_rebuild_generation(
+    client: &tokio_postgres::Client,
+    realm_id: &str,
+) -> i64 {
+    client
+        .query_one(
+            "
+            SELECT rebuild_generation
+            FROM projection.realm_bootstrap_views
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("projection row must exist")
+        .get("rebuild_generation")
 }
 
 async fn set_realm_status(
