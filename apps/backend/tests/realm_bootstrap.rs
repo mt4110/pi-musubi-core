@@ -1829,6 +1829,15 @@ async fn sponsor_quota_counts_distinct_accounts_when_pending_rows_repeat() {
     assert_eq!(next.status, StatusCode::OK);
     assert_eq!(next.body["admission_kind"], "sponsor_backed");
     assert_eq!(next.body["admission_status"], "admitted");
+
+    let review_summary = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_summary.status, StatusCode::OK);
+    assert_eq!(review_summary.body["sponsor_backed_admission_count"], 2);
 }
 
 #[tokio::test]

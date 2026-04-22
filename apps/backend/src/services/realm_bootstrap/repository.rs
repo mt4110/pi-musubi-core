@@ -2257,7 +2257,7 @@ async fn rebuild_all_realm_review_summaries_tx<C: GenericClient + Sync>(
                 GROUP BY realm_id
             ),
             sponsor_backed_admissions AS (
-                SELECT realm_id, COUNT(*) AS sponsor_backed_admission_count
+                SELECT realm_id, COUNT(DISTINCT account_id) AS sponsor_backed_admission_count
                 FROM dao.realm_admissions
                 WHERE admission_kind = 'sponsor_backed'
                   AND admission_status IN ('pending', 'admitted')
@@ -2701,7 +2701,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
             ),
             sponsor_backed_admissions AS (
-                SELECT COUNT(*) AS sponsor_backed_admission_count
+                SELECT COUNT(DISTINCT account_id) AS sponsor_backed_admission_count
                 FROM dao.realm_admissions
                 WHERE realm_id = $1
                   AND admission_kind = 'sponsor_backed'
