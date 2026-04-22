@@ -13,6 +13,11 @@ class DummyRealmBootstrapRepository implements RealmBootstrapRepository {
     CreateRealmRequestDraft draft,
   ) async {
     final requestIdempotencyKey = draft.requestIdempotencyKey.trim();
+    if (requestIdempotencyKey.isEmpty) {
+      throw const BusinessException(
+        message: '操作キーが不正です。もう一度画面を開き直してください。',
+      );
+    }
     final fingerprint = _fingerprint(draft);
     final existing = _recordsByKey[requestIdempotencyKey];
     if (existing != null) {

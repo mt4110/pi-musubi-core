@@ -4014,6 +4014,232 @@ async fn realm_bootstrap_idempotency_keys_reject_blank_values_at_db_layer() {
 }
 
 #[tokio::test]
+async fn realm_admission_kind_requires_matching_lineage_at_db_layer() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-db-lineage-a", "realm-db-lineage-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-db-lineage-b", "realm-db-lineage-b").await;
+    let member = sign_in(&app, "pi-user-realm-db-lineage-c", "realm-db-lineage-c").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let member_id = Uuid::parse_str(&member.account_id).expect("member id must be uuid");
+    let approver_uuid = Uuid::parse_str(&approver_id).expect("approver id must be uuid");
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "db-admission-lineage",
+    )
+    .await;
+    let sponsor_record_id = Uuid::parse_str(&sponsor_record_id_for_realm(&client, &realm_id).await)
+        .expect("sponsor record id must be uuid");
+    let corridor_id: Uuid = client
+        .query_one(
+            "
+            SELECT bootstrap_corridor_id
+            FROM dao.bootstrap_corridors
+            WHERE realm_id = $1
+            LIMIT 1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("bootstrap corridor must query")
+        .get("bootstrap_corridor_id");
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'sponsor_backed',
+                    'pending',
+                    NULL,
+                    $4,
+                    'operator',
+                    $5,
+                    'limited_bootstrap_active',
+                    'db_test',
+                    'sponsor-backed-without-sponsor',
+                    'sponsor-backed-without-sponsor',
+                    repeat('5', 64)
+                )
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &realm_id,
+                    &member_id,
+                    &corridor_id,
+                    &approver_uuid,
+                ],
+            )
+            .await,
+    );
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'corridor',
+                    'pending',
+                    NULL,
+                    NULL,
+                    'operator',
+                    $4,
+                    'limited_bootstrap_active',
+                    'db_test',
+                    'corridor-without-corridor',
+                    'corridor-without-corridor',
+                    repeat('6', 64)
+                )
+                ",
+                &[&Uuid::new_v4(), &realm_id, &member_id, &approver_uuid],
+            )
+            .await,
+    );
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'corridor',
+                    'pending',
+                    $4,
+                    $5,
+                    'operator',
+                    $6,
+                    'limited_bootstrap_active',
+                    'db_test',
+                    'corridor-with-sponsor',
+                    'corridor-with-sponsor',
+                    repeat('7', 64)
+                )
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &realm_id,
+                    &member_id,
+                    &sponsor_record_id,
+                    &corridor_id,
+                    &approver_uuid,
+                ],
+            )
+            .await,
+    );
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'normal',
+                    'pending',
+                    $4,
+                    NULL,
+                    'operator',
+                    $5,
+                    'active_after_review',
+                    'db_test',
+                    'normal-with-sponsor',
+                    'normal-with-sponsor',
+                    repeat('8', 64)
+                )
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &realm_id,
+                    &member_id,
+                    &sponsor_record_id,
+                    &approver_uuid,
+                ],
+            )
+            .await,
+    );
+}
+
+#[tokio::test]
 async fn realm_request_review_states_require_review_audit_fields_at_db_layer() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -4151,7 +4377,7 @@ async fn create_realm(
 }
 
 fn assert_check_violation(result: Result<u64, tokio_postgres::Error>) {
-    let error = result.expect_err("blank idempotency key must fail a database check");
+    let error = result.expect_err("database check must reject invalid row");
     assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
 }
 

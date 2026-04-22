@@ -51,8 +51,30 @@ void main() {
 
       await repository.createRealmRequest(draft);
 
-      expect(
+      await expectLater(
         repository.createRealmRequest(drift),
+        throwsA(isA<BusinessException>()),
+      );
+    },
+  );
+
+  test(
+    'dummy realm bootstrap repository rejects blank idempotency key',
+    () async {
+      final repository = DummyRealmBootstrapRepository();
+
+      await expectLater(
+        repository.createRealmRequest(
+          const CreateRealmRequestDraft(
+            displayName: 'Tokyo slow coffee',
+            slugCandidate: 'tokyo-slow-coffee',
+            purposeText: 'Calm local meetings.',
+            venueContextText: 'Tokyo cafe',
+            expectedMemberShapeText: 'Small and local',
+            bootstrapRationaleText: 'Start with bounded growth.',
+            requestIdempotencyKey: '   ',
+          ),
+        ),
         throwsA(isA<BusinessException>()),
       );
     },
