@@ -140,6 +140,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.enterText(
+      find.byType(TextField).last,
+      'realm-00000000-0000-4000-8000-000000000001',
+    );
     final summaryButton = find.widgetWithText(MusubiGhostButton, '状態を確認');
     expect(
       tester.widget<MusubiGhostButton>(summaryButton).onPressed,

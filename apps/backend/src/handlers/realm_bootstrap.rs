@@ -10,8 +10,9 @@ use serde_json::Value;
 use crate::{
     SharedState,
     handlers::{
-        ApiError, ApiResult, bad_request, internal_server_error, not_found, require_bearer_token,
-        require_internal_bearer_token, require_operator_id, service_unavailable, unauthorized,
+        ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
+        require_bearer_token, require_internal_bearer_token, require_operator_id,
+        service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
@@ -243,7 +244,7 @@ pub async fn create_realm_request(
     let token = require_bearer_token(&headers)?;
     let account = authorize_account(&state, &token)
         .await
-        .map_err(map_realm_bootstrap_happy_route_error)?;
+        .map_err(map_happy_route_error)?;
     let snapshot = state
         .realm_bootstrap
         .create_realm_request(
@@ -273,7 +274,7 @@ pub async fn get_realm_request(
     let token = require_bearer_token(&headers)?;
     let account = authorize_account(&state, &token)
         .await
-        .map_err(map_realm_bootstrap_happy_route_error)?;
+        .map_err(map_happy_route_error)?;
     let snapshot = state
         .realm_bootstrap
         .get_realm_request_for_requester(&account.account_id, realm_request_id.trim())
@@ -437,7 +438,7 @@ pub async fn get_bootstrap_summary(
     let token = require_bearer_token(&headers)?;
     let account = authorize_account(&state, &token)
         .await
-        .map_err(map_realm_bootstrap_happy_route_error)?;
+        .map_err(map_happy_route_error)?;
     let snapshot = state
         .realm_bootstrap
         .get_bootstrap_summary_for_viewer(&account.account_id, realm_id.trim())
@@ -656,34 +657,6 @@ fn realm_bootstrap_rebuild_response(
         bootstrap_view_count: snapshot.bootstrap_view_count,
         admission_view_count: snapshot.admission_view_count,
         review_summary_count: snapshot.review_summary_count,
-    }
-}
-
-fn map_realm_bootstrap_happy_route_error(
-    error: crate::services::happy_route::HappyRouteError,
-) -> ApiError {
-    match error {
-        crate::services::happy_route::HappyRouteError::BadRequest(message) => bad_request(message),
-        crate::services::happy_route::HappyRouteError::Unauthorized(message) => {
-            unauthorized(message)
-        }
-        crate::services::happy_route::HappyRouteError::NotFound(message) => not_found(message),
-        crate::services::happy_route::HappyRouteError::ProviderCallbackMappingDeferred(_) => {
-            service_unavailable("temporarily unavailable")
-        }
-        crate::services::happy_route::HappyRouteError::Provider { .. } => {
-            service_unavailable("temporarily unavailable")
-        }
-        crate::services::happy_route::HappyRouteError::Database { retryable, .. } => {
-            if retryable {
-                service_unavailable("temporarily unavailable")
-            } else {
-                internal_server_error("internal server error")
-            }
-        }
-        crate::services::happy_route::HappyRouteError::Internal(_) => {
-            internal_server_error("internal server error")
-        }
     }
 }
 

@@ -27,7 +27,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
   final _rationaleController = TextEditingController();
   final _sponsorController = TextEditingController();
   final _stewardController = TextEditingController();
-  final _realmIdController = TextEditingController(text: 'realm-tokyo-day1');
+  final _realmIdController = TextEditingController();
 
   bool _isSubmitting = false;
   bool _isLoadingSummary = false;
