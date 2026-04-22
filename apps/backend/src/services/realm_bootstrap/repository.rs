@@ -1815,7 +1815,7 @@ async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
             ),
             sponsor_counts AS (
                 SELECT
-                    COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS active_sponsor_count
+                    COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS eligible_sponsor_count
                 FROM (
                     SELECT DISTINCT ON (sponsor_account_id)
                         sponsor_account_id,
@@ -1870,9 +1870,9 @@ async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
                     COALESCE((SELECT corridor_status FROM current_corridor), 'none') AS corridor_status,
                     realm.public_reason_code,
                     CASE
-                        WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0
+                        WHEN COALESCE((SELECT eligible_sponsor_count FROM sponsor_counts), 0) > 0
                              AND realm.steward_account_id IS NOT NULL THEN 'sponsor_and_steward'
-                        WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0 THEN 'sponsor_backed'
+                        WHEN COALESCE((SELECT eligible_sponsor_count FROM sponsor_counts), 0) > 0 THEN 'sponsor_backed'
                         WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
                         ELSE 'none'
                     END AS sponsor_display_state,
@@ -2019,7 +2019,7 @@ async fn rebuild_all_realm_bootstrap_views_tx<C: GenericClient + Sync>(
                     realm_id,
                     COUNT(*) FILTER (
                         WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
-                    ) AS active_sponsor_count
+                    ) AS eligible_sponsor_count
                 FROM current_sponsor_lineages
                 GROUP BY realm_id
             ),
@@ -2061,9 +2061,9 @@ async fn rebuild_all_realm_bootstrap_views_tx<C: GenericClient + Sync>(
                     COALESCE(corridor.corridor_status, 'none') AS corridor_status,
                     realm.public_reason_code,
                     CASE
-                        WHEN COALESCE(sponsor_counts.active_sponsor_count, 0) > 0
+                        WHEN COALESCE(sponsor_counts.eligible_sponsor_count, 0) > 0
                              AND realm.steward_account_id IS NOT NULL THEN 'sponsor_and_steward'
-                        WHEN COALESCE(sponsor_counts.active_sponsor_count, 0) > 0 THEN 'sponsor_backed'
+                        WHEN COALESCE(sponsor_counts.eligible_sponsor_count, 0) > 0 THEN 'sponsor_backed'
                         WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
                         ELSE 'none'
                     END AS sponsor_display_state,
@@ -2244,8 +2244,8 @@ async fn rebuild_all_realm_review_summaries_tx<C: GenericClient + Sync>(
                     created_at DESC,
                     realm_sponsor_record_id DESC
             ),
-            active_sponsors AS (
-                SELECT realm_id, COUNT(*) AS active_sponsor_count
+            eligible_sponsors AS (
+                SELECT realm_id, COUNT(*) AS eligible_sponsor_count
                 FROM current_sponsor_lineages
                 WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
                 GROUP BY realm_id
@@ -2319,7 +2319,7 @@ async fn rebuild_all_realm_review_summaries_tx<C: GenericClient + Sync>(
                             THEN GREATEST(EXTRACT(EPOCH FROM (corridor.ends_at - CURRENT_TIMESTAMP))::bigint, 0)
                         ELSE 0
                     END AS corridor_remaining_seconds,
-                    COALESCE(active_sponsors.active_sponsor_count, 0) AS active_sponsor_count,
+                    COALESCE(eligible_sponsors.eligible_sponsor_count, 0) AS active_sponsor_count,
                     COALESCE(
                         sponsor_backed_admissions.sponsor_backed_admission_count,
                         0
@@ -2350,8 +2350,8 @@ async fn rebuild_all_realm_review_summaries_tx<C: GenericClient + Sync>(
                 FROM dao.realms realm
                 LEFT JOIN latest_corridor corridor
                   ON corridor.realm_id = realm.realm_id
-                LEFT JOIN active_sponsors
-                  ON active_sponsors.realm_id = realm.realm_id
+                LEFT JOIN eligible_sponsors
+                  ON eligible_sponsors.realm_id = realm.realm_id
                 LEFT JOIN sponsor_backed_admissions
                   ON sponsor_backed_admissions.realm_id = realm.realm_id
                 LEFT JOIN recent_admissions
@@ -2427,7 +2427,7 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
             ),
             sponsor_counts AS (
                 SELECT
-                    COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS active_sponsor_count
+                    COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS eligible_sponsor_count
                 FROM (
                     SELECT DISTINCT ON (sponsor_account_id)
                         sponsor_account_id,
@@ -2480,9 +2480,9 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                     ELSE 'review_required'
                 END AS admission_posture,
                 CASE
-                    WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0
+                    WHEN COALESCE((SELECT eligible_sponsor_count FROM sponsor_counts), 0) > 0
                          AND realm.steward_account_id IS NOT NULL THEN 'sponsor_and_steward'
-                    WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0 THEN 'sponsor_backed'
+                    WHEN COALESCE((SELECT eligible_sponsor_count FROM sponsor_counts), 0) > 0 THEN 'sponsor_backed'
                     WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
                     ELSE 'none'
                 END AS sponsor_display_state,
@@ -2678,8 +2678,8 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                 ORDER BY updated_at DESC, bootstrap_corridor_id DESC
                 LIMIT 1
             ),
-            active_sponsors AS (
-                SELECT COUNT(*) AS active_sponsor_count
+            eligible_sponsors AS (
+                SELECT COUNT(*) AS eligible_sponsor_count
                 FROM (
                     SELECT DISTINCT ON (sponsor_account_id)
                         sponsor_account_id,
@@ -2756,7 +2756,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                         THEN GREATEST(EXTRACT(EPOCH FROM ((SELECT ends_at FROM latest_corridor) - CURRENT_TIMESTAMP))::bigint, 0)
                     ELSE 0
                 END AS corridor_remaining_seconds,
-                (SELECT active_sponsor_count FROM active_sponsors) AS active_sponsor_count,
+                (SELECT eligible_sponsor_count FROM eligible_sponsors) AS active_sponsor_count,
                 (SELECT sponsor_backed_admission_count FROM sponsor_backed_admissions) AS sponsor_backed_admission_count,
                 (SELECT recent_admission_count_7d FROM recent_admissions) AS recent_admission_count_7d,
                 (SELECT open_review_trigger_count FROM open_triggers) AS open_review_trigger_count,
@@ -3424,9 +3424,18 @@ async fn ensure_sponsor_status_transition_allowed_tx<C: GenericClient + Sync>(
         _ => false,
     };
     if !transition_allowed {
-        return Err(RealmBootstrapError::BadRequest(
-            "sponsor account already has an open sponsor record for this realm".to_owned(),
-        ));
+        let message = match current_status.as_deref() {
+            None => format!(
+                "cannot transition sponsor status to '{next_sponsor_status}' because no sponsor record exists for this realm"
+            ),
+            Some(current) if current == next_sponsor_status => {
+                format!("sponsor account is already in status '{next_sponsor_status}'")
+            }
+            Some(current) => format!(
+                "sponsor status transition from '{current}' to '{next_sponsor_status}' is not allowed"
+            ),
+        };
+        return Err(RealmBootstrapError::BadRequest(message));
     }
     Ok(())
 }
