@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use musubi_db_runtime::{DbConfig, connect_writer};
@@ -367,12 +367,17 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
+        let realm_request_ids: Vec<Uuid> =
+            rows.iter().map(|row| row.get("realm_request_id")).collect();
+        let mut triggers_by_request =
+            read_open_realm_request_triggers_by_request_tx(&*client, &realm_request_ids).await?;
         let mut snapshots = Vec::with_capacity(rows.len());
         for row in rows {
             let realm_request_id: Uuid = row.get("realm_request_id");
             let mut snapshot = realm_request_from_row(&row)?;
-            snapshot.open_review_triggers =
-                read_open_realm_request_triggers_tx(&*client, &realm_request_id).await?;
+            snapshot.open_review_triggers = triggers_by_request
+                .remove(&realm_request_id)
+                .unwrap_or_default();
             snapshots.push(snapshot);
         }
         Ok(snapshots)
@@ -1848,26 +1853,6 @@ async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
                         realm_sponsor_record_id DESC
                 ) current_sponsor_lineages
             ),
-            source_counts AS (
-                SELECT
-                    1
-                    + COALESCE((SELECT COUNT(*) FROM dao.realm_sponsor_records WHERE realm_id = $1), 0)
-                    + COALESCE((SELECT COUNT(*) FROM dao.realm_admissions WHERE realm_id = $1), 0)
-                    + COALESCE((SELECT COUNT(*) FROM dao.bootstrap_corridors WHERE realm_id = $1), 0)
-                    + COALESCE((SELECT COUNT(*) FROM dao.realm_review_triggers WHERE realm_id = $1), 0)
-                    AS source_fact_count
-            ),
-            watermarks AS (
-                SELECT GREATEST(
-                    realm.updated_at,
-                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_sponsor_records WHERE realm_id = $1), realm.updated_at),
-                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_admissions WHERE realm_id = $1), realm.updated_at),
-                    COALESCE((SELECT MAX(updated_at) FROM dao.bootstrap_corridors WHERE realm_id = $1), realm.updated_at),
-                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_review_triggers WHERE realm_id = $1), realm.updated_at)
-                ) AS source_watermark_at
-                FROM dao.realms realm
-                WHERE realm.realm_id = $1
-            ),
             computed AS (
                 SELECT
                     realm.realm_id,
@@ -1895,9 +1880,13 @@ async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
                         WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
                         ELSE 'none'
                     END AS sponsor_display_state,
-                    (SELECT source_watermark_at FROM watermarks) AS source_watermark_at,
-                    (SELECT source_fact_count FROM source_counts) AS source_fact_count
+                    COALESCE(projection.source_watermark_at, realm.updated_at) AS source_watermark_at,
+                    COALESCE(projection.source_fact_count, 1::bigint) AS source_fact_count,
+                    COALESCE(projection.rebuild_generation, 1::bigint) AS rebuild_generation,
+                    COALESCE(projection.last_projected_at, CURRENT_TIMESTAMP) AS last_projected_at
                 FROM dao.realms realm
+                LEFT JOIN projection.realm_bootstrap_views projection
+                  ON projection.realm_id = realm.realm_id
                 WHERE realm.realm_id = $1
             )
             SELECT
@@ -1906,11 +1895,9 @@ async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
                     FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - computed.source_watermark_at)) * 1000),
                     0
                 )::bigint AS projection_lag_ms,
-                COALESCE(projection.rebuild_generation, 1::bigint) AS rebuild_generation,
-                COALESCE(projection.last_projected_at, CURRENT_TIMESTAMP) AS last_projected_at
+                computed.rebuild_generation,
+                computed.last_projected_at
             FROM computed
-            LEFT JOIN projection.realm_bootstrap_views projection
-              ON projection.realm_id = computed.realm_id
             ",
             &[&realm_id],
         )
@@ -4053,6 +4040,37 @@ async fn read_open_realm_request_triggers_tx<C: GenericClient + Sync>(
         .await
         .map_err(db_error)?;
     rows.iter().map(realm_review_trigger_from_row).collect()
+}
+
+async fn read_open_realm_request_triggers_by_request_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_request_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<RealmReviewTriggerSnapshot>>, RealmBootstrapError> {
+    if realm_request_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = client
+        .query(
+            "
+            SELECT *
+            FROM dao.realm_review_triggers
+            WHERE related_realm_request_id = ANY($1::uuid[])
+              AND trigger_state = 'open'
+            ORDER BY related_realm_request_id, created_at DESC, realm_review_trigger_id DESC
+            ",
+            &[&realm_request_ids],
+        )
+        .await
+        .map_err(db_error)?;
+    let mut triggers_by_request: HashMap<Uuid, Vec<RealmReviewTriggerSnapshot>> = HashMap::new();
+    for row in rows {
+        let realm_request_id: Uuid = row.get("related_realm_request_id");
+        triggers_by_request
+            .entry(realm_request_id)
+            .or_default()
+            .push(realm_review_trigger_from_row(&row)?);
+    }
+    Ok(triggers_by_request)
 }
 
 fn realm_request_from_row(row: &Row) -> Result<RealmRequestSnapshot, RealmBootstrapError> {
