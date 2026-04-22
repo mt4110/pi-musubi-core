@@ -1416,6 +1416,266 @@ async fn pending_admission_can_be_superseded_by_operator_admission_after_review(
 }
 
 #[tokio::test]
+async fn corridor_member_cap_counts_distinct_accounts_when_pending_rows_repeat() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-corridor-distinct-a",
+        "realm-corridor-distinct-a",
+    )
+    .await;
+    let repeated_member = sign_in(
+        &app,
+        "pi-user-realm-corridor-distinct-b",
+        "realm-corridor-distinct-b",
+    )
+    .await;
+    let next_member = sign_in(
+        &app,
+        "pi-user-realm-corridor-distinct-c",
+        "realm-corridor-distinct-c",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-corridor-distinct-001",
+    )
+    .await;
+    let corridor_id: Uuid = client
+        .query_one(
+            "
+            SELECT bootstrap_corridor_id
+            FROM dao.bootstrap_corridors
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("bootstrap corridor must query")
+        .get("bootstrap_corridor_id");
+    let repeated_member_id =
+        Uuid::parse_str(&repeated_member.account_id).expect("member id must be uuid");
+    let approver_uuid = Uuid::parse_str(&approver_id).expect("operator id must be uuid");
+
+    for index in 0..2 {
+        let source_fact_id = format!("realm-corridor-distinct-pending-{index}");
+        let request_idempotency_key = format!("realm-corridor-distinct-pending-{index}");
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    source_snapshot_json,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'review_required',
+                    'pending',
+                    NULL,
+                    $4,
+                    'operator',
+                    $5,
+                    'review_required',
+                    'operator_review',
+                    $6,
+                    '{}'::jsonb,
+                    $7,
+                    repeat('7', 64)
+                )
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &realm_id,
+                    &repeated_member_id,
+                    &corridor_id,
+                    &approver_uuid,
+                    &source_fact_id,
+                    &request_idempotency_key,
+                ],
+            )
+            .await
+            .expect("pending corridor admission must insert");
+    }
+
+    let next = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": next_member.account_id,
+            "source_fact_kind": "operator_review",
+            "source_fact_id": "realm-corridor-distinct-next",
+            "source_snapshot_json": {
+                "review_outcome": "approved"
+            },
+            "request_idempotency_key": "realm-corridor-distinct-next"
+        }),
+    )
+    .await;
+    assert_eq!(next.status, StatusCode::OK);
+    assert_eq!(next.body["admission_kind"], "corridor");
+    assert_eq!(next.body["admission_status"], "admitted");
+}
+
+#[tokio::test]
+async fn sponsor_quota_counts_distinct_accounts_when_pending_rows_repeat() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-distinct-a",
+        "realm-sponsor-distinct-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-distinct-b",
+        "realm-sponsor-distinct-b",
+    )
+    .await;
+    let repeated_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-distinct-c",
+        "realm-sponsor-distinct-c",
+    )
+    .await;
+    let next_member = sign_in(
+        &app,
+        "pi-user-realm-sponsor-distinct-d",
+        "realm-sponsor-distinct-d",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "active",
+        "realm-sponsor-distinct-001",
+    )
+    .await;
+    let sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+    client
+        .execute(
+            "
+            UPDATE dao.realm_sponsor_records
+            SET quota_total = 2
+            WHERE realm_sponsor_record_id::text = $1
+            ",
+            &[&sponsor_record_id],
+        )
+        .await
+        .expect("sponsor quota must update");
+
+    let sponsor_record_uuid =
+        Uuid::parse_str(&sponsor_record_id).expect("sponsor record id must be uuid");
+    let repeated_member_id =
+        Uuid::parse_str(&repeated_member.account_id).expect("member id must be uuid");
+    let approver_uuid = Uuid::parse_str(&approver_id).expect("operator id must be uuid");
+
+    for index in 0..2 {
+        let source_fact_id = format!("realm-sponsor-distinct-pending-{index}");
+        let request_idempotency_key = format!("realm-sponsor-distinct-pending-{index}");
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    sponsor_record_id,
+                    bootstrap_corridor_id,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    source_snapshot_json,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'sponsor_backed',
+                    'pending',
+                    $4,
+                    NULL,
+                    'operator',
+                    $5,
+                    'active_after_review',
+                    'operator_review',
+                    $6,
+                    '{}'::jsonb,
+                    $7,
+                    repeat('8', 64)
+                )
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &realm_id,
+                    &repeated_member_id,
+                    &sponsor_record_uuid,
+                    &approver_uuid,
+                    &source_fact_id,
+                    &request_idempotency_key,
+                ],
+            )
+            .await
+            .expect("pending sponsor admission must insert");
+    }
+
+    let next = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": next_member.account_id,
+            "sponsor_record_id": sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-sponsor-distinct-next",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-sponsor-distinct-next"
+        }),
+    )
+    .await;
+    assert_eq!(next.status, StatusCode::OK);
+    assert_eq!(next.body["admission_kind"], "sponsor_backed");
+    assert_eq!(next.body["admission_status"], "admitted");
+}
+
+#[tokio::test]
 async fn sponsor_backed_admission_respects_corridor_member_cap() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

@@ -2746,7 +2746,7 @@ async fn count_corridor_admissions_tx<C: GenericClient + Sync>(
     Ok(client
         .query_one(
             "
-            SELECT COUNT(*) AS count
+            SELECT COUNT(DISTINCT account_id) AS count
             FROM dao.realm_admissions
             WHERE bootstrap_corridor_id = $1
               AND admission_status IN ('pending', 'admitted')
@@ -2766,7 +2766,7 @@ async fn count_sponsor_backed_admissions_tx<C: GenericClient + Sync>(
     Ok(client
         .query_one(
             "
-            SELECT COUNT(*) AS count
+            SELECT COUNT(DISTINCT admission.account_id) AS count
             FROM dao.realm_admissions admission
             JOIN dao.realm_sponsor_records sponsor
               ON sponsor.realm_sponsor_record_id = admission.sponsor_record_id
