@@ -44,10 +44,18 @@ async fn ops_readiness_does_not_probe_migration_advisory_lock() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let client = test_db_client().await;
-    client
-        .execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK_KEY])
+    let lock_row = client
+        .query_one(
+            "SELECT pg_try_advisory_lock($1) AS locked",
+            &[&MIGRATION_LOCK_KEY],
+        )
         .await
-        .expect("migration advisory lock must be held");
+        .expect("migration advisory lock acquisition must complete");
+    let lock_acquired: bool = lock_row.get("locked");
+    assert!(
+        lock_acquired,
+        "migration advisory lock must be available for this test"
+    );
 
     let response = get_json(&app, "/api/internal/ops/readiness", None).await;
 
