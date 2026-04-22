@@ -593,6 +593,28 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     .await;
     assert_eq!(third_duplicate.status, StatusCode::OK);
     assert_eq!(third_duplicate.body["request_state"], "pending_review");
+    let third_duplicate_request_id = third_duplicate.body["realm_request_id"]
+        .as_str()
+        .expect("third duplicate request id must exist");
+    let duplicate_trigger = client
+        .query_one(
+            "
+            SELECT related_realm_request_id::text AS related_realm_request_id,
+                   context_json
+            FROM dao.realm_review_triggers
+            WHERE trigger_kind = 'duplicate_venue_context'
+              AND trigger_state = 'open'
+            ",
+            &[],
+        )
+        .await
+        .expect("duplicate trigger must query");
+    assert_eq!(
+        duplicate_trigger.get::<_, String>("related_realm_request_id"),
+        third_duplicate_request_id
+    );
+    let duplicate_context: Value = duplicate_trigger.get("context_json");
+    assert_eq!(duplicate_context["matching_request_count"], 2);
 
     for index in 0..2 {
         let request = post_json(
@@ -2219,6 +2241,108 @@ async fn stale_sponsor_record_id_uses_latest_sponsor_status() {
 }
 
 #[tokio::test]
+async fn inactive_sponsor_account_blocks_auto_admission_and_can_be_revoked() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-inactive-sponsor-a",
+        "realm-inactive-sponsor-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-inactive-sponsor-b",
+        "realm-inactive-sponsor-b",
+    )
+    .await;
+    let first_member = sign_in(
+        &app,
+        "pi-user-realm-inactive-sponsor-c",
+        "realm-inactive-sponsor-c",
+    )
+    .await;
+    let second_member = sign_in(
+        &app,
+        "pi-user-realm-inactive-sponsor-d",
+        "realm-inactive-sponsor-d",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "active",
+        "realm-inactive-sponsor",
+    )
+    .await;
+    let stale_active_sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+    set_account_state(&client, &sponsor.account_id, "suspended").await;
+
+    let blocked = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": first_member.account_id,
+            "sponsor_record_id": stale_active_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-inactive-sponsor-blocked",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-inactive-sponsor-blocked"
+        }),
+    )
+    .await;
+    assert_eq!(blocked.status, StatusCode::OK);
+    assert_eq!(blocked.body["admission_kind"], "review_required");
+    assert_eq!(blocked.body["admission_status"], "pending");
+    assert_eq!(blocked.body["review_reason_code"], "sponsor_revoked");
+
+    let revoked_sponsor_record = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "revoked",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_revoked",
+            "request_idempotency_key": "realm-inactive-sponsor-revoked"
+        }),
+    )
+    .await;
+    assert_eq!(revoked_sponsor_record.status, StatusCode::OK);
+    let revoked_sponsor_record_id = revoked_sponsor_record.body["realm_sponsor_record_id"]
+        .as_str()
+        .expect("revoked sponsor record id must exist");
+
+    let revoked = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": second_member.account_id,
+            "sponsor_record_id": stale_active_sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-inactive-sponsor-revoked-admission",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-inactive-sponsor-revoked-admission"
+        }),
+    )
+    .await;
+    assert_eq!(revoked.status, StatusCode::OK);
+    assert_eq!(revoked.body["admission_kind"], "review_required");
+    assert_eq!(revoked.body["admission_status"], "pending");
+    assert_eq!(revoked.body["review_reason_code"], "sponsor_revoked");
+    assert_eq!(revoked.body["sponsor_record_id"], revoked_sponsor_record_id);
+}
+
+#[tokio::test]
 async fn sponsor_backed_admission_waits_for_sponsor_lineage_lock() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -3451,6 +3575,21 @@ async fn set_sponsor_status(
         )
         .await
         .expect("sponsor status must update");
+}
+
+async fn set_account_state(client: &tokio_postgres::Client, account_id: &str, account_state: &str) {
+    let account_id = Uuid::parse_str(account_id).expect("account id must be uuid");
+    client
+        .execute(
+            "
+            UPDATE core.accounts
+            SET account_state = $2
+            WHERE account_id = $1
+            ",
+            &[&account_id, &account_state],
+        )
+        .await
+        .expect("account state must update");
 }
 
 async fn expire_corridor_without_rebuild(client: &tokio_postgres::Client, realm_id: &str) {

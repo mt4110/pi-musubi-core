@@ -171,7 +171,6 @@ impl RealmBootstrapStore {
                             $11, $12
                         )
                         ON CONFLICT (requested_by_account_id, request_idempotency_key)
-                            WHERE request_idempotency_key IS NOT NULL
                         DO NOTHING
                         RETURNING *, NULL::text AS created_realm_id, TRUE AS was_inserted
                     )
@@ -201,7 +200,7 @@ impl RealmBootstrapStore {
                         )?,
                         &proposed_sponsor_account_id,
                         &proposed_steward_account_id,
-                        &Some(request_idempotency_key.clone()),
+                        &request_idempotency_key,
                         &request_payload_hash,
                     ],
                 )
@@ -533,7 +532,7 @@ impl RealmBootstrapStore {
                 quota_total,
                 &input.review_reason_code,
                 &operator_id,
-                None,
+                input.review_decision_idempotency_key.clone(),
                 sponsor_payload_hash,
             )
             .await?;
@@ -683,7 +682,12 @@ impl RealmBootstrapStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
-        ensure_active_account_exists_tx(&tx, &sponsor_account_id).await?;
+        ensure_sponsor_account_state_allows_status_tx(
+            &tx,
+            &sponsor_account_id,
+            &input.sponsor_status,
+        )
+        .await?;
         lock_realm_tx(&tx, &realm_id).await?;
         lock_sponsor_lineage_tx(&tx, &realm_id, &sponsor_account_id).await?;
         update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
@@ -714,7 +718,7 @@ impl RealmBootstrapStore {
                 input.quota_total,
                 &input.status_reason_code,
                 &operator_id,
-                Some(request_idempotency_key),
+                request_idempotency_key,
                 payload_hash.clone(),
             )
             .await?;
@@ -829,7 +833,6 @@ impl RealmBootstrapStore {
                         granted_by_actor_id,
                         request_idempotency_key
                     )
-                    WHERE request_idempotency_key IS NOT NULL
                     DO UPDATE
                     SET request_payload_hash = dao.realm_admissions.request_payload_hash
                     RETURNING *
@@ -848,7 +851,7 @@ impl RealmBootstrapStore {
                         &input.source_fact_kind,
                         &input.source_fact_id,
                         &input.source_snapshot_json,
-                        &Some(request_idempotency_key),
+                        &request_idempotency_key,
                         &payload_hash,
                     ],
                 )
@@ -1322,6 +1325,29 @@ async fn derive_admission_context_tx<C: GenericClient + Sync>(
             return Ok(context);
         }
         let sponsor_status: String = sponsor_row.get("sponsor_status");
+        let sponsor_account_state = find_account_state_tx(client, &sponsor_account_id)
+            .await?
+            .ok_or_else(|| {
+                RealmBootstrapError::BadRequest("sponsor account was not found".to_owned())
+            })?;
+        if sponsor_account_state != "active" {
+            return Ok(AdmissionContext {
+                admission_kind: "review_required",
+                admission_status: "pending",
+                reason_code: "sponsor_revoked",
+                sponsor_record_id: Some(current_sponsor_record_id),
+                bootstrap_corridor_id: active_corridor_id,
+                open_trigger: Some(trigger_intent(
+                    "revoked_sponsor_lineage",
+                    "sponsor_revoked",
+                    json!({
+                        "sponsor_account_state": sponsor_account_state,
+                        "sponsor_record_id": current_sponsor_record_id.to_string()
+                    }),
+                    format!("inactive-sponsor:{realm_id}:{sponsor_account_id}"),
+                )),
+            });
+        }
         let sponsor_quota_total: i64 = sponsor_row.get("quota_total");
         let sponsor_used_count =
             count_sponsor_backed_admissions_tx(client, realm_id, &sponsor_account_id).await?;
@@ -1526,7 +1552,7 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
     quota_total: i64,
     status_reason_code: &str,
     approved_by_operator_id: &Uuid,
-    request_idempotency_key: Option<String>,
+    request_idempotency_key: String,
     request_payload_hash: String,
 ) -> Result<Row, RealmBootstrapError> {
     let row = client
@@ -1550,7 +1576,6 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
                     approved_by_operator_id,
                     request_idempotency_key
                 )
-                WHERE request_idempotency_key IS NOT NULL
                 DO NOTHING
                 RETURNING *
             )
@@ -1581,27 +1606,19 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
         .map_err(db_error)?;
     match row {
         Some(row) => Ok(row),
-        None => match request_idempotency_key.as_deref() {
-            Some(key) => find_sponsor_record_by_idempotency_tx(
-                client,
-                realm_id,
-                approved_by_operator_id,
-                key,
-            )
-            .await?
-            .ok_or_else(|| RealmBootstrapError::Database {
-                message: "realm sponsor record idempotency replay was not yet visible".to_owned(),
-                code: None,
-                constraint: None,
-                retryable: true,
-            }),
-            None => Err(RealmBootstrapError::Database {
-                message: "realm sponsor record insert did not return a row".to_owned(),
-                code: None,
-                constraint: None,
-                retryable: true,
-            }),
-        },
+        None => find_sponsor_record_by_idempotency_tx(
+            client,
+            realm_id,
+            approved_by_operator_id,
+            &request_idempotency_key,
+        )
+        .await?
+        .ok_or_else(|| RealmBootstrapError::Database {
+            message: "realm sponsor record idempotency replay was not yet visible".to_owned(),
+            code: None,
+            constraint: None,
+            retryable: true,
+        }),
     }
 }
 
@@ -3237,27 +3254,52 @@ async fn ensure_active_account_exists_tx<C: GenericClient + Sync>(
     client: &C,
     account_id: &Uuid,
 ) -> Result<(), RealmBootstrapError> {
-    let row = client
-        .query_one(
-            "
-            SELECT EXISTS (
-                SELECT 1
-                FROM core.accounts
-                WHERE account_id = $1
-                  AND account_state = 'active'
-            ) AS exists
-            ",
-            &[account_id],
-        )
-        .await
-        .map_err(db_error)?;
-    if row.get::<_, bool>("exists") {
+    if find_account_state_tx(client, account_id).await?.as_deref() == Some("active") {
         Ok(())
     } else {
         Err(RealmBootstrapError::BadRequest(
             "account id must reference an active account".to_owned(),
         ))
     }
+}
+
+async fn ensure_sponsor_account_state_allows_status_tx<C: GenericClient + Sync>(
+    client: &C,
+    sponsor_account_id: &Uuid,
+    sponsor_status: &str,
+) -> Result<(), RealmBootstrapError> {
+    let account_state = find_account_state_tx(client, sponsor_account_id)
+        .await?
+        .ok_or_else(|| {
+            RealmBootstrapError::BadRequest(
+                "sponsor account id must reference an account".to_owned(),
+            )
+        })?;
+    if account_state == "active" || matches!(sponsor_status, "rate_limited" | "revoked") {
+        Ok(())
+    } else {
+        Err(RealmBootstrapError::BadRequest(
+            "sponsor account must be active for this sponsor status".to_owned(),
+        ))
+    }
+}
+
+async fn find_account_state_tx<C: GenericClient + Sync>(
+    client: &C,
+    account_id: &Uuid,
+) -> Result<Option<String>, RealmBootstrapError> {
+    Ok(client
+        .query_opt(
+            "
+            SELECT account_state
+            FROM core.accounts
+            WHERE account_id = $1
+            ",
+            &[account_id],
+        )
+        .await
+        .map_err(db_error)?
+        .map(|row| row.get("account_state")))
 }
 
 async fn ensure_operator_role_tx<C: GenericClient + Sync>(
@@ -3650,6 +3692,11 @@ async fn open_trigger_tx<C: GenericClient + Sync>(
             ON CONFLICT (trigger_fingerprint)
                 WHERE trigger_state = 'open'
             DO UPDATE SET
+                redacted_reason_code = EXCLUDED.redacted_reason_code,
+                related_account_id = EXCLUDED.related_account_id,
+                related_realm_request_id = EXCLUDED.related_realm_request_id,
+                related_sponsor_record_id = EXCLUDED.related_sponsor_record_id,
+                context_json = EXCLUDED.context_json,
                 updated_at = CURRENT_TIMESTAMP
             ",
             &[

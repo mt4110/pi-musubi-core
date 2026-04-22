@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS dao.realm_requests (
             'operator_restriction'
         )
     ),
-    request_idempotency_key TEXT CHECK (
-        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    request_idempotency_key TEXT NOT NULL CHECK (
+        char_length(trim(request_idempotency_key)) > 0
     ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     reviewed_by_operator_id UUID REFERENCES core.accounts(account_id),
@@ -72,8 +72,7 @@ CREATE TABLE IF NOT EXISTS dao.realm_requests (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_requests_request_idempotency_unique
-    ON dao.realm_requests (requested_by_account_id, request_idempotency_key)
-    WHERE request_idempotency_key IS NOT NULL;
+    ON dao.realm_requests (requested_by_account_id, request_idempotency_key);
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_requests_open_slug_candidate_unique
     ON dao.realm_requests (slug_candidate)
@@ -162,8 +161,8 @@ CREATE TABLE IF NOT EXISTS dao.realm_sponsor_records (
         )
     ),
     approved_by_operator_id UUID NOT NULL REFERENCES core.accounts(account_id),
-    request_idempotency_key TEXT CHECK (
-        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    request_idempotency_key TEXT NOT NULL CHECK (
+        char_length(trim(request_idempotency_key)) > 0
     ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -171,8 +170,7 @@ CREATE TABLE IF NOT EXISTS dao.realm_sponsor_records (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_sponsor_records_idempotency_unique
-    ON dao.realm_sponsor_records (realm_id, approved_by_operator_id, request_idempotency_key)
-    WHERE request_idempotency_key IS NOT NULL;
+    ON dao.realm_sponsor_records (realm_id, approved_by_operator_id, request_idempotency_key);
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_sponsor_records_id_realm_unique
     ON dao.realm_sponsor_records (realm_sponsor_record_id, realm_id);
@@ -268,8 +266,8 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
     source_fact_kind TEXT NOT NULL CHECK (char_length(trim(source_fact_kind)) > 0),
     source_fact_id TEXT NOT NULL CHECK (char_length(trim(source_fact_id)) > 0),
     source_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    request_idempotency_key TEXT CHECK (
-        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    request_idempotency_key TEXT NOT NULL CHECK (
+        char_length(trim(request_idempotency_key)) > 0
     ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -281,8 +279,7 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_idempotency_unique
-    ON dao.realm_admissions (realm_id, granted_by_actor_id, request_idempotency_key)
-    WHERE request_idempotency_key IS NOT NULL;
+    ON dao.realm_admissions (realm_id, granted_by_actor_id, request_idempotency_key);
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_active_unique
     ON dao.realm_admissions (realm_id, account_id)
