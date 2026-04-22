@@ -171,8 +171,7 @@ impl RealmBootstrapStore {
                             'request_received',
                             $11, $12
                         )
-                        ON CONFLICT (requested_by_account_id, request_idempotency_key)
-                        DO NOTHING
+                        ON CONFLICT DO NOTHING
                         RETURNING *, NULL::text AS created_realm_id, TRUE AS was_inserted
                     )
                     SELECT *
@@ -209,9 +208,10 @@ impl RealmBootstrapStore {
                 .map_err(db_error)?
             {
                 Some(row) => row,
-                None => tx
-                    .query_opt(
-                        "
+                None => {
+                    match tx
+                        .query_opt(
+                            "
                         SELECT request.*, realm.realm_id AS created_realm_id, FALSE AS was_inserted
                         FROM dao.realm_requests request
                         LEFT JOIN dao.realms realm
@@ -219,16 +219,44 @@ impl RealmBootstrapStore {
                         WHERE request.requested_by_account_id = $1
                           AND request.request_idempotency_key = $2
                         ",
-                        &[&requester_account_id, &request_idempotency_key],
-                    )
-                    .await
-                    .map_err(db_error)?
-                    .ok_or_else(|| RealmBootstrapError::Database {
-                        message: "realm request idempotency replay was not yet visible".to_owned(),
-                        code: None,
-                        constraint: None,
-                        retryable: true,
-                    })?,
+                            &[&requester_account_id, &request_idempotency_key],
+                        )
+                        .await
+                        .map_err(db_error)?
+                    {
+                        Some(row) => row,
+                        None => {
+                            let slug_conflict = tx
+                                .query_opt(
+                                    "
+                                    SELECT 1
+                                    FROM dao.realm_requests
+                                    WHERE slug_candidate = $1
+                                      AND request_state IN (
+                                          'requested',
+                                          'pending_review',
+                                          'approved'
+                                      )
+                                    ",
+                                    &[&slug_candidate],
+                                )
+                                .await
+                                .map_err(db_error)?;
+                            if slug_conflict.is_some() {
+                                return Err(RealmBootstrapError::BadRequest(
+                                    "slug_candidate already has an open realm request".to_owned(),
+                                ));
+                            }
+                            return Err(RealmBootstrapError::Database {
+                                message: "realm request idempotency replay was not yet visible"
+                                    .to_owned(),
+                                code: None,
+                                constraint: None,
+                                retryable: true,
+                            });
+                        }
+                    }
+                }
             };
             if !request_row.get::<_, bool>("was_inserted") {
                 ensure_request_payload_hash_matches(&request_row, &request_payload_hash)?;
