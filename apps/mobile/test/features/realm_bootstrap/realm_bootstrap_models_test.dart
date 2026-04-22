@@ -94,6 +94,13 @@ void main() {
     expect(copy, isNot(contains('boost')));
   });
 
+  test('realm bootstrap labels keep participant copy bounded', () {
+    expect(admissionKindLabel('corridor'), 'コリドー');
+    expect(reviewReasonCodeLabel('duplicate_or_invalid'), '内容を確認中');
+    expect(reviewReasonCodeLabel('operator_restriction'), '安全確認中');
+    expect(reviewReasonCodeLabel('raw_internal_reason'), '確認中');
+  });
+
   test('realm bootstrap parsing fails fast on missing required fields', () {
     expect(
       () => RealmBootstrapView.fromJson({

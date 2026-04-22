@@ -379,7 +379,10 @@ class _RealmRequestPanel extends StatelessWidget {
           ),
           _RealmStatusRow(label: 'Realm', value: request.displayName),
           _RealmStatusRow(label: 'slug', value: request.slugCandidate),
-          _RealmStatusRow(label: '確認理由', value: request.reviewReasonCode),
+          _RealmStatusRow(
+            label: '確認理由',
+            value: reviewReasonCodeLabel(request.reviewReasonCode),
+          ),
           if (request.createdRealmId != null)
             _RealmStatusRow(label: 'realm_id', value: request.createdRealmId!),
           const SizedBox(height: 12),
@@ -469,7 +472,7 @@ class _AdmissionRequestPanel extends StatelessWidget {
             value: admissionKindLabel(admission?.admissionKind ?? ''),
           ),
           _RealmStatusRow(
-            label: 'queue',
+            label: '確認状態',
             value: admissionQueueLabel(admission?.admissionStatus ?? ''),
           ),
         ],

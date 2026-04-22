@@ -106,7 +106,39 @@ void main() {
         isA<BusinessException>().having(
           (error) => error.message,
           'message',
-          'request_idempotency_key replay payload mismatch',
+          'Realm申請の内容を確認してください。',
+        ),
+      ),
+    );
+  });
+
+  test('api realm repository maps safe backend errors to participant copy',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      return _jsonResponse(409, {
+        'error': 'slug_candidate already has an open realm request',
+      });
+    });
+    final repository = ApiRealmBootstrapRepository(ApiClient(dio));
+
+    expect(
+      () => repository.createRealmRequest(
+        const CreateRealmRequestDraft(
+          displayName: 'Tokyo slow coffee',
+          slugCandidate: 'tokyo-slow-coffee',
+          purposeText: 'Calm local meetings.',
+          venueContextText: 'Tokyo cafe',
+          expectedMemberShapeText: 'small',
+          bootstrapRationaleText: 'Start bounded.',
+          requestIdempotencyKey: 'realm-request-1',
+        ),
+      ),
+      throwsA(
+        isA<BusinessException>().having(
+          (error) => error.message,
+          'message',
+          'このslugは確認中です。別のslugで申請してください。',
         ),
       ),
     );

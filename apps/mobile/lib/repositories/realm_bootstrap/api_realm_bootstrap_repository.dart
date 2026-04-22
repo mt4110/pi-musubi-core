@@ -73,9 +73,11 @@ class ApiRealmBootstrapRepository implements RealmBootstrapRepository {
         return BusinessException(message: notFoundMessage);
       }
       if (statusCode == 400 || statusCode == 409) {
+        final safeMessage = _safeRealmBootstrapMessage(
+          _errorResponseMessage(error.response?.data),
+        );
         return BusinessException(
-          message: _errorResponseMessage(error.response?.data) ??
-              'Realm申請の内容を確認してください。',
+          message: safeMessage ?? 'Realm申請の内容を確認してください。',
         );
       }
     }
@@ -91,5 +93,17 @@ class ApiRealmBootstrapRepository implements RealmBootstrapRepository {
       return message;
     }
     return null;
+  }
+
+  String? _safeRealmBootstrapMessage(String? message) {
+    return switch (message) {
+      'slug_candidate already has an open realm request' =>
+        'このslugは確認中です。別のslugで申請してください。',
+      'approved slug is already in use' =>
+        'このslugはすでに使われています。別のslugで申請してください。',
+      'realm bootstrap summary was not found' => 'Realmの状態を確認できませんでした。',
+      'realm request was not found' => 'Realm申請を確認できませんでした。',
+      _ => null,
+    };
   }
 }

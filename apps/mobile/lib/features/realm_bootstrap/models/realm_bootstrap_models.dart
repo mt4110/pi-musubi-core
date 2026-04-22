@@ -238,9 +238,29 @@ String admissionKindLabel(String kind) {
   return switch (kind) {
     'normal' => '通常',
     'sponsor_backed' => 'スポンサー経由',
-    'corridor' => 'corridor',
+    'corridor' => 'コリドー',
     'review_required' => '確認待ち',
     _ => '未申請',
+  };
+}
+
+String reviewReasonCodeLabel(String reasonCode) {
+  return switch (reasonCode) {
+    'request_received' => '申請を確認中',
+    'review_required' => '確認が必要です',
+    'limited_bootstrap_active' => '限定受付中',
+    'active_after_review' => '受付中',
+    'request_rejected' => '今回は見送り',
+    'duplicate_or_invalid' => '内容を確認中',
+    'sponsor_required' => 'スポンサー確認中',
+    'bootstrap_capacity_reached' => '受付枠を確認中',
+    'bootstrap_expired' => '受付期間を確認中',
+    'sponsor_rate_limited' => 'スポンサー確認中',
+    'sponsor_revoked' => 'スポンサー確認中',
+    'restricted_after_review' => '安全確認中',
+    'suspended_after_review' => '一時停止中',
+    'operator_restriction' => '安全確認中',
+    _ => '確認中',
   };
 }
 
