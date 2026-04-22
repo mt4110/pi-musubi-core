@@ -911,7 +911,7 @@ impl RealmBootstrapStore {
                     LIMIT 1
                 ) latest_admission
                 WHERE admission_status = 'admitted'
-                ORDER BY updated_at DESC, realm_admission_id DESC
+                ORDER BY updated_at DESC, created_at DESC, realm_admission_id DESC
                 ",
                 &[&realm_id, &viewer_account_id],
             )
@@ -2469,7 +2469,7 @@ async fn refresh_realm_admission_view_tx<C: GenericClient + Sync>(
                 FROM dao.realm_admissions
                 WHERE realm_id = $1
                   AND account_id = $2
-                ORDER BY updated_at DESC, realm_admission_id DESC
+                ORDER BY updated_at DESC, created_at DESC, realm_admission_id DESC
                 LIMIT 1
             ),
             source_counts AS (
