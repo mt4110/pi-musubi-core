@@ -13,6 +13,7 @@ pub mod payments;
 pub mod projection;
 pub mod promise_intents;
 pub mod proof;
+pub mod realm_bootstrap;
 pub mod room_progression;
 
 #[derive(Debug, Serialize)]

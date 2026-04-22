@@ -5,6 +5,7 @@ import '../features/auth/presentation/pi_sign_in_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/home/presentation/match_detail_screen.dart';
 import '../features/promise/presentation/promise_status_screen.dart';
+import '../features/realm_bootstrap/presentation/realm_bootstrap_screen.dart';
 import '../repositories/auth/auth_session_controller.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -17,6 +18,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final path = state.uri.path;
       final isSignInRoute = path == '/sign-in';
       final isHomeFlow = path == '/home' ||
+          path == '/realms/bootstrap' ||
           path.startsWith('/detail/') ||
           path.startsWith('/promises/');
 
@@ -44,6 +46,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PiSignInScreen(),
       ),
       GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
+      GoRoute(
+        path: '/realms/bootstrap',
+        builder: (context, state) => const RealmBootstrapScreen(),
+      ),
       GoRoute(
         path: '/detail/:profileId',
         builder: (context, state) => MatchDetailScreen(
