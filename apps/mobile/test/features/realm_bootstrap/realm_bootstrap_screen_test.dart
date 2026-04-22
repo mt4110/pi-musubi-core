@@ -190,6 +190,45 @@ void main() {
     expect(find.textContaining('ランキング'), findsNothing);
     expect(find.textContaining('DM unlock'), findsNothing);
   });
+
+  testWidgets('realm summary UI clears stale summary after failed fetch', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final repository = _FakeRealmBootstrapRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWith((ref) => _FakeAuthRepository()),
+          realmBootstrapRepositoryProvider.overrideWith((ref) => repository),
+        ],
+        child: const _WarmAuthSession(
+          child: MaterialApp(home: RealmBootstrapScreen()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('realm_summary_realm_id')),
+      'realm-00000000-0000-4000-8000-000000000001',
+    );
+    final summaryButton = find.widgetWithText(MusubiGhostButton, '状態を確認');
+    await tester.tap(summaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Tokyo slow coffee'), findsOneWidget);
+
+    repository.failNextSummary = true;
+    await tester.enterText(
+      find.byKey(const Key('realm_summary_realm_id')),
+      'realm-00000000-0000-4000-8000-000000000404',
+    );
+    await tester.tap(summaryButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tokyo slow coffee'), findsNothing);
+    expect(find.textContaining('realm summary failed'), findsOneWidget);
+  });
 }
 
 Future<void> _useTallSurface(WidgetTester tester) async {
@@ -233,6 +272,7 @@ class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
   CreateRealmRequestDraft? createdDraft;
   final createdDrafts = <CreateRealmRequestDraft>[];
   bool failNextCreate = false;
+  bool failNextSummary = false;
 
   @override
   Future<RealmRequestView> createRealmRequest(
@@ -269,6 +309,10 @@ class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
   Future<RealmBootstrapSummaryBundle> fetchBootstrapSummary(
     String realmId,
   ) async {
+    if (failNextSummary) {
+      failNextSummary = false;
+      throw Exception('realm summary failed');
+    }
     return const RealmBootstrapSummaryBundle(
       realmRequest: null,
       bootstrapView: RealmBootstrapView(

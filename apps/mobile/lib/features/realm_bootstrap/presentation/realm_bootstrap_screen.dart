@@ -267,10 +267,14 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
   Future<void> _loadSummary() async {
     final realmId = _realmIdController.text.trim();
     if (realmId.isEmpty) {
+      setState(() => _summary = null);
       _showSnack('realm_id を入力してください。');
       return;
     }
-    setState(() => _isLoadingSummary = true);
+    setState(() {
+      _isLoadingSummary = true;
+      _summary = null;
+    });
     try {
       final summary = await ref
           .read(realmBootstrapRepositoryProvider)
