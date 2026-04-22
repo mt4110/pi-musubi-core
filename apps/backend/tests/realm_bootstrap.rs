@@ -635,6 +635,39 @@ async fn realm_request_requires_venue_context_and_expected_member_shape() {
 }
 
 #[tokio::test]
+async fn realm_request_rejects_unknown_candidate_account_without_enumeration() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-candidate-validation",
+        "realm-candidate-validation",
+    )
+    .await;
+
+    let response = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "候補検証Realm",
+            "slug_candidate": "candidate-validation-realm",
+            "purpose_text": "候補アカウント検証",
+            "venue_context_json": {"area": "tokyo"},
+            "expected_member_shape_json": {"shape": "small"},
+            "bootstrap_rationale_text": "未知の候補は公開面で列挙させない",
+            "proposed_sponsor_account_id": Uuid::new_v4(),
+            "request_idempotency_key": "candidate-validation-request"
+        }),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert!(response.body.to_string().contains("active account"));
+    assert!(!response.body.to_string().contains("not found"));
+}
+
+#[tokio::test]
 async fn active_realm_uses_normal_admission_kind_and_open_posture() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -2225,7 +2258,7 @@ async fn expired_and_disabled_corridor_do_not_grant_corridor_benefits_even_if_pr
 }
 
 #[tokio::test]
-async fn summary_reads_refresh_expired_corridor_without_unrelated_write() {
+async fn summary_reads_derive_expired_corridor_without_unrelated_write() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let requester = sign_in(
@@ -2268,6 +2301,11 @@ async fn summary_reads_refresh_expired_corridor_without_unrelated_write() {
     assert_eq!(
         participant_summary.body["bootstrap_view"]["admission_posture"],
         "review_required"
+    );
+    assert_eq!(current_corridor_status(&client, &realm_id).await, "active");
+    assert_eq!(
+        current_projection_corridor_status(&client, &realm_id).await,
+        "active"
     );
     assert_eq!(
         current_projection_rebuild_generation(&client, &realm_id).await,
@@ -2380,7 +2418,11 @@ async fn unauthorized_summary_read_does_not_expire_corridor_or_refresh_projectio
     )
     .await;
     assert_eq!(requester_summary.status, StatusCode::OK);
-    assert_eq!(current_corridor_status(&client, &realm_id).await, "expired");
+    assert_eq!(current_corridor_status(&client, &realm_id).await, "active");
+    assert_eq!(
+        current_projection_corridor_status(&client, &realm_id).await,
+        "active"
+    );
     assert_eq!(
         requester_summary.body["bootstrap_view"]["corridor_status"],
         "expired"

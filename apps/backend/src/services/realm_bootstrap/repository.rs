@@ -820,10 +820,9 @@ impl RealmBootstrapStore {
     ) -> Result<RealmBootstrapSummarySnapshot, RealmBootstrapError> {
         let viewer_account_id = parse_uuid(viewer_account_id, "viewer account id")?;
         let realm_id = normalize_required(realm_id, "realm id")?;
-        let mut client = self.client.lock().await;
-        let tx = client.transaction().await.map_err(db_error)?;
+        let client = self.client.lock().await;
 
-        let request_row = tx
+        let request_row = client
             .query_opt(
                 "
                 SELECT
@@ -839,7 +838,7 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
-        let admitted_row = tx
+        let admitted_row = client
             .query_opt(
                 "
                 SELECT *
@@ -865,49 +864,19 @@ impl RealmBootstrapStore {
             ));
         }
 
-        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
-        refresh_realm_bootstrap_view_tx(&tx, &realm_id, None).await?;
-        refresh_realm_admission_view_tx(&tx, &realm_id, &viewer_account_id, None).await?;
-
-        let bootstrap_row = tx
-            .query_opt(
-                "
-                SELECT *
-                FROM projection.realm_bootstrap_views
-                WHERE realm_id = $1
-                ",
-                &[&realm_id],
-            )
-            .await
-            .map_err(db_error)?
-            .ok_or_else(|| {
-                RealmBootstrapError::NotFound("realm bootstrap summary was not found".to_owned())
-            })?;
-        let admission_row = tx
-            .query_opt(
-                "
-                SELECT *
-                FROM projection.realm_admission_views
-                WHERE realm_id = $1
-                  AND account_id = $2
-                ",
-                &[&realm_id, &viewer_account_id],
-            )
-            .await
-            .map_err(db_error)?;
-
         let snapshot = RealmBootstrapSummarySnapshot {
             realm_request: request_row
                 .as_ref()
                 .map(realm_request_from_row)
                 .transpose()?,
-            bootstrap_view: realm_bootstrap_view_from_row(&bootstrap_row)?,
-            admission_view: admission_row
-                .as_ref()
-                .map(realm_admission_view_from_row)
-                .transpose()?,
+            bootstrap_view: read_current_realm_bootstrap_view(&*client, &realm_id).await?,
+            admission_view: read_current_realm_admission_view(
+                &*client,
+                &realm_id,
+                &viewer_account_id,
+            )
+            .await?,
         };
-        tx.commit().await.map_err(db_error)?;
         Ok(snapshot)
     }
 
@@ -1645,6 +1614,172 @@ async fn insert_bootstrap_corridor_tx<C: GenericClient + Sync>(
         .await
         .map_err(db_error)?;
     Ok(())
+}
+
+async fn read_current_realm_bootstrap_view<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+) -> Result<RealmBootstrapViewSnapshot, RealmBootstrapError> {
+    let row = client
+        .query_opt(
+            "
+            WITH latest_corridor AS (
+                SELECT *
+                FROM dao.bootstrap_corridors
+                WHERE realm_id = $1
+                ORDER BY updated_at DESC, bootstrap_corridor_id DESC
+                LIMIT 1
+            ),
+            current_corridor AS (
+                SELECT
+                    CASE
+                        WHEN corridor_status IN ('active', 'cooling_down')
+                             AND ends_at <= CURRENT_TIMESTAMP THEN 'expired'
+                        ELSE corridor_status
+                    END AS corridor_status
+                FROM latest_corridor
+            ),
+            sponsor_counts AS (
+                SELECT
+                    COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS active_sponsor_count
+                FROM (
+                    SELECT DISTINCT ON (sponsor_account_id)
+                        sponsor_account_id,
+                        sponsor_status
+                    FROM dao.realm_sponsor_records
+                    WHERE realm_id = $1
+                    ORDER BY
+                        sponsor_account_id,
+                        updated_at DESC,
+                        created_at DESC,
+                        realm_sponsor_record_id DESC
+                ) current_sponsor_lineages
+            ),
+            source_counts AS (
+                SELECT
+                    1
+                    + COALESCE((SELECT COUNT(*) FROM dao.realm_sponsor_records WHERE realm_id = $1), 0)
+                    + COALESCE((SELECT COUNT(*) FROM dao.realm_admissions WHERE realm_id = $1), 0)
+                    + COALESCE((SELECT COUNT(*) FROM dao.bootstrap_corridors WHERE realm_id = $1), 0)
+                    + COALESCE((SELECT COUNT(*) FROM dao.realm_review_triggers WHERE realm_id = $1), 0)
+                    AS source_fact_count
+            ),
+            watermarks AS (
+                SELECT GREATEST(
+                    realm.updated_at,
+                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_sponsor_records WHERE realm_id = $1), realm.updated_at),
+                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_admissions WHERE realm_id = $1), realm.updated_at),
+                    COALESCE((SELECT MAX(updated_at) FROM dao.bootstrap_corridors WHERE realm_id = $1), realm.updated_at),
+                    COALESCE((SELECT MAX(updated_at) FROM dao.realm_review_triggers WHERE realm_id = $1), realm.updated_at)
+                ) AS source_watermark_at
+                FROM dao.realms realm
+                WHERE realm.realm_id = $1
+            ),
+            computed AS (
+                SELECT
+                    realm.realm_id,
+                    realm.slug,
+                    realm.display_name,
+                    realm.realm_status,
+                    CASE
+                        WHEN realm.realm_status IN ('restricted', 'suspended') THEN 'closed'
+                        WHEN realm.realm_status = 'active' THEN 'open'
+                        WHEN realm.realm_status = 'limited_bootstrap' AND EXISTS (
+                            SELECT 1
+                            FROM latest_corridor
+                            WHERE corridor_status = 'active'
+                              AND starts_at <= CURRENT_TIMESTAMP
+                              AND ends_at > CURRENT_TIMESTAMP
+                        ) THEN 'limited'
+                        ELSE 'review_required'
+                    END AS admission_posture,
+                    COALESCE((SELECT corridor_status FROM current_corridor), 'none') AS corridor_status,
+                    realm.public_reason_code,
+                    CASE
+                        WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0
+                             AND realm.steward_account_id IS NOT NULL THEN 'sponsor_and_steward'
+                        WHEN COALESCE((SELECT active_sponsor_count FROM sponsor_counts), 0) > 0 THEN 'sponsor_backed'
+                        WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
+                        ELSE 'none'
+                    END AS sponsor_display_state,
+                    (SELECT source_watermark_at FROM watermarks) AS source_watermark_at,
+                    (SELECT source_fact_count FROM source_counts) AS source_fact_count
+                FROM dao.realms realm
+                WHERE realm.realm_id = $1
+            )
+            SELECT
+                computed.*,
+                GREATEST(
+                    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - computed.source_watermark_at)) * 1000),
+                    0
+                )::bigint AS projection_lag_ms,
+                COALESCE(projection.rebuild_generation, 1::bigint) AS rebuild_generation,
+                COALESCE(projection.last_projected_at, CURRENT_TIMESTAMP) AS last_projected_at
+            FROM computed
+            LEFT JOIN projection.realm_bootstrap_views projection
+              ON projection.realm_id = computed.realm_id
+            ",
+            &[&realm_id],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| {
+            RealmBootstrapError::NotFound("realm bootstrap summary was not found".to_owned())
+        })?;
+    realm_bootstrap_view_from_row(&row)
+}
+
+async fn read_current_realm_admission_view<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    account_id: &Uuid,
+) -> Result<Option<RealmAdmissionViewSnapshot>, RealmBootstrapError> {
+    let row = client
+        .query_opt(
+            "
+            WITH latest_admission AS (
+                SELECT *
+                FROM dao.realm_admissions
+                WHERE realm_id = $1
+                  AND account_id = $2
+                ORDER BY updated_at DESC, created_at DESC, realm_admission_id DESC
+                LIMIT 1
+            ),
+            source_counts AS (
+                SELECT COUNT(*) AS source_fact_count
+                FROM dao.realm_admissions
+                WHERE realm_id = $1
+                  AND account_id = $2
+            ),
+            computed AS (
+                SELECT
+                    latest_admission.realm_id,
+                    latest_admission.account_id,
+                    latest_admission.admission_status,
+                    latest_admission.admission_kind,
+                    latest_admission.review_reason_code AS public_reason_code,
+                    latest_admission.updated_at AS source_watermark_at,
+                    (SELECT source_fact_count FROM source_counts) AS source_fact_count
+                FROM latest_admission
+            )
+            SELECT
+                computed.*,
+                GREATEST(
+                    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - computed.source_watermark_at)) * 1000),
+                    0
+                )::bigint AS projection_lag_ms,
+                COALESCE(projection.rebuild_generation, 1::bigint) AS rebuild_generation,
+                COALESCE(projection.last_projected_at, CURRENT_TIMESTAMP) AS last_projected_at
+            FROM computed
+            LEFT JOIN projection.realm_admission_views projection
+              ON projection.realm_id = computed.realm_id
+             AND projection.account_id = computed.account_id
+            ",
+            &[&realm_id, account_id],
+        )
+        .await
+        .map_err(db_error)?;
+    row.as_ref().map(realm_admission_view_from_row).transpose()
 }
 
 async fn refresh_realm_projection_bundle_tx<C: GenericClient + Sync>(
@@ -2626,8 +2761,8 @@ async fn ensure_active_account_exists_tx<C: GenericClient + Sync>(
     if row.get::<_, bool>("exists") {
         Ok(())
     } else {
-        Err(RealmBootstrapError::NotFound(
-            "account was not found".to_owned(),
+        Err(RealmBootstrapError::BadRequest(
+            "account id must reference an active account".to_owned(),
         ))
     }
 }
