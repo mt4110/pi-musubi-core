@@ -4,12 +4,12 @@ use axum::{
     http::{Request, StatusCode},
 };
 use musubi_backend::{build_app, new_test_state};
+use musubi_db_runtime::MIGRATION_LOCK_KEY;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
 const TEST_RESPONSE_BODY_LIMIT: usize = 4 * 1024 * 1024;
-const MIGRATION_LOCK_KEY: i64 = 411_000_008;
 
 #[tokio::test]
 async fn ops_health_returns_ok_when_db_available() {
@@ -143,6 +143,7 @@ async fn ops_snapshot_classifies_stale_projection_as_warning_without_rebuilding(
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "projection-lag").await;
     let before_projected_at = force_stale_review_status_projection(&client, &review_case_id).await;
+    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
@@ -170,6 +171,7 @@ async fn ops_snapshot_does_not_drift_idle_projection_lag() {
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "idle-projection").await;
     force_idle_review_status_projection(&client, &review_case_id).await;
+    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 0, 7_200_000).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
@@ -184,7 +186,7 @@ async fn ops_snapshot_reports_projection_meta_freshness() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let client = test_db_client().await;
-    insert_projection_meta_freshness_row(&client, "projection-meta").await;
+    upsert_projection_meta_freshness_row(&client, "projection_meta", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
@@ -216,6 +218,7 @@ async fn ops_snapshot_aggregates_warning_status() {
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "aggregate-warning").await;
     force_stale_review_status_projection(&client, &review_case_id).await;
+    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
@@ -447,7 +450,13 @@ async fn insert_realm_review_trigger(client: &tokio_postgres::Client, suffix: &s
         .expect("realm review trigger must insert");
 }
 
-async fn insert_projection_meta_freshness_row(client: &tokio_postgres::Client, suffix: &str) {
+async fn upsert_projection_meta_freshness_row(
+    client: &tokio_postgres::Client,
+    projection_name: &str,
+    projection_row_count: i64,
+    projection_lag_ms: i64,
+    projected_age_ms: i64,
+) {
     client
         .execute(
             "
@@ -463,12 +472,12 @@ async fn insert_projection_meta_freshness_row(client: &tokio_postgres::Client, s
             )
             VALUES (
                 $1,
-                CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP - INTERVAL '2 minutes',
+                CURRENT_TIMESTAMP - (($4::bigint::double precision) * INTERVAL '1 millisecond'),
+                CURRENT_TIMESTAMP - ((($3::bigint + $4::bigint)::double precision) * INTERVAL '1 millisecond'),
                 1,
-                1,
-                120000,
                 $2,
+                $3,
+                $5,
                 CURRENT_TIMESTAMP
             )
             ON CONFLICT (projection_name) DO UPDATE
@@ -480,7 +489,13 @@ async fn insert_projection_meta_freshness_row(client: &tokio_postgres::Client, s
                 rebuild_generation = EXCLUDED.rebuild_generation,
                 updated_at = EXCLUDED.updated_at
             ",
-            &[&format!("ops-observability-{suffix}"), &Uuid::new_v4()],
+            &[
+                &projection_name,
+                &projection_row_count,
+                &projection_lag_ms,
+                &projected_age_ms,
+                &Uuid::new_v4(),
+            ],
         )
         .await
         .expect("projection meta freshness row must insert");

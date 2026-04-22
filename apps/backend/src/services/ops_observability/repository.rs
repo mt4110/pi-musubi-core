@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use musubi_db_runtime::{DbConfig, MigrationRunner, connect_writer};
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -25,57 +25,55 @@ const REALM_REVIEW_TRIGGER_OLDEST_WARNING_MS: i64 = 86_400_000;
 const REALM_REVIEW_TRIGGER_OLDEST_CRITICAL_MS: i64 = 259_200_000;
 const ORCHESTRATION_BACKLOG_OLDEST_WARNING_MS: i64 = 300_000;
 const ORCHESTRATION_BACKLOG_OLDEST_CRITICAL_MS: i64 = 1_800_000;
+const PROJECTION_META_RELATION: &str = "projection.projection_meta";
+const PROJECTION_META_COLUMNS: &[&str] = &[
+    "projection_name",
+    "last_rebuilt_at",
+    "source_watermark_at",
+    "projection_row_count",
+    "projection_lag_ms",
+];
 
 const PROJECTION_SOURCES: &[ProjectionSource] = &[
     ProjectionSource {
         projection_name: "promise_views",
         relation: "projection.promise_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "settlement_views",
         relation: "projection.settlement_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "trust_snapshots",
         relation: "projection.trust_snapshots",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_trust_snapshots",
         relation: "projection.realm_trust_snapshots",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "review_status_views",
         relation: "projection.review_status_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "room_progression_views",
         relation: "projection.room_progression_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_bootstrap_views",
         relation: "projection.realm_bootstrap_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_admission_views",
         relation: "projection.realm_admission_views",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_review_summaries",
         relation: "projection.realm_review_summaries",
-        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "projection_meta",
-        relation: "projection.projection_meta",
-        projected_at_column: "last_rebuilt_at",
+        relation: PROJECTION_META_RELATION,
     },
 ];
 
@@ -89,11 +87,17 @@ pub struct OpsObservabilityStore {
 struct ProjectionSource {
     projection_name: &'static str,
     relation: &'static str,
-    projected_at_column: &'static str,
 }
 
 struct ProjectionRelationMetadata {
     columns_by_relation: HashMap<String, HashSet<String>>,
+}
+
+struct ProjectionFreshnessRow {
+    projection_row_count: i64,
+    max_projection_lag_ms: i64,
+    latest_source_watermark_at: DateTime<Utc>,
+    latest_projected_at: DateTime<Utc>,
 }
 
 impl ProjectionRelationMetadata {
@@ -216,20 +220,31 @@ async fn projection_lag_summaries(
     client: &Client,
 ) -> Result<Vec<ProjectionLagSummary>, OpsObservabilityError> {
     let metadata = projection_relation_metadata(client).await?;
+    let freshness_by_projection = if metadata.relation_exists(PROJECTION_META_RELATION)
+        && metadata.columns_exist(PROJECTION_META_RELATION, PROJECTION_META_COLUMNS)
+    {
+        projection_freshness_by_projection(client).await?
+    } else {
+        HashMap::new()
+    };
     let mut summaries = Vec::with_capacity(PROJECTION_SOURCES.len());
     for source in PROJECTION_SOURCES {
-        summaries.push(projection_lag_summary(client, source, &metadata).await?);
+        summaries.push(projection_lag_summary(
+            source,
+            &metadata,
+            &freshness_by_projection,
+        ));
     }
     Ok(summaries)
 }
 
-async fn projection_lag_summary(
-    client: &Client,
+fn projection_lag_summary(
     source: &ProjectionSource,
     metadata: &ProjectionRelationMetadata,
-) -> Result<ProjectionLagSummary, OpsObservabilityError> {
+    freshness_by_projection: &HashMap<String, ProjectionFreshnessRow>,
+) -> ProjectionLagSummary {
     if !metadata.relation_exists(source.relation) {
-        return Ok(ProjectionLagSummary {
+        return ProjectionLagSummary {
             projection_name: source.projection_name.to_owned(),
             status: "unknown".to_owned(),
             row_count: None,
@@ -238,13 +253,10 @@ async fn projection_lag_summary(
             latest_source_watermark_at: None,
             latest_projected_at: None,
             reason: Some("projection table is not present in the current schema".to_owned()),
-        });
+        };
     }
-    if !metadata.columns_exist(
-        source.relation,
-        &["source_watermark_at", source.projected_at_column],
-    ) {
-        return Ok(ProjectionLagSummary {
+    if !metadata.relation_exists(PROJECTION_META_RELATION) {
+        return ProjectionLagSummary {
             projection_name: source.projection_name.to_owned(),
             status: "unknown".to_owned(),
             row_count: None,
@@ -252,55 +264,92 @@ async fn projection_lag_summary(
             max_projection_lag_ms: None,
             latest_source_watermark_at: None,
             latest_projected_at: None,
-            reason: Some("projection freshness columns are not available".to_owned()),
-        });
+            reason: Some("precomputed projection freshness metadata is not available".to_owned()),
+        };
+    }
+    if !metadata.columns_exist(PROJECTION_META_RELATION, PROJECTION_META_COLUMNS) {
+        return ProjectionLagSummary {
+            projection_name: source.projection_name.to_owned(),
+            status: "unknown".to_owned(),
+            row_count: None,
+            stale_row_count: None,
+            max_projection_lag_ms: None,
+            latest_source_watermark_at: None,
+            latest_projected_at: None,
+            reason: Some("projection freshness metadata columns are not available".to_owned()),
+        };
     }
 
-    let has_projection_lag = metadata.columns_exist(source.relation, &["projection_lag_ms"]);
-    let lag_expr = if has_projection_lag {
-        "projection_lag_ms".to_owned()
-    } else {
-        format!(
-            "GREATEST((EXTRACT(EPOCH FROM ({} - source_watermark_at)) * 1000)::bigint, 0)",
-            source.projected_at_column
-        )
+    let Some(row) = freshness_by_projection.get(source.projection_name) else {
+        return ProjectionLagSummary {
+            projection_name: source.projection_name.to_owned(),
+            status: "unknown".to_owned(),
+            row_count: None,
+            stale_row_count: None,
+            max_projection_lag_ms: None,
+            latest_source_watermark_at: None,
+            latest_projected_at: None,
+            reason: Some("precomputed projection freshness metadata is not available".to_owned()),
+        };
     };
-    let query = format!(
-        "
-        SELECT
-            COUNT(*)::bigint AS row_count,
-            COUNT(*) FILTER (WHERE {lag_expr} >= $1)::bigint AS stale_row_count,
-            MAX({lag_expr})::bigint AS max_projection_lag_ms,
-            MAX(source_watermark_at) AS latest_source_watermark_at,
-            MAX({projected_at_column}) AS latest_projected_at
-        FROM {relation}
-        ",
-        projected_at_column = source.projected_at_column,
-        relation = source.relation
-    );
-    let row = client
-        .query_one(&query, &[&PROJECTION_LAG_WARNING_MS])
-        .await
-        .map_err(db_error)?;
-    let row_count = row.get::<_, i64>("row_count");
-    let max_projection_lag_ms = row.get::<_, Option<i64>>("max_projection_lag_ms");
+    let max_projection_lag_ms = Some(row.max_projection_lag_ms);
 
-    Ok(ProjectionLagSummary {
+    ProjectionLagSummary {
         projection_name: source.projection_name.to_owned(),
         status: classify_optional_age(
-            row_count,
+            row.projection_row_count,
             max_projection_lag_ms,
             PROJECTION_LAG_WARNING_MS,
             PROJECTION_LAG_CRITICAL_MS,
         )
         .to_owned(),
-        row_count: Some(row_count),
-        stale_row_count: Some(row.get("stale_row_count")),
+        row_count: Some(row.projection_row_count),
+        stale_row_count: None,
         max_projection_lag_ms,
-        latest_source_watermark_at: row.get("latest_source_watermark_at"),
-        latest_projected_at: row.get("latest_projected_at"),
+        latest_source_watermark_at: Some(row.latest_source_watermark_at),
+        latest_projected_at: Some(row.latest_projected_at),
         reason: None,
-    })
+    }
+}
+
+async fn projection_freshness_by_projection(
+    client: &Client,
+) -> Result<HashMap<String, ProjectionFreshnessRow>, OpsObservabilityError> {
+    let projection_names = PROJECTION_SOURCES
+        .iter()
+        .map(|source| source.projection_name)
+        .collect::<Vec<_>>();
+    let rows = client
+        .query(
+            "
+            SELECT
+                projection_name,
+                projection_row_count,
+                source_watermark_at AS latest_source_watermark_at,
+                last_rebuilt_at AS latest_projected_at,
+                projection_lag_ms AS max_projection_lag_ms
+            FROM projection.projection_meta
+            WHERE projection_name = ANY($1::text[])
+            ",
+            &[&projection_names],
+        )
+        .await
+        .map_err(db_error)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get("projection_name"),
+                ProjectionFreshnessRow {
+                    projection_row_count: row.get("projection_row_count"),
+                    max_projection_lag_ms: row.get("max_projection_lag_ms"),
+                    latest_source_watermark_at: row.get("latest_source_watermark_at"),
+                    latest_projected_at: row.get("latest_projected_at"),
+                },
+            )
+        })
+        .collect())
 }
 
 async fn projection_relation_metadata(

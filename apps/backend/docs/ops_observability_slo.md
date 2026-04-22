@@ -78,9 +78,11 @@ Day 1 thresholds:
 | Realm review trigger oldest open trigger | `>= 86_400_000 ms` | `>= 259_200_000 ms` |
 | Orchestration backlog oldest pending/processing item | `>= 300_000 ms` | `>= 1_800_000 ms` |
 
-Projection summaries report `unknown` when the projection table or freshness
-columns are missing. Empty projection tables report `ok`; populated tables are
-classified from max projection lag.
+Projection summaries read precomputed freshness rows from
+`projection.projection_meta` by `projection_name`. Snapshot requests do not run
+`COUNT(*)` or `MAX(...)` scans across projection tables. Missing projection
+tables or missing precomputed freshness metadata report `unknown`; populated
+metadata rows are classified from `projection_lag_ms`.
 
 Queue and backlog summaries report `unknown` when their source tables are
 missing. Empty queues report `ok`; non-empty queues are classified from the

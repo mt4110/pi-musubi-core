@@ -9,7 +9,7 @@ use tokio_postgres::{Client, Row};
 
 use crate::{DbConfig, DbRuntimeError, Result, connect_writer};
 
-const MIGRATION_LOCK_KEY: i64 = 411_000_008;
+pub const MIGRATION_LOCK_KEY: i64 = 411_000_008;
 const TRACKING_TABLE: &str = "public.musubi_schema_migrations";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
