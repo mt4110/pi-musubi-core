@@ -54,8 +54,8 @@ void main() {
       'slug_candidate': 'tokyo-slow-coffee',
       'purpose_text': 'Small calm meetings.',
       'venue_context_json': {
-        'city': 'Tokyo',
         'venue_type': 'cafe',
+        'city': 'Tokyo',
       },
       'expected_member_shape_json': {
         'size': 'small',
@@ -66,9 +66,11 @@ void main() {
       'review_reason_code': 'limited_bootstrap_active',
     });
 
-    expect(request.venueContextSummary, contains('city: Tokyo'));
-    expect(request.venueContextSummary, contains('venue_type: cafe'));
-    expect(request.expectedMemberShapeSummary, contains('size: small'));
+    expect(request.venueContextSummary, 'city: Tokyo, venue_type: cafe');
+    expect(
+      request.expectedMemberShapeSummary,
+      'locality: neighborhood, size: small',
+    );
   });
 
   test('realm bootstrap copy stays calm and non-gamified', () {

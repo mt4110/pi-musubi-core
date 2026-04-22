@@ -814,38 +814,49 @@ impl RealmBootstrapStore {
                     .await?;
                 }
 
-                let row = tx
-                    .query_one(
+                let row = match tx
+                    .query_opt(
                         "
-                        INSERT INTO dao.realm_admissions (
-                            realm_admission_id,
-                            realm_id,
-                            account_id,
-                            admission_kind,
-                            admission_status,
-                            sponsor_record_id,
-                            bootstrap_corridor_id,
-                            granted_by_actor_kind,
-                            granted_by_actor_id,
-                            review_reason_code,
-                            source_fact_kind,
-                            source_fact_id,
-                            source_snapshot_json,
-                            request_idempotency_key,
-                            request_payload_hash
+                        WITH inserted AS (
+                            INSERT INTO dao.realm_admissions (
+                                realm_admission_id,
+                                realm_id,
+                                account_id,
+                                admission_kind,
+                                admission_status,
+                                sponsor_record_id,
+                                bootstrap_corridor_id,
+                                granted_by_actor_kind,
+                                granted_by_actor_id,
+                                review_reason_code,
+                                source_fact_kind,
+                                source_fact_id,
+                                source_snapshot_json,
+                                request_idempotency_key,
+                                request_payload_hash
+                            )
+                            VALUES (
+                                $1, $2, $3, $4, $5, $6, $7,
+                                $8, $9, $10, $11, $12, $13, $14, $15
+                            )
+                            ON CONFLICT (
+                                realm_id,
+                                granted_by_actor_id,
+                                request_idempotency_key
+                            )
+                            DO NOTHING
+                            RETURNING *
                         )
-                        VALUES (
-                            $1, $2, $3, $4, $5, $6, $7,
-                            $8, $9, $10, $11, $12, $13, $14, $15
-                        )
-                        ON CONFLICT (
-                            realm_id,
-                            granted_by_actor_id,
-                            request_idempotency_key
-                        )
-                        DO UPDATE
-                        SET request_payload_hash = dao.realm_admissions.request_payload_hash
-                        RETURNING *
+                        SELECT *
+                        FROM inserted
+                        UNION ALL
+                        SELECT existing.*
+                        FROM dao.realm_admissions existing
+                        WHERE NOT EXISTS (SELECT 1 FROM inserted)
+                          AND existing.realm_id = $2
+                          AND existing.granted_by_actor_id = $9
+                          AND existing.request_idempotency_key = $14
+                        LIMIT 1
                         ",
                         &[
                             &Uuid::new_v4(),
@@ -866,7 +877,24 @@ impl RealmBootstrapStore {
                         ],
                     )
                     .await
-                    .map_err(db_error)?;
+                    .map_err(db_error)?
+                {
+                    Some(row) => row,
+                    None => find_admission_by_idempotency_tx(
+                        &tx,
+                        &realm_id,
+                        &operator_id,
+                        &request_idempotency_key,
+                    )
+                    .await?
+                    .ok_or_else(|| RealmBootstrapError::Database {
+                        message: "realm admission idempotency replay was not yet visible"
+                            .to_owned(),
+                        code: None,
+                        constraint: None,
+                        retryable: true,
+                    })?,
+                };
                 ensure_admission_payload_hash_matches(&row, &payload_hash)?;
                 maybe_open_member_overlap_trigger_tx(&tx, &realm_id, &account_id).await?;
                 row
@@ -2330,6 +2358,15 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                 ORDER BY updated_at DESC, bootstrap_corridor_id DESC
                 LIMIT 1
             ),
+            current_corridor AS (
+                SELECT
+                    CASE
+                        WHEN corridor_status IN ('active', 'cooling_down')
+                             AND ends_at <= CURRENT_TIMESTAMP THEN 'expired'
+                        ELSE corridor_status
+                    END AS corridor_status
+                FROM latest_corridor
+            ),
             sponsor_counts AS (
                 SELECT
                     COUNT(*) FILTER (WHERE sponsor_status IN ('approved', 'active', 'rate_limited')) AS active_sponsor_count
@@ -2371,7 +2408,7 @@ async fn refresh_realm_bootstrap_view_tx<C: GenericClient + Sync>(
                 realm.display_name,
                 realm.realm_status,
                 realm.public_reason_code,
-                COALESCE((SELECT corridor_status FROM latest_corridor), 'none') AS corridor_status,
+                COALESCE((SELECT corridor_status FROM current_corridor), 'none') AS corridor_status,
                 CASE
                     WHEN realm.realm_status IN ('restricted', 'suspended') THEN 'closed'
                     WHEN realm.realm_status = 'active' THEN 'open'

@@ -377,13 +377,15 @@ String _jsonValueToSummary(Object? value) {
   }
   if (value is Map) {
     final parts = <String>[];
-    value.forEach((key, nestedValue) {
-      final nestedSummary = _jsonValueToSummary(nestedValue);
+    final sortedKeys = value.keys.toList()
+      ..sort((a, b) => a.toString().compareTo(b.toString()));
+    for (final key in sortedKeys) {
+      final nestedSummary = _jsonValueToSummary(value[key]);
       if (nestedSummary.isEmpty) {
-        return;
+        continue;
       }
       parts.add('${key.toString()}: $nestedSummary');
-    });
+    }
     return parts.join(', ');
   }
   return value.toString().trim();
