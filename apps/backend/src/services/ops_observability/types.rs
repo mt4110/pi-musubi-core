@@ -107,7 +107,7 @@ pub struct MigrationReadinessSnapshot {
     pub status: String,
     pub required_latest_schema: bool,
     pub bootstrap_required: bool,
-    pub migration_lock_available: bool,
+    pub migration_lock_available: Option<bool>,
     pub applied_count: usize,
     pub pending_count: usize,
     pub failed_count: usize,

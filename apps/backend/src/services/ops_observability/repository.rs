@@ -30,42 +30,52 @@ const PROJECTION_SOURCES: &[ProjectionSource] = &[
     ProjectionSource {
         projection_name: "promise_views",
         relation: "projection.promise_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "settlement_views",
         relation: "projection.settlement_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "trust_snapshots",
         relation: "projection.trust_snapshots",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_trust_snapshots",
         relation: "projection.realm_trust_snapshots",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "review_status_views",
         relation: "projection.review_status_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "room_progression_views",
         relation: "projection.room_progression_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_bootstrap_views",
         relation: "projection.realm_bootstrap_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_admission_views",
         relation: "projection.realm_admission_views",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "realm_review_summaries",
         relation: "projection.realm_review_summaries",
+        projected_at_column: "last_projected_at",
     },
     ProjectionSource {
         projection_name: "projection_meta",
         relation: "projection.projection_meta",
+        projected_at_column: "last_rebuilt_at",
     },
 ];
 
@@ -79,6 +89,7 @@ pub struct OpsObservabilityStore {
 struct ProjectionSource {
     projection_name: &'static str,
     relation: &'static str,
+    projected_at_column: &'static str,
 }
 
 struct ProjectionRelationMetadata {
@@ -126,10 +137,9 @@ impl OpsObservabilityStore {
     pub async fn readiness(&self) -> Result<OpsReadinessSnapshot, OpsObservabilityError> {
         let client = self.client.lock().await;
         check_database(&client).await?;
-        drop(client);
 
         let status = MigrationRunner::new(self.config.migrations_dir.clone())
-            .status_without_lock_probe(&self.config)
+            .status_without_lock_probe_with_client(&client)
             .await?;
         let migrations = MigrationReadinessSnapshot {
             status: if status.is_current() {
@@ -232,7 +242,7 @@ async fn projection_lag_summary(
     }
     if !metadata.columns_exist(
         source.relation,
-        &["source_watermark_at", "last_projected_at"],
+        &["source_watermark_at", source.projected_at_column],
     ) {
         return Ok(ProjectionLagSummary {
             projection_name: source.projection_name.to_owned(),
@@ -248,9 +258,12 @@ async fn projection_lag_summary(
 
     let has_projection_lag = metadata.columns_exist(source.relation, &["projection_lag_ms"]);
     let lag_expr = if has_projection_lag {
-        "projection_lag_ms"
+        "projection_lag_ms".to_owned()
     } else {
-        "GREATEST((EXTRACT(EPOCH FROM (last_projected_at - source_watermark_at)) * 1000)::bigint, 0)"
+        format!(
+            "GREATEST((EXTRACT(EPOCH FROM ({} - source_watermark_at)) * 1000)::bigint, 0)",
+            source.projected_at_column
+        )
     };
     let query = format!(
         "
@@ -259,10 +272,11 @@ async fn projection_lag_summary(
             COUNT(*) FILTER (WHERE {lag_expr} >= $1)::bigint AS stale_row_count,
             MAX({lag_expr})::bigint AS max_projection_lag_ms,
             MAX(source_watermark_at) AS latest_source_watermark_at,
-            MAX(last_projected_at) AS latest_projected_at
-        FROM {}
+            MAX({projected_at_column}) AS latest_projected_at
+        FROM {relation}
         ",
-        source.relation
+        projected_at_column = source.projected_at_column,
+        relation = source.relation
     );
     let row = client
         .query_one(&query, &[&PROJECTION_LAG_WARNING_MS])

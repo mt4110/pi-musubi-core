@@ -60,10 +60,7 @@ async fn ops_readiness_does_not_probe_migration_advisory_lock() {
         .expect("migration advisory lock must unlock");
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body["status"], "ready");
-    assert_eq!(
-        response.body["migrations"]["migration_lock_available"],
-        true
-    );
+    assert!(response.body["migrations"]["migration_lock_available"].is_null());
 }
 
 #[tokio::test]
@@ -172,6 +169,35 @@ async fn ops_snapshot_does_not_drift_idle_projection_lag() {
     let review_status_metric = projection_metric(&response.body, "review_status_views");
     assert_eq!(review_status_metric["status"], "ok");
     assert_eq!(review_status_metric["max_projection_lag_ms"], 0);
+}
+
+#[tokio::test]
+async fn ops_snapshot_reports_projection_meta_freshness() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    insert_projection_meta_freshness_row(&client, "projection-meta").await;
+
+    let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let projection_meta_metric = projection_metric(&response.body, "projection_meta");
+    assert_ne!(projection_meta_metric["status"], "unknown");
+    assert!(
+        projection_meta_metric["row_count"]
+            .as_i64()
+            .expect("projection_meta row count must be numeric")
+            >= 1
+    );
+    assert!(
+        projection_meta_metric["latest_projected_at"]
+            .as_str()
+            .is_some()
+    );
+    let lag = projection_meta_metric["max_projection_lag_ms"]
+        .as_i64()
+        .expect("projection_meta lag must be reported");
+    assert!(lag >= 60_000, "expected projection_meta lag, got {lag}");
 }
 
 #[tokio::test]
@@ -411,6 +437,45 @@ async fn insert_realm_review_trigger(client: &tokio_postgres::Client, suffix: &s
         )
         .await
         .expect("realm review trigger must insert");
+}
+
+async fn insert_projection_meta_freshness_row(client: &tokio_postgres::Client, suffix: &str) {
+    client
+        .execute(
+            "
+            INSERT INTO projection.projection_meta (
+                projection_name,
+                last_rebuilt_at,
+                source_watermark_at,
+                source_fact_count,
+                projection_row_count,
+                projection_lag_ms,
+                rebuild_generation,
+                updated_at
+            )
+            VALUES (
+                $1,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP - INTERVAL '2 minutes',
+                1,
+                1,
+                120000,
+                $2,
+                CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (projection_name) DO UPDATE
+            SET last_rebuilt_at = EXCLUDED.last_rebuilt_at,
+                source_watermark_at = EXCLUDED.source_watermark_at,
+                source_fact_count = EXCLUDED.source_fact_count,
+                projection_row_count = EXCLUDED.projection_row_count,
+                projection_lag_ms = EXCLUDED.projection_lag_ms,
+                rebuild_generation = EXCLUDED.rebuild_generation,
+                updated_at = EXCLUDED.updated_at
+            ",
+            &[&format!("ops-observability-{suffix}"), &Uuid::new_v4()],
+        )
+        .await
+        .expect("projection meta freshness row must insert");
 }
 
 async fn force_stale_review_status_projection(

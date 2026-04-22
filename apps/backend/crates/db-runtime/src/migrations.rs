@@ -30,7 +30,7 @@ pub struct ChecksumDrift {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MigrationStatusReport {
     pub bootstrap_required: bool,
-    pub migration_lock_available: bool,
+    pub migration_lock_available: Option<bool>,
     pub applied: Vec<AppliedMigration>,
     pub unexpected_applied: Vec<AppliedMigration>,
     pub pending: Vec<String>,
@@ -41,7 +41,7 @@ pub struct MigrationStatusReport {
 impl MigrationStatusReport {
     pub fn is_current(&self) -> bool {
         !self.bootstrap_required
-            && self.migration_lock_available
+            && self.migration_lock_available != Some(false)
             && self.unexpected_applied.is_empty()
             && self.pending.is_empty()
             && self.failed.is_empty()
@@ -105,12 +105,11 @@ impl MigrationRunner {
         self.status_with_client(&client, true).await
     }
 
-    pub async fn status_without_lock_probe(
+    pub async fn status_without_lock_probe_with_client(
         &self,
-        config: &DbConfig,
+        client: &Client,
     ) -> Result<MigrationStatusReport> {
-        let client = connect_writer(config, "musubi-ops db status").await?;
-        self.status_with_client(&client, false).await
+        self.status_with_client(client, false).await
     }
 
     pub async fn migrate(&self, config: &DbConfig) -> Result<MigrationOutcome> {
@@ -268,9 +267,9 @@ impl MigrationRunner {
         let local_migrations = self.load_migrations()?;
         if !tracking_table_exists(client).await? {
             let migration_lock_available = if probe_migration_lock {
-                check_advisory_lock_available(client).await?
+                Some(check_advisory_lock_available(client).await?)
             } else {
-                true
+                None
             };
             return Ok(MigrationStatusReport {
                 bootstrap_required: true,
@@ -287,9 +286,9 @@ impl MigrationRunner {
         }
 
         let migration_lock_available = if probe_migration_lock {
-            check_advisory_lock_available(client).await?
+            Some(check_advisory_lock_available(client).await?)
         } else {
-            true
+            None
         };
         let rows = client
             .query(
@@ -319,7 +318,7 @@ fn build_status_report(
     local_migrations: Vec<LocalMigration>,
     applied: Vec<AppliedMigration>,
     bootstrap_required: bool,
-    migration_lock_available: bool,
+    migration_lock_available: Option<bool>,
 ) -> MigrationStatusReport {
     if bootstrap_required {
         return MigrationStatusReport {
@@ -390,7 +389,7 @@ fn ensure_current(status: &MigrationStatusReport) -> Result<()> {
     if status.bootstrap_required {
         return Err(DbRuntimeError::BootstrapRequired);
     }
-    if !status.migration_lock_available {
+    if matches!(status.migration_lock_available, None | Some(false)) {
         return Err(DbRuntimeError::MigrationLockUnavailable);
     }
     ensure_no_unexpected_failed_or_drift(status)?;
@@ -689,7 +688,7 @@ mod tests {
     fn startup_status_requires_all_migrations_current() {
         let status = MigrationStatusReport {
             bootstrap_required: false,
-            migration_lock_available: true,
+            migration_lock_available: Some(true),
             applied: Vec::new(),
             unexpected_applied: Vec::new(),
             pending: vec!["0001_create_core_schema".to_owned()],
@@ -712,7 +711,7 @@ mod tests {
                 applied_migration("0002_removed_from_checkout", "db-0002"),
             ],
             false,
-            true,
+            Some(true),
         );
 
         assert_eq!(

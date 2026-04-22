@@ -37,7 +37,8 @@ surface.
 
 Readiness reads migration tracking and local migration files without probing or
 taking the migration advisory lock. This keeps frequent readiness checks from
-contending with `db migrate`.
+contending with `db migrate`. Because the lock is intentionally not probed,
+`migrations.migration_lock_available` is reported as `null` on readiness.
 
 ## Reported Posture
 
