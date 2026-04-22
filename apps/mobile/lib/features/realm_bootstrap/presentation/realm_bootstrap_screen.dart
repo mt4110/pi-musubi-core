@@ -191,8 +191,11 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       return;
     }
 
-    setState(() => _isSubmitting = true);
-    _pendingRequestKey ??= 'realm-ui-${session.userId}-${randomHex(bytes: 8)}';
+    setState(() {
+      _isSubmitting = true;
+      _pendingRequestKey ??=
+          'realm-ui-${session.userId}-${randomHex(bytes: 8)}';
+    });
     try {
       final request =
           await ref.read(realmBootstrapRepositoryProvider).createRealmRequest(
@@ -213,6 +216,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       }
       setState(() {
         _request = request;
+        _pendingRequestKey = null;
         if (request.createdRealmId != null) {
           _realmIdController.text = request.createdRealmId!;
         }

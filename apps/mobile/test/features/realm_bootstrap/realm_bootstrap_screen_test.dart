@@ -50,6 +50,19 @@ void main() {
     expect(find.text('申請済み'), findsOneWidget);
     expect(find.textContaining('operator id'), findsNothing);
     expect(find.textContaining('source fact'), findsNothing);
+
+    final firstRequestKey = repository.createdDraft!.requestIdempotencyKey;
+    tester
+        .widget<MusubiPrimaryButton>(find.byType(MusubiPrimaryButton))
+        .onPressed
+        ?.call();
+    await tester.pumpAndSettle();
+
+    expect(repository.createdDrafts, hasLength(2));
+    expect(
+      repository.createdDrafts.last.requestIdempotencyKey,
+      isNot(firstRequestKey),
+    );
   });
 
   testWidgets('realm summary UI renders redacted bootstrap and operator panels',
@@ -133,12 +146,14 @@ class _FakeAuthRepository implements AuthRepository {
 
 class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
   CreateRealmRequestDraft? createdDraft;
+  final createdDrafts = <CreateRealmRequestDraft>[];
 
   @override
   Future<RealmRequestView> createRealmRequest(
     CreateRealmRequestDraft draft,
   ) async {
     createdDraft = draft;
+    createdDrafts.add(draft);
     return RealmRequestView(
       realmRequestId: 'request-1',
       displayName: draft.displayName,

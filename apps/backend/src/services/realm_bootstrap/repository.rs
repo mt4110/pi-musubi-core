@@ -141,36 +141,48 @@ impl RealmBootstrapStore {
             ensure_request_payload_hash_matches(&existing, &request_payload_hash)?;
             existing
         } else {
-            let request_row = tx
-                .query_one(
+            let request_row = match tx
+                .query_opt(
                     "
-                    INSERT INTO dao.realm_requests (
-                        realm_request_id,
-                        requested_by_account_id,
-                        display_name,
-                        slug_candidate,
-                        purpose_text,
-                        venue_context_json,
-                        expected_member_shape_json,
-                        bootstrap_rationale_text,
-                        proposed_sponsor_account_id,
-                        proposed_steward_account_id,
-                        request_state,
-                        review_reason_code,
-                        request_idempotency_key,
-                        request_payload_hash
+                    WITH inserted AS (
+                        INSERT INTO dao.realm_requests (
+                            realm_request_id,
+                            requested_by_account_id,
+                            display_name,
+                            slug_candidate,
+                            purpose_text,
+                            venue_context_json,
+                            expected_member_shape_json,
+                            bootstrap_rationale_text,
+                            proposed_sponsor_account_id,
+                            proposed_steward_account_id,
+                            request_state,
+                            review_reason_code,
+                            request_idempotency_key,
+                            request_payload_hash
+                        )
+                        VALUES (
+                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                            'requested',
+                            'request_received',
+                            $11, $12
+                        )
+                        ON CONFLICT (requested_by_account_id, request_idempotency_key)
+                            WHERE request_idempotency_key IS NOT NULL
+                        DO NOTHING
+                        RETURNING *, NULL::text AS created_realm_id, TRUE AS was_inserted
                     )
-                    VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        'requested',
-                        'request_received',
-                        $11, $12
-                    )
-                    ON CONFLICT (requested_by_account_id, request_idempotency_key)
-                        WHERE request_idempotency_key IS NOT NULL
-                    DO UPDATE SET
-                        request_payload_hash = dao.realm_requests.request_payload_hash
-                    RETURNING *, (xmax = 0) AS was_inserted
+                    SELECT *
+                    FROM inserted
+                    UNION ALL
+                    SELECT request.*, realm.realm_id AS created_realm_id, FALSE AS was_inserted
+                    FROM dao.realm_requests request
+                    LEFT JOIN dao.realms realm
+                      ON realm.created_from_realm_request_id = request.realm_request_id
+                    WHERE request.requested_by_account_id = $2
+                      AND request.request_idempotency_key = $11
+                      AND NOT EXISTS (SELECT 1 FROM inserted)
+                    LIMIT 1
                     ",
                     &[
                         &Uuid::new_v4(),
@@ -191,7 +203,30 @@ impl RealmBootstrapStore {
                     ],
                 )
                 .await
-                .map_err(db_error)?;
+                .map_err(db_error)?
+            {
+                Some(row) => row,
+                None => tx
+                    .query_opt(
+                        "
+                        SELECT request.*, realm.realm_id AS created_realm_id, FALSE AS was_inserted
+                        FROM dao.realm_requests request
+                        LEFT JOIN dao.realms realm
+                          ON realm.created_from_realm_request_id = request.realm_request_id
+                        WHERE request.requested_by_account_id = $1
+                          AND request.request_idempotency_key = $2
+                        ",
+                        &[&requester_account_id, &request_idempotency_key],
+                    )
+                    .await
+                    .map_err(db_error)?
+                    .ok_or_else(|| RealmBootstrapError::Database {
+                        message: "realm request idempotency replay was not yet visible".to_owned(),
+                        code: None,
+                        constraint: None,
+                        retryable: true,
+                    })?,
+            };
             if !request_row.get::<_, bool>("was_inserted") {
                 ensure_request_payload_hash_matches(&request_row, &request_payload_hash)?;
                 tx.commit().await.map_err(db_error)?;
@@ -477,7 +512,7 @@ impl RealmBootstrapStore {
                 &input.review_reason_code,
                 &operator_id,
                 None,
-                Some(sponsor_payload_hash),
+                sponsor_payload_hash,
             )
             .await?;
         }
@@ -658,7 +693,7 @@ impl RealmBootstrapStore {
                 &input.status_reason_code,
                 &operator_id,
                 Some(request_idempotency_key),
-                Some(payload_hash.clone()),
+                payload_hash.clone(),
             )
             .await?;
             ensure_sponsor_record_payload_hash_matches(&row, &payload_hash)?;
@@ -1502,32 +1537,43 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
     status_reason_code: &str,
     approved_by_operator_id: &Uuid,
     request_idempotency_key: Option<String>,
-    request_payload_hash: Option<String>,
+    request_payload_hash: String,
 ) -> Result<Row, RealmBootstrapError> {
-    client
-        .query_one(
+    let row = client
+        .query_opt(
             "
-            INSERT INTO dao.realm_sponsor_records (
-                realm_sponsor_record_id,
-                realm_id,
-                sponsor_account_id,
-                sponsor_status,
-                quota_total,
-                status_reason_code,
-                approved_by_operator_id,
-                request_idempotency_key,
-                request_payload_hash
+            WITH inserted AS (
+                INSERT INTO dao.realm_sponsor_records (
+                    realm_sponsor_record_id,
+                    realm_id,
+                    sponsor_account_id,
+                    sponsor_status,
+                    quota_total,
+                    status_reason_code,
+                    approved_by_operator_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (
+                    realm_id,
+                    approved_by_operator_id,
+                    request_idempotency_key
+                )
+                WHERE request_idempotency_key IS NOT NULL
+                DO NOTHING
+                RETURNING *
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, repeat('0', 64)))
-            ON CONFLICT (
-                realm_id,
-                approved_by_operator_id,
-                request_idempotency_key
-            )
-            WHERE request_idempotency_key IS NOT NULL
-            DO UPDATE
-            SET request_payload_hash = dao.realm_sponsor_records.request_payload_hash
-            RETURNING *
+            SELECT *
+            FROM inserted
+            UNION ALL
+            SELECT existing.*
+            FROM dao.realm_sponsor_records existing
+            WHERE NOT EXISTS (SELECT 1 FROM inserted)
+              AND existing.realm_id = $2
+              AND existing.approved_by_operator_id = $7
+              AND existing.request_idempotency_key = $8
+            LIMIT 1
             ",
             &[
                 &Uuid::new_v4(),
@@ -1542,7 +1588,31 @@ async fn insert_sponsor_record_tx<C: GenericClient + Sync>(
             ],
         )
         .await
-        .map_err(db_error)
+        .map_err(db_error)?;
+    match row {
+        Some(row) => Ok(row),
+        None => match request_idempotency_key.as_deref() {
+            Some(key) => find_sponsor_record_by_idempotency_tx(
+                client,
+                realm_id,
+                approved_by_operator_id,
+                key,
+            )
+            .await?
+            .ok_or_else(|| RealmBootstrapError::Database {
+                message: "realm sponsor record idempotency replay was not yet visible".to_owned(),
+                code: None,
+                constraint: None,
+                retryable: true,
+            }),
+            None => Err(RealmBootstrapError::Database {
+                message: "realm sponsor record insert did not return a row".to_owned(),
+                code: None,
+                constraint: None,
+                retryable: true,
+            }),
+        },
+    }
 }
 
 async fn insert_bootstrap_corridor_tx<C: GenericClient + Sync>(

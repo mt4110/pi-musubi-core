@@ -297,10 +297,10 @@ String operatorBootstrapCopy(RealmBootstrapView view) {
 
 String _stringField(Map<String, dynamic> json, String key) {
   final value = json[key];
-  if (value == null) {
-    return '';
+  if (value is String && value.isNotEmpty) {
+    return value;
   }
-  return '$value';
+  throw FormatException('Missing string field: $key');
 }
 
 String? _nullableString(Map<String, dynamic> json, String key) {

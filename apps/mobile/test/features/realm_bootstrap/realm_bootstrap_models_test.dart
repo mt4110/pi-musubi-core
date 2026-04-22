@@ -69,4 +69,19 @@ void main() {
     expect(copy, isNot(contains('ランキング')));
     expect(copy, isNot(contains('boost')));
   });
+
+  test('realm bootstrap parsing fails fast on missing required fields', () {
+    expect(
+      () => RealmBootstrapView.fromJson({
+        'realm_id': 'realm-1',
+        'slug': 'realm-one',
+        'display_name': 'Realm one',
+        'realm_status': 'limited_bootstrap',
+        'admission_posture': 'review_required',
+        'corridor_status': 'active',
+        'public_reason_code': 'review_required',
+      }),
+      throwsFormatException,
+    );
+  });
 }
