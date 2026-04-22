@@ -84,4 +84,15 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('realm bootstrap summary parsing fails fast on malformed view shape', () {
+    expect(
+      () => RealmBootstrapSummaryBundle.fromJson({
+        'realm_request': null,
+        'bootstrap_view': null,
+        'admission_view': null,
+      }),
+      throwsFormatException,
+    );
+  });
 }

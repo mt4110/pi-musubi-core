@@ -257,7 +257,7 @@ pub async fn create_realm_request(
                 bootstrap_rationale_text: payload.bootstrap_rationale_text,
                 proposed_sponsor_account_id: payload.proposed_sponsor_account_id,
                 proposed_steward_account_id: payload.proposed_steward_account_id,
-                request_idempotency_key: Some(payload.request_idempotency_key),
+                request_idempotency_key: payload.request_idempotency_key,
             },
         )
         .await
@@ -343,7 +343,7 @@ pub async fn approve_realm_request(
                 review_threshold_json: payload
                     .review_threshold_json
                     .unwrap_or_else(|| Value::Object(Default::default())),
-                review_decision_idempotency_key: Some(payload.review_decision_idempotency_key),
+                review_decision_idempotency_key: payload.review_decision_idempotency_key,
             },
         )
         .await
@@ -366,7 +366,7 @@ pub async fn reject_realm_request(
             realm_request_id.trim(),
             RejectRealmRequestInput {
                 review_reason_code: payload.review_reason_code,
-                review_decision_idempotency_key: Some(payload.review_decision_idempotency_key),
+                review_decision_idempotency_key: payload.review_decision_idempotency_key,
             },
         )
         .await
@@ -392,7 +392,7 @@ pub async fn create_realm_sponsor_record(
                 sponsor_status: payload.sponsor_status,
                 quota_total: payload.quota_total,
                 status_reason_code: payload.status_reason_code,
-                request_idempotency_key: Some(payload.request_idempotency_key),
+                request_idempotency_key: payload.request_idempotency_key,
             },
         )
         .await
@@ -421,7 +421,7 @@ pub async fn create_realm_admission(
                 source_snapshot_json: payload
                     .source_snapshot_json
                     .unwrap_or_else(|| Value::Object(Default::default())),
-                request_idempotency_key: Some(payload.request_idempotency_key),
+                request_idempotency_key: payload.request_idempotency_key,
             },
         )
         .await

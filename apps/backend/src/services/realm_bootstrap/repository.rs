@@ -108,8 +108,8 @@ impl RealmBootstrapStore {
             &input.proposed_steward_account_id,
             "proposed steward account id",
         )?;
-        let request_idempotency_key = normalize_optional(input.request_idempotency_key.as_deref())
-            .ok_or_else(|| {
+        let request_idempotency_key =
+            normalize_optional(Some(input.request_idempotency_key.as_str())).ok_or_else(|| {
                 RealmBootstrapError::BadRequest(
                     "realm request requires request_idempotency_key".to_owned(),
                 )
@@ -376,9 +376,9 @@ impl RealmBootstrapStore {
                 "review_reason_code must match target_realm_status".to_owned(),
             ));
         }
-        let review_decision_idempotency_key = normalize_optional(
-            input.review_decision_idempotency_key.as_deref(),
-        )
+        let review_decision_idempotency_key = normalize_optional(Some(
+            input.review_decision_idempotency_key.as_str(),
+        ))
         .ok_or_else(|| {
             RealmBootstrapError::BadRequest(
                 "approve realm request requires review_decision_idempotency_key".to_owned(),
@@ -499,7 +499,7 @@ impl RealmBootstrapStore {
                     sponsor_status: "active".to_owned(),
                     quota_total,
                     status_reason_code: input.review_reason_code.clone(),
-                    request_idempotency_key: None,
+                    request_idempotency_key: input.review_decision_idempotency_key.clone(),
                 },
                 sponsor_account_id,
             );
@@ -566,9 +566,9 @@ impl RealmBootstrapStore {
             &input.review_reason_code,
             REJECTION_REASON_CODES,
         )?;
-        let review_decision_idempotency_key = normalize_optional(
-            input.review_decision_idempotency_key.as_deref(),
-        )
+        let review_decision_idempotency_key = normalize_optional(Some(
+            input.review_decision_idempotency_key.as_str(),
+        ))
         .ok_or_else(|| {
             RealmBootstrapError::BadRequest(
                 "reject realm request requires review_decision_idempotency_key".to_owned(),
@@ -651,8 +651,8 @@ impl RealmBootstrapStore {
                 "quota_total must be positive".to_owned(),
             ));
         }
-        let request_idempotency_key = normalize_optional(input.request_idempotency_key.as_deref())
-            .ok_or_else(|| {
+        let request_idempotency_key =
+            normalize_optional(Some(input.request_idempotency_key.as_str())).ok_or_else(|| {
                 RealmBootstrapError::BadRequest(
                     "sponsor record creation requires request_idempotency_key".to_owned(),
                 )
@@ -719,8 +719,8 @@ impl RealmBootstrapStore {
         ensure_non_empty("source_fact_kind", &input.source_fact_kind)?;
         ensure_non_empty("source_fact_id", &input.source_fact_id)?;
         let sponsor_record_id = parse_optional_uuid(&input.sponsor_record_id, "sponsor record id")?;
-        let request_idempotency_key = normalize_optional(input.request_idempotency_key.as_deref())
-            .ok_or_else(|| {
+        let request_idempotency_key =
+            normalize_optional(Some(input.request_idempotency_key.as_str())).ok_or_else(|| {
                 RealmBootstrapError::BadRequest(
                     "admission creation requires request_idempotency_key".to_owned(),
                 )

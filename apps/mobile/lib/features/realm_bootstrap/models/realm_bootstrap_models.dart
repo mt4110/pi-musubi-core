@@ -170,13 +170,19 @@ class RealmBootstrapSummaryBundle {
 
   factory RealmBootstrapSummaryBundle.fromJson(Map<String, dynamic> json) {
     final requestJson = json['realm_request'];
+    final bootstrapJson = json['bootstrap_view'];
     final admissionJson = json['admission_view'];
+    if (bootstrapJson is! Map) {
+      throw const FormatException(
+        'Expected "bootstrap_view" to be a JSON object.',
+      );
+    }
     return RealmBootstrapSummaryBundle(
       realmRequest: requestJson is Map
           ? RealmRequestView.fromJson(requestJson.cast<String, dynamic>())
           : null,
       bootstrapView: RealmBootstrapView.fromJson(
-        (json['bootstrap_view'] as Map).cast<String, dynamic>(),
+        bootstrapJson.cast<String, dynamic>(),
       ),
       admissionView: admissionJson is Map
           ? RealmAdmissionView.fromJson(admissionJson.cast<String, dynamic>())

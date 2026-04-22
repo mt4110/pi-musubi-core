@@ -37,7 +37,7 @@ pub struct CreateRealmRequestInput {
     pub bootstrap_rationale_text: String,
     pub proposed_sponsor_account_id: Option<String>,
     pub proposed_steward_account_id: Option<String>,
-    pub request_idempotency_key: Option<String>,
+    pub request_idempotency_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -53,13 +53,13 @@ pub struct ReviewRealmRequestInput {
     pub corridor_member_cap: Option<i64>,
     pub corridor_sponsor_cap: Option<i64>,
     pub review_threshold_json: Value,
-    pub review_decision_idempotency_key: Option<String>,
+    pub review_decision_idempotency_key: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct RejectRealmRequestInput {
     pub review_reason_code: String,
-    pub review_decision_idempotency_key: Option<String>,
+    pub review_decision_idempotency_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +68,7 @@ pub struct CreateRealmSponsorRecordInput {
     pub sponsor_status: String,
     pub quota_total: i64,
     pub status_reason_code: String,
-    pub request_idempotency_key: Option<String>,
+    pub request_idempotency_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -78,7 +78,7 @@ pub struct CreateRealmAdmissionInput {
     pub source_fact_kind: String,
     pub source_fact_id: String,
     pub source_snapshot_json: Value,
-    pub request_idempotency_key: Option<String>,
+    pub request_idempotency_key: String,
 }
 
 #[derive(Clone, Debug)]
