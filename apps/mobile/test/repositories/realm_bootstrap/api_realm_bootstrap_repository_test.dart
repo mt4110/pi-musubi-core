@@ -85,7 +85,8 @@ void main() {
     final dio = Dio();
     dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
       return _jsonResponse(400, {
-        'error': 'request_idempotency_key replay payload mismatch',
+        'error':
+            'request_idempotency_key was already used with a different realm request payload',
       });
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
@@ -116,7 +117,7 @@ void main() {
       () async {
     final dio = Dio();
     dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
-      return _jsonResponse(409, {
+      return _jsonResponse(400, {
         'error': 'slug_candidate already has an open realm request',
       });
     });
@@ -150,7 +151,7 @@ void main() {
     dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
       return _jsonResponse(
         404,
-        {'error': 'realm bootstrap view was not found'},
+        {'error': 'realm bootstrap summary was not found'},
       );
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
