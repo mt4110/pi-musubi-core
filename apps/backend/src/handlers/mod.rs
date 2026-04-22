@@ -8,6 +8,7 @@ use crate::services::happy_route::{HappyRouteError, ProviderErrorClass};
 
 pub mod auth;
 pub mod operator_review;
+pub mod ops_observability;
 pub mod orchestration;
 pub mod payments;
 pub mod projection;
