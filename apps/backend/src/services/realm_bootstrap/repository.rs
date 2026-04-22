@@ -140,10 +140,12 @@ impl RealmBootstrapStore {
             existing
         } else {
             if let Some(sponsor_account_id) = proposed_sponsor_account_id.as_ref() {
-                ensure_active_account_exists_tx(&tx, sponsor_account_id).await?;
+                ensure_active_realm_request_candidate_account_exists_tx(&tx, sponsor_account_id)
+                    .await?;
             }
             if let Some(steward_account_id) = proposed_steward_account_id.as_ref() {
-                ensure_active_account_exists_tx(&tx, steward_account_id).await?;
+                ensure_active_realm_request_candidate_account_exists_tx(&tx, steward_account_id)
+                    .await?;
             }
             let request_row = match tx
                 .query_opt(
@@ -365,7 +367,15 @@ impl RealmBootstrapStore {
             )
             .await
             .map_err(db_error)?;
-        rows.iter().map(realm_request_from_row).collect()
+        let mut snapshots = Vec::with_capacity(rows.len());
+        for row in rows {
+            let realm_request_id: Uuid = row.get("realm_request_id");
+            let mut snapshot = realm_request_from_row(&row)?;
+            snapshot.open_review_triggers =
+                read_open_realm_request_triggers_tx(&*client, &realm_request_id).await?;
+            snapshots.push(snapshot);
+        }
+        Ok(snapshots)
     }
 
     pub async fn read_realm_request_for_operator(
@@ -395,7 +405,10 @@ impl RealmBootstrapStore {
             .ok_or_else(|| {
                 RealmBootstrapError::NotFound("realm request was not found".to_owned())
             })?;
-        realm_request_from_row(&row)
+        let mut snapshot = realm_request_from_row(&row)?;
+        snapshot.open_review_triggers =
+            read_open_realm_request_triggers_tx(&*client, &realm_request_id).await?;
+        Ok(snapshot)
     }
 
     pub async fn approve_realm_request(
@@ -3488,6 +3501,19 @@ async fn ensure_active_account_exists_tx<C: GenericClient + Sync>(
     }
 }
 
+async fn ensure_active_realm_request_candidate_account_exists_tx<C: GenericClient + Sync>(
+    client: &C,
+    account_id: &Uuid,
+) -> Result<(), RealmBootstrapError> {
+    if find_account_state_tx(client, account_id).await?.as_deref() == Some("active") {
+        Ok(())
+    } else {
+        Err(RealmBootstrapError::BadRequest(
+            "provided sponsor/steward account id is invalid".to_owned(),
+        ))
+    }
+}
+
 async fn ensure_sponsor_account_state_allows_status_tx<C: GenericClient + Sync>(
     client: &C,
     sponsor_account_id: &Uuid,
@@ -3988,6 +4014,26 @@ async fn operator_actor_kind_tx<C: GenericClient + Sync>(
     }
 }
 
+async fn read_open_realm_request_triggers_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_request_id: &Uuid,
+) -> Result<Vec<RealmReviewTriggerSnapshot>, RealmBootstrapError> {
+    let rows = client
+        .query(
+            "
+            SELECT *
+            FROM dao.realm_review_triggers
+            WHERE related_realm_request_id = $1
+              AND trigger_state = 'open'
+            ORDER BY created_at DESC, realm_review_trigger_id DESC
+            ",
+            &[realm_request_id],
+        )
+        .await
+        .map_err(db_error)?;
+    rows.iter().map(realm_review_trigger_from_row).collect()
+}
+
 fn realm_request_from_row(row: &Row) -> Result<RealmRequestSnapshot, RealmBootstrapError> {
     let created_realm_id = if row
         .columns()
@@ -4022,6 +4068,7 @@ fn realm_request_from_row(row: &Row) -> Result<RealmRequestSnapshot, RealmBootst
         created_realm_id,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        open_review_triggers: Vec::new(),
     })
 }
 

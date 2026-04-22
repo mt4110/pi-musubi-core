@@ -107,6 +107,7 @@ pub struct RealmRequestSnapshot {
     pub created_realm_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub open_review_triggers: Vec<RealmReviewTriggerSnapshot>,
 }
 
 #[derive(Clone, Debug)]

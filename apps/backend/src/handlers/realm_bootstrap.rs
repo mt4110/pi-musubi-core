@@ -127,6 +127,7 @@ pub struct RealmRequestOperatorResponse {
     pub created_realm_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub open_review_triggers: Vec<RealmReviewTriggerResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -531,6 +532,11 @@ fn realm_request_operator_response(snapshot: RealmRequestSnapshot) -> RealmReque
         created_realm_id: snapshot.created_realm_id,
         created_at: snapshot.created_at,
         updated_at: snapshot.updated_at,
+        open_review_triggers: snapshot
+            .open_review_triggers
+            .into_iter()
+            .map(realm_review_trigger_response)
+            .collect(),
     }
 }
 

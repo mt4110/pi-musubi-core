@@ -596,6 +596,17 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     let third_duplicate_request_id = third_duplicate.body["realm_request_id"]
         .as_str()
         .expect("third duplicate request id must exist");
+    let duplicate_operator_view = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{third_duplicate_request_id}"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(duplicate_operator_view.status, StatusCode::OK);
+    assert_eq!(
+        duplicate_operator_view.body["open_review_triggers"][0]["trigger_kind"],
+        "duplicate_venue_context"
+    );
     let duplicate_trigger = client
         .query_one(
             "
@@ -672,6 +683,20 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     .await;
     assert_eq!(repeated_request.status, StatusCode::OK);
     assert_eq!(repeated_request.body["request_state"], "pending_review");
+    let repeated_request_id = repeated_request.body["realm_request_id"]
+        .as_str()
+        .expect("repeated request id must exist");
+    let repeated_operator_view = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{repeated_request_id}"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(repeated_operator_view.status, StatusCode::OK);
+    assert_eq!(
+        repeated_operator_view.body["open_review_triggers"][0]["trigger_kind"],
+        "repeated_rejected_requests"
+    );
 }
 
 #[tokio::test]
@@ -841,7 +866,13 @@ async fn realm_request_rejects_unknown_candidate_account_without_enumeration() {
     .await;
 
     assert_eq!(response.status, StatusCode::BAD_REQUEST);
-    assert!(response.body.to_string().contains("active account"));
+    assert!(
+        response
+            .body
+            .to_string()
+            .contains("provided sponsor/steward account id is invalid")
+    );
+    assert!(!response.body.to_string().contains("active account"));
     assert!(!response.body.to_string().contains("not found"));
 }
 

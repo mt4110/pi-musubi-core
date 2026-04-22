@@ -87,6 +87,7 @@ Internal/debug-gated:
   - accepts `limit`, `before_created_at`, and `before_realm_request_id`
   - the store enforces a bounded page size; callers page with the last row's `created_at` and `realm_request_id`
 - `GET /api/internal/operator/realms/requests/{realm_request_id}`
+  - includes request-scoped open review triggers with redacted reason codes only; raw trigger context stays writer-owned
 - `POST /api/internal/operator/realms/requests/{realm_request_id}/approve`
 - `POST /api/internal/operator/realms/requests/{realm_request_id}/reject`
 - `POST /api/internal/realms/{realm_id}/sponsor-records`
