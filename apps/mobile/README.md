@@ -22,3 +22,18 @@ account already exists in the backend database; otherwise the UI shows bounded
 unavailable copy instead of inventing Promise truth on the client.
 
 See `docs/promise_ui_baseline.md` for the ISSUE-14 boundary.
+
+## Realm bootstrap UI baseline
+
+Design source: ISSUE-15 realm bootstrap / admission / sponsor-backed early growth.
+
+The `/realms/bootstrap` screen adds the minimal participant-side Realm request
+form and participant-safe bootstrap summary surface. It does not make Realm
+creation self-serve, and it does not expose internal operator notes, source
+facts, review trigger context, or raw evidence.
+
+The operator / Steward panel is a redacted review surface. Internal approval,
+rejection, sponsor-record, admission, and review-summary APIs remain
+backend-gated and are not unlocked by client state.
+
+See `docs/realm_bootstrap_ui.md` for the ISSUE-15 UI boundary.
