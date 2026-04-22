@@ -214,8 +214,10 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                   venueContextText: _venueController.text,
                   expectedMemberShapeText: _memberShapeController.text,
                   bootstrapRationaleText: _rationaleController.text,
-                  proposedSponsorAccountId: _sponsorController.text,
-                  proposedStewardAccountId: _stewardController.text,
+                  proposedSponsorAccountId:
+                      _trimmedOrNull(_sponsorController.text),
+                  proposedStewardAccountId:
+                      _trimmedOrNull(_stewardController.text),
                   requestIdempotencyKey: _pendingRequestKey!,
                 ),
               );
@@ -336,6 +338,11 @@ class _RealmTextField extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _trimmedOrNull(String value) {
+  final normalized = value.trim();
+  return normalized.isEmpty ? null : normalized;
 }
 
 class _RealmRequestPanel extends StatelessWidget {

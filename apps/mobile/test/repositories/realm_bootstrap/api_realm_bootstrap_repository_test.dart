@@ -19,6 +19,7 @@ void main() {
       expect(body['venue_context_json'], {'summary': 'Tokyo cafe'});
       expect(body['expected_member_shape_json'], {'summary': 'small'});
       expect(body['proposed_sponsor_account_id'], isNull);
+      expect(body['request_idempotency_key'], 'realm-request-1');
       return _jsonResponse(200, {
         'realm_request_id': 'request-1',
         'display_name': 'Tokyo slow coffee',
@@ -41,7 +42,7 @@ void main() {
         venueContextText: 'Tokyo cafe',
         expectedMemberShapeText: 'small',
         bootstrapRationaleText: 'Start bounded.',
-        requestIdempotencyKey: 'realm-request-1',
+        requestIdempotencyKey: ' realm-request-1 ',
       ),
     );
 

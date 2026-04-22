@@ -50,6 +50,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.createdDraft?.displayName, 'Tokyo slow coffee');
+    expect(repository.createdDraft?.proposedSponsorAccountId, isNull);
+    expect(repository.createdDraft?.proposedStewardAccountId, isNull);
     expect(find.text('申請を受け付けました'), findsOneWidget);
     expect(find.text('申請済み'), findsOneWidget);
     expect(find.textContaining('operator id'), findsNothing);

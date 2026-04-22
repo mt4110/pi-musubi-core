@@ -33,7 +33,7 @@ class CreateRealmRequestDraft {
       'bootstrap_rationale_text': bootstrapRationaleText.trim(),
       'proposed_sponsor_account_id': _trimmedOrNull(proposedSponsorAccountId),
       'proposed_steward_account_id': _trimmedOrNull(proposedStewardAccountId),
-      'request_idempotency_key': requestIdempotencyKey,
+      'request_idempotency_key': requestIdempotencyKey.trim(),
     };
   }
 }
