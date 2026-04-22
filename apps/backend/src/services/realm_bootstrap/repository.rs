@@ -1241,7 +1241,7 @@ async fn maybe_open_realm_request_triggers_tx<C: GenericClient + Sync>(
             Some(realm_request_id),
             None,
             &json!({ "rejected_request_count": rejected_count }),
-            &format!("repeated-rejected-requests:{requester_account_id}"),
+            &format!("repeated-rejected-requests:{requester_account_id}:{realm_request_id}"),
         )
         .await?;
     }
@@ -1272,8 +1272,8 @@ async fn maybe_open_realm_request_triggers_tx<C: GenericClient + Sync>(
             None,
             &json!({ "matching_request_count": duplicate_count }),
             &format!(
-                "duplicate-venue-context:{}",
-                hash_json_value(venue_context_json)
+                "duplicate-venue-context:{}:{realm_request_id}",
+                hash_json_value(venue_context_json),
             ),
         )
         .await?;
@@ -1321,7 +1321,7 @@ async fn maybe_open_repeated_rejection_trigger_tx<C: GenericClient + Sync>(
             Some(realm_request_id),
             None,
             &json!({ "rejected_request_count": rejected_count }),
-            &format!("repeated-rejected-requests:{requester_account_id}"),
+            &format!("repeated-rejected-requests:{requester_account_id}:{realm_request_id}"),
         )
         .await?;
     }

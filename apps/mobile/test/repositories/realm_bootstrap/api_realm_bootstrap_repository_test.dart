@@ -167,6 +167,30 @@ void main() {
       ),
     );
   });
+
+  test('api realm repository maps malformed success payload to safe error',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      return _jsonResponse(200, {
+        'realm_request': null,
+        'bootstrap_view': null,
+        'admission_view': null,
+      });
+    });
+    final repository = ApiRealmBootstrapRepository(ApiClient(dio));
+
+    await expectLater(
+      repository.fetchBootstrapSummary('realm-bad-shape'),
+      throwsA(
+        isA<UnknownAppException>().having(
+          (error) => error.message,
+          'message',
+          'データの読み込みに失敗しました。しばらくしてからもう一度お試しください。',
+        ),
+      ),
+    );
+  });
 }
 
 class _StubHttpClientAdapter implements HttpClientAdapter {

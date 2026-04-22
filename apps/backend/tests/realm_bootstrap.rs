@@ -575,6 +575,9 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     .await;
     assert_eq!(second_duplicate.status, StatusCode::OK);
     assert_eq!(second_duplicate.body["request_state"], "pending_review");
+    let second_duplicate_request_id = second_duplicate.body["realm_request_id"]
+        .as_str()
+        .expect("second duplicate request id must exist");
 
     let third_duplicate = post_json(
         &app,
@@ -610,26 +613,35 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
         duplicate_operator_view.body["open_review_triggers"][0]["trigger_kind"],
         "duplicate_venue_context"
     );
-    let duplicate_trigger = client
-        .query_one(
+    let duplicate_triggers = client
+        .query(
             "
             SELECT related_realm_request_id::text AS related_realm_request_id,
                    context_json
             FROM dao.realm_review_triggers
             WHERE trigger_kind = 'duplicate_venue_context'
               AND trigger_state = 'open'
+            ORDER BY created_at ASC, realm_review_trigger_id ASC
             ",
             &[],
         )
         .await
         .expect("duplicate trigger must query");
+    assert_eq!(duplicate_triggers.len(), 2);
     assert_eq!(
-        duplicate_trigger.get::<_, String>("related_realm_request_id"),
+        duplicate_triggers[0].get::<_, String>("related_realm_request_id"),
+        second_duplicate_request_id
+    );
+    let second_duplicate_context: Value = duplicate_triggers[0].get("context_json");
+    assert_eq!(second_duplicate_context["matching_request_count"], 1);
+    assert_eq!(
+        duplicate_triggers[1].get::<_, String>("related_realm_request_id"),
         third_duplicate_request_id
     );
-    let duplicate_context: Value = duplicate_trigger.get("context_json");
-    assert_eq!(duplicate_context["matching_request_count"], 2);
+    let third_duplicate_context: Value = duplicate_triggers[1].get("context_json");
+    assert_eq!(third_duplicate_context["matching_request_count"], 2);
 
+    let mut second_rejected_request_id = None;
     for index in 0..2 {
         let request = post_json(
             &app,
@@ -665,6 +677,7 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
         .await;
         assert_eq!(rejected.status, StatusCode::OK);
         if index == 1 {
+            second_rejected_request_id = Some(request_id.to_owned());
             assert_eq!(
                 rejected.body["open_review_triggers"][0]["trigger_kind"],
                 "repeated_rejected_requests"
@@ -706,6 +719,33 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
         repeated_operator_view.body["open_review_triggers"][0]["trigger_kind"],
         "repeated_rejected_requests"
     );
+    let repeated_triggers = client
+        .query(
+            "
+            SELECT related_realm_request_id::text AS related_realm_request_id,
+                   context_json
+            FROM dao.realm_review_triggers
+            WHERE trigger_kind = 'repeated_rejected_requests'
+              AND trigger_state = 'open'
+            ORDER BY created_at ASC, realm_review_trigger_id ASC
+            ",
+            &[],
+        )
+        .await
+        .expect("repeated rejection triggers must query");
+    assert_eq!(repeated_triggers.len(), 2);
+    assert_eq!(
+        repeated_triggers[0].get::<_, String>("related_realm_request_id"),
+        second_rejected_request_id.expect("second rejected request id must exist")
+    );
+    let second_repeated_context: Value = repeated_triggers[0].get("context_json");
+    assert_eq!(second_repeated_context["rejected_request_count"], 2);
+    assert_eq!(
+        repeated_triggers[1].get::<_, String>("related_realm_request_id"),
+        repeated_request_id
+    );
+    let third_repeated_context: Value = repeated_triggers[1].get("context_json");
+    assert_eq!(third_repeated_context["rejected_request_count"], 2);
 }
 
 #[tokio::test]

@@ -81,6 +81,11 @@ class ApiRealmBootstrapRepository implements RealmBootstrapRepository {
         );
       }
     }
+    if (error is FormatException || error is TypeError) {
+      return const UnknownAppException(
+        message: 'データの読み込みに失敗しました。しばらくしてからもう一度お試しください。',
+      );
+    }
     return AppExceptionMapper.fromObject(error);
   }
 
