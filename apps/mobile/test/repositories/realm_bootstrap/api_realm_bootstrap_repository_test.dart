@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musubi_mobile/api/api_client.dart';
+import 'package:musubi_mobile/core/errors/app_exception.dart';
 import 'package:musubi_mobile/features/realm_bootstrap/models/realm_bootstrap_models.dart';
 import 'package:musubi_mobile/repositories/realm_bootstrap/api_realm_bootstrap_repository.dart';
 
@@ -77,6 +78,61 @@ void main() {
 
     expect(summary.bootstrapView.realmStatus, 'limited_bootstrap');
     expect(summary.admissionView, isNull);
+  });
+
+  test('api realm repository maps malformed request response to business error',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      return _jsonResponse(400, {
+        'error': 'request_idempotency_key replay payload mismatch',
+      });
+    });
+    final repository = ApiRealmBootstrapRepository(ApiClient(dio));
+
+    expect(
+      () => repository.createRealmRequest(
+        const CreateRealmRequestDraft(
+          displayName: 'Tokyo slow coffee',
+          slugCandidate: 'tokyo-slow-coffee',
+          purposeText: 'Calm local meetings.',
+          venueContextText: 'Tokyo cafe',
+          expectedMemberShapeText: 'small',
+          bootstrapRationaleText: 'Start bounded.',
+          requestIdempotencyKey: 'realm-request-1',
+        ),
+      ),
+      throwsA(
+        isA<BusinessException>().having(
+          (error) => error.message,
+          'message',
+          'request_idempotency_key replay payload mismatch',
+        ),
+      ),
+    );
+  });
+
+  test('api realm repository maps missing bootstrap summary to business error',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      return _jsonResponse(
+        404,
+        {'error': 'realm bootstrap view was not found'},
+      );
+    });
+    final repository = ApiRealmBootstrapRepository(ApiClient(dio));
+
+    expect(
+      () => repository.fetchBootstrapSummary('realm-missing'),
+      throwsA(
+        isA<BusinessException>().having(
+          (error) => error.message,
+          'message',
+          'Realmの状態を確認できませんでした。',
+        ),
+      ),
+    );
   });
 }
 
