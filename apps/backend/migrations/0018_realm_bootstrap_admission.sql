@@ -54,8 +54,16 @@ CREATE TABLE IF NOT EXISTS dao.realm_requests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (
-        (reviewed_at IS NULL AND reviewed_by_operator_id IS NULL)
-        OR (reviewed_at IS NOT NULL AND reviewed_by_operator_id IS NOT NULL)
+        (
+            request_state IN ('approved', 'rejected')
+            AND reviewed_at IS NOT NULL
+            AND reviewed_by_operator_id IS NOT NULL
+        )
+        OR (
+            request_state IN ('requested', 'pending_review')
+            AND reviewed_at IS NULL
+            AND reviewed_by_operator_id IS NULL
+        )
     ),
     CHECK (
         (

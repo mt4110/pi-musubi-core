@@ -3434,6 +3434,64 @@ async fn realm_bootstrap_idempotency_keys_reject_blank_values_at_db_layer() {
     );
 }
 
+#[tokio::test]
+async fn realm_request_review_states_require_review_audit_fields_at_db_layer() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-db-review-audit",
+        "realm-db-review-audit",
+    )
+    .await;
+    let client = test_db_client().await;
+
+    let requester_id = Uuid::parse_str(&requester.account_id).expect("requester id must be uuid");
+    let unaudited_review_request_id = Uuid::new_v4();
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_requests (
+                    realm_request_id,
+                    requested_by_account_id,
+                    display_name,
+                    slug_candidate,
+                    purpose_text,
+                    venue_context_json,
+                    expected_member_shape_json,
+                    bootstrap_rationale_text,
+                    request_state,
+                    review_reason_code,
+                    request_idempotency_key,
+                    request_payload_hash,
+                    review_decision_idempotency_key,
+                    review_decision_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    'Unaudited approved realm',
+                    'unaudited-approved-realm',
+                    'Approved and rejected rows require review actor/time.',
+                    '{\"city\":\"Tokyo\"}'::jsonb,
+                    '{\"size\":\"small\"}'::jsonb,
+                    'The database owns review audit completeness.',
+                    'approved',
+                    'active_after_review',
+                    'unaudited-approved-request',
+                    repeat('5', 64),
+                    'unaudited-approved-review',
+                    repeat('6', 64)
+                )
+                ",
+                &[&unaudited_review_request_id, &requester_id],
+            )
+            .await,
+    );
+}
+
 async fn create_realm(
     app: &Router,
     requester: &SignedInUser,
