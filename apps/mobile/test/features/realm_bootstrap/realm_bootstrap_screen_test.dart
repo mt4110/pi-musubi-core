@@ -327,10 +327,10 @@ class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
       ),
       admissionView: RealmAdmissionView(
         realmId: 'realm-tokyo-day1',
-        accountId: 'account-1',
-        admissionStatus: 'pending',
-        admissionKind: 'review_required',
-        publicReasonCode: 'review_required',
+        accountId: 'test-user',
+        admissionStatus: 'admitted',
+        admissionKind: 'normal',
+        publicReasonCode: 'active_after_review',
       ),
     );
   }

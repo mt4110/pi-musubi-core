@@ -768,8 +768,6 @@ impl RealmBootstrapStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
-        ensure_active_account_exists_tx(&tx, &account_id).await?;
-        let granted_by_actor_kind = operator_actor_kind_tx(&tx, &operator_id).await?;
         let payload_hash = create_admission_payload_hash(&input, &account_id, &sponsor_record_id);
 
         let row = if let Some(existing) =
@@ -779,6 +777,8 @@ impl RealmBootstrapStore {
             ensure_admission_payload_hash_matches(&existing, &payload_hash)?;
             existing
         } else {
+            ensure_active_account_exists_tx(&tx, &account_id).await?;
+            let granted_by_actor_kind = operator_actor_kind_tx(&tx, &operator_id).await?;
             let realm_row = lock_realm_tx(&tx, &realm_id).await?;
             let realm_status: String = realm_row.get("realm_status");
             if matches!(realm_status.as_str(), "restricted" | "suspended") {

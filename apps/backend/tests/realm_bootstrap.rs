@@ -3837,12 +3837,26 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
         &app,
         &format!("/api/internal/realms/{realm_id}/admissions"),
         &approver_id,
-        admission_body,
+        admission_body.clone(),
     )
     .await;
     assert_eq!(replayed_admission.status, StatusCode::OK);
     assert_eq!(
         replayed_admission.body["realm_admission_id"],
+        realm_admission_id
+    );
+
+    set_account_state(&client, &member.account_id, "suspended").await;
+    let inactive_account_replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        admission_body.clone(),
+    )
+    .await;
+    assert_eq!(inactive_account_replay.status, StatusCode::OK);
+    assert_eq!(
+        inactive_account_replay.body["realm_admission_id"],
         realm_admission_id
     );
 

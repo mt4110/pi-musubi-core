@@ -244,6 +244,11 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
     admission_kind TEXT NOT NULL CHECK (
         admission_kind IN ('normal', 'sponsor_backed', 'corridor', 'review_required')
     ),
+    admission_status TEXT NOT NULL CHECK (
+        admission_status IN ('pending', 'admitted', 'rejected', 'revoked')
+    ),
+    sponsor_record_id UUID,
+    bootstrap_corridor_id UUID,
     CONSTRAINT realm_admissions_kind_lineage_check CHECK (
         (
             admission_kind = 'sponsor_backed'
@@ -261,11 +266,6 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
         )
         OR admission_kind = 'review_required'
     ),
-    admission_status TEXT NOT NULL CHECK (
-        admission_status IN ('pending', 'admitted', 'rejected', 'revoked')
-    ),
-    sponsor_record_id UUID,
-    bootstrap_corridor_id UUID,
     granted_by_actor_kind TEXT NOT NULL CHECK (
         granted_by_actor_kind IN ('system', 'steward', 'operator')
     ),

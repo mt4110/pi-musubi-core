@@ -101,8 +101,6 @@ class ApiRealmBootstrapRepository implements RealmBootstrapRepository {
         'このslugは確認中です。別のslugで申請してください。',
       'approved slug is already in use' =>
         'このslugはすでに使われています。別のslugで申請してください。',
-      'realm bootstrap summary was not found' => 'Realmの状態を確認できませんでした。',
-      'realm request was not found' => 'Realm申請を確認できませんでした。',
       _ => null,
     };
   }
