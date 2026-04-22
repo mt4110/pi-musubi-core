@@ -2697,6 +2697,7 @@ async fn refresh_realm_review_summary_tx<C: GenericClient + Sync>(
                OR projection.realm_review_summaries.latest_redacted_reason_code IS DISTINCT FROM EXCLUDED.latest_redacted_reason_code
                OR projection.realm_review_summaries.source_watermark_at IS DISTINCT FROM EXCLUDED.source_watermark_at
                OR projection.realm_review_summaries.source_fact_count IS DISTINCT FROM EXCLUDED.source_fact_count
+               OR projection.realm_review_summaries.projection_lag_ms IS DISTINCT FROM EXCLUDED.projection_lag_ms
                OR projection.realm_review_summaries.rebuild_generation IS DISTINCT FROM COALESCE($14, projection.realm_review_summaries.rebuild_generation, 1::bigint)
             ",
             &[

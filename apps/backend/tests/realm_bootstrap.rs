@@ -2453,6 +2453,43 @@ async fn participant_summary_read_skips_noop_operator_projection_refresh() {
 }
 
 #[tokio::test]
+async fn operator_review_summary_read_refreshes_lag_metadata() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-summary-lag-a", "realm-summary-lag-a").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-summary-lag",
+    )
+    .await;
+    let projected_at = current_review_summary_last_projected_at(&client, &realm_id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let review_summary = operator_get_json(
+        &app,
+        &format!("/api/internal/operator/realms/{realm_id}/review-summary"),
+        &approver_id,
+    )
+    .await;
+    assert_eq!(review_summary.status, StatusCode::OK);
+    assert!(
+        review_summary.body["projection_lag_ms"]
+            .as_i64()
+            .unwrap_or(0)
+            >= 0
+    );
+    assert!(current_review_summary_last_projected_at(&client, &realm_id).await > projected_at);
+}
+
+#[tokio::test]
 async fn unauthorized_summary_read_does_not_expire_corridor_or_refresh_projection() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
