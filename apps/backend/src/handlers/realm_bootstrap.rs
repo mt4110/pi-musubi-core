@@ -480,11 +480,8 @@ pub async fn get_review_summary(
 pub async fn rebuild_realm_bootstrap_views(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    body: Bytes,
+    _body: Bytes,
 ) -> ApiResult<RealmBootstrapRebuildResponse> {
-    if !body.is_empty() {
-        return Err(bad_request("request body must be empty"));
-    }
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
     let snapshot = state

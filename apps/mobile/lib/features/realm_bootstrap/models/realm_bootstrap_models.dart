@@ -179,6 +179,11 @@ class RealmBootstrapSummaryBundle {
         'Expected "bootstrap_view" to be a JSON object.',
       );
     }
+    if (admissionJson != null && admissionJson is! Map) {
+      throw const FormatException(
+        'Expected "admission_view" to be null or a JSON object.',
+      );
+    }
     return RealmBootstrapSummaryBundle(
       realmRequest: requestJson is Map
           ? RealmRequestView.fromJson(requestJson.cast<String, dynamic>())

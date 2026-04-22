@@ -128,4 +128,24 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('realm bootstrap summary parsing fails fast on malformed admission view', () {
+    expect(
+      () => RealmBootstrapSummaryBundle.fromJson({
+        'realm_request': null,
+        'bootstrap_view': {
+          'realm_id': 'realm-1',
+          'slug': 'realm-one',
+          'display_name': 'Realm one',
+          'realm_status': 'limited_bootstrap',
+          'admission_posture': 'review_required',
+          'corridor_status': 'active',
+          'public_reason_code': 'review_required',
+          'sponsor_display_state': 'steward_present',
+        },
+        'admission_view': 'not-an-object',
+      }),
+      throwsFormatException,
+    );
+  });
 }

@@ -1456,11 +1456,7 @@ async fn admitted_member_is_not_downgraded_by_later_admission_request_after_corr
 
     expire_corridor_without_rebuild(&client, &realm_id).await;
 
-    let later = operator_post_json(
-        &app,
-        &format!("/api/internal/realms/{realm_id}/admissions"),
-        &approver_id,
-        json!({
+    let later_body = json!({
             "account_id": member.account_id,
             "source_fact_kind": "operator_review",
             "source_fact_id": "realm-preserve-after-expiry",
@@ -1468,14 +1464,57 @@ async fn admitted_member_is_not_downgraded_by_later_admission_request_after_corr
                 "review_outcome": "still_admitted"
             },
             "request_idempotency_key": "realm-preserve-after-expiry"
-        }),
+    });
+    let later = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        later_body.clone(),
     )
     .await;
     assert_eq!(later.status, StatusCode::OK);
     assert_eq!(later.body["admission_kind"], "corridor");
     assert_eq!(later.body["admission_status"], "admitted");
+    let later_admission_id = later.body["realm_admission_id"]
+        .as_str()
+        .expect("admission id must exist")
+        .to_owned();
     assert_eq!(
         admission_count_for_account(&client, &realm_id, &member.account_id).await,
+        1
+    );
+
+    let drifted_replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "operator_review",
+            "source_fact_id": "realm-preserve-after-expiry-drift",
+            "source_snapshot_json": {
+                "review_outcome": "still_admitted"
+            },
+            "request_idempotency_key": "realm-preserve-after-expiry"
+        }),
+    )
+    .await;
+    assert_eq!(drifted_replay.status, StatusCode::BAD_REQUEST);
+
+    let replayed_later = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        later_body,
+    )
+    .await;
+    assert_eq!(replayed_later.status, StatusCode::OK);
+    assert_eq!(
+        replayed_later.body["realm_admission_id"],
+        later_admission_id
+    );
+    assert_eq!(
+        admission_idempotency_key_count(&client, &realm_id, "realm-preserve-after-expiry").await,
         1
     );
 
@@ -2863,6 +2902,25 @@ async fn inactive_sponsor_account_blocks_auto_admission_and_can_be_revoked() {
     let stale_active_sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
     set_account_state(&client, &sponsor.account_id, "suspended").await;
 
+    let replayed_existing_sponsor = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "active",
+            "quota_total": 1,
+            "status_reason_code": "active_after_review",
+            "request_idempotency_key": "realm-inactive-sponsor-approve"
+        }),
+    )
+    .await;
+    assert_eq!(replayed_existing_sponsor.status, StatusCode::OK);
+    assert_eq!(
+        replayed_existing_sponsor.body["realm_sponsor_record_id"],
+        stale_active_sponsor_record_id
+    );
+
     let blocked = operator_post_json(
         &app,
         &format!("/api/internal/realms/{realm_id}/admissions"),
@@ -3180,6 +3238,26 @@ async fn summary_reads_derive_expired_corridor_without_unrelated_write() {
     assert_eq!(review_summary.status, StatusCode::OK);
     assert_eq!(review_summary.body["corridor_status"], "expired");
     assert_eq!(review_summary.body["corridor_remaining_seconds"], 0);
+}
+
+#[tokio::test]
+async fn rebuild_realm_bootstrap_views_accepts_empty_json_body() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let rebuild = operator_post_json(
+        &app,
+        "/api/internal/projection/realms/rebuild",
+        &approver_id,
+        json!({}),
+    )
+    .await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+    assert!(rebuild.body["bootstrap_view_count"].as_i64().is_some());
+    assert!(rebuild.body["admission_view_count"].as_i64().is_some());
+    assert!(rebuild.body["review_summary_count"].as_i64().is_some());
 }
 
 #[tokio::test]
@@ -3841,6 +3919,7 @@ async fn realm_bootstrap_idempotency_keys_reject_blank_values_at_db_layer() {
     let blank_review_request_id = Uuid::new_v4();
     let blank_sponsor_record_id = Uuid::new_v4();
     let blank_admission_id = Uuid::new_v4();
+    let valid_admission_id = Uuid::new_v4();
 
     assert_check_violation(
         client
@@ -4008,6 +4087,67 @@ async fn realm_bootstrap_idempotency_keys_reject_blank_values_at_db_layer() {
                 )
                 ",
                 &[&blank_admission_id, &realm_id, &member_id, &approver_uuid],
+            )
+            .await,
+    );
+
+    client
+        .execute(
+            "
+            INSERT INTO dao.realm_admissions (
+                realm_admission_id,
+                realm_id,
+                account_id,
+                admission_kind,
+                admission_status,
+                granted_by_actor_kind,
+                granted_by_actor_id,
+                review_reason_code,
+                source_fact_kind,
+                source_fact_id,
+                request_idempotency_key,
+                request_payload_hash
+            )
+            VALUES (
+                $1,
+                $2,
+                $3,
+                'normal',
+                'admitted',
+                'operator',
+                $4,
+                'active_after_review',
+                'db_test',
+                'valid-admission-key-source',
+                'valid-admission-key',
+                repeat('5', 64)
+            )
+            ",
+            &[&valid_admission_id, &realm_id, &member_id, &approver_uuid],
+        )
+        .await
+        .expect("valid admission fixture");
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admission_idempotency_keys (
+                    realm_id,
+                    granted_by_actor_id,
+                    request_idempotency_key,
+                    realm_admission_id,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    '   ',
+                    $3,
+                    repeat('6', 64)
+                )
+                ",
+                &[&realm_id, &approver_uuid, &valid_admission_id],
             )
             .await,
     );
@@ -4416,6 +4556,26 @@ async fn admission_count_for_account(
         )
         .await
         .expect("admission count must query")
+        .get("count")
+}
+
+async fn admission_idempotency_key_count(
+    client: &tokio_postgres::Client,
+    realm_id: &str,
+    request_idempotency_key: &str,
+) -> i64 {
+    client
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM dao.realm_admission_idempotency_keys
+            WHERE realm_id = $1
+              AND request_idempotency_key = $2
+            ",
+            &[&realm_id, &request_idempotency_key],
+        )
+        .await
+        .expect("admission idempotency key count must query")
         .get("count")
 }
 

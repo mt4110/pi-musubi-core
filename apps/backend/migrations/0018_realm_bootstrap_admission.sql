@@ -306,6 +306,21 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
 CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_idempotency_unique
     ON dao.realm_admissions (realm_id, granted_by_actor_id, request_idempotency_key);
 
+CREATE TABLE IF NOT EXISTS dao.realm_admission_idempotency_keys (
+    realm_id TEXT NOT NULL REFERENCES dao.realms(realm_id),
+    granted_by_actor_id UUID NOT NULL REFERENCES core.accounts(account_id),
+    request_idempotency_key TEXT NOT NULL CHECK (
+        char_length(trim(request_idempotency_key)) > 0
+    ),
+    realm_admission_id UUID NOT NULL REFERENCES dao.realm_admissions(realm_admission_id),
+    request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (realm_id, granted_by_actor_id, request_idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS realm_admission_idempotency_keys_admission_idx
+    ON dao.realm_admission_idempotency_keys (realm_admission_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_active_unique
     ON dao.realm_admissions (realm_id, account_id)
     WHERE admission_status = 'admitted';

@@ -76,6 +76,7 @@ impl RealmBootstrapStore {
                 DELETE FROM projection.realm_review_summaries;
                 DELETE FROM projection.realm_bootstrap_views;
                 DELETE FROM dao.realm_review_triggers;
+                DELETE FROM dao.realm_admission_idempotency_keys;
                 DELETE FROM dao.realm_admissions;
                 DELETE FROM dao.bootstrap_corridors;
                 DELETE FROM dao.realm_sponsor_records;
@@ -682,15 +683,6 @@ impl RealmBootstrapStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
-        ensure_sponsor_account_state_allows_status_tx(
-            &tx,
-            &sponsor_account_id,
-            &input.sponsor_status,
-        )
-        .await?;
-        lock_realm_tx(&tx, &realm_id).await?;
-        lock_sponsor_lineage_tx(&tx, &realm_id, &sponsor_account_id).await?;
-        update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
 
         let row = if let Some(existing) = find_sponsor_record_by_idempotency_tx(
             &tx,
@@ -703,29 +695,50 @@ impl RealmBootstrapStore {
             ensure_sponsor_record_payload_hash_matches(&existing, &payload_hash)?;
             existing
         } else {
-            ensure_sponsor_status_transition_allowed_tx(
+            ensure_sponsor_account_state_allows_status_tx(
                 &tx,
-                &realm_id,
                 &sponsor_account_id,
                 &input.sponsor_status,
             )
             .await?;
-            let row = insert_sponsor_record_tx(
+            lock_realm_tx(&tx, &realm_id).await?;
+            lock_sponsor_lineage_tx(&tx, &realm_id, &sponsor_account_id).await?;
+            update_expired_corridors_tx(&tx, Some(&realm_id)).await?;
+            if let Some(existing) = find_sponsor_record_by_idempotency_tx(
                 &tx,
                 &realm_id,
-                &sponsor_account_id,
-                &input.sponsor_status,
-                input.quota_total,
-                &input.status_reason_code,
                 &operator_id,
-                request_idempotency_key,
-                payload_hash.clone(),
+                &request_idempotency_key,
             )
-            .await?;
-            ensure_sponsor_record_payload_hash_matches(&row, &payload_hash)?;
-            maybe_open_sponsor_concentration_trigger_tx(&tx, &realm_id, &sponsor_account_id)
+            .await?
+            {
+                ensure_sponsor_record_payload_hash_matches(&existing, &payload_hash)?;
+                existing
+            } else {
+                ensure_sponsor_status_transition_allowed_tx(
+                    &tx,
+                    &realm_id,
+                    &sponsor_account_id,
+                    &input.sponsor_status,
+                )
                 .await?;
-            row
+                let row = insert_sponsor_record_tx(
+                    &tx,
+                    &realm_id,
+                    &sponsor_account_id,
+                    &input.sponsor_status,
+                    input.quota_total,
+                    &input.status_reason_code,
+                    &operator_id,
+                    request_idempotency_key,
+                    payload_hash.clone(),
+                )
+                .await?;
+                ensure_sponsor_record_payload_hash_matches(&row, &payload_hash)?;
+                maybe_open_sponsor_concentration_trigger_tx(&tx, &realm_id, &sponsor_account_id)
+                    .await?;
+                row
+            }
         };
 
         refresh_realm_projection_bundle_tx(&tx, &realm_id, None).await?;
@@ -797,6 +810,15 @@ impl RealmBootstrapStore {
                     .filter(|row| row.get::<_, String>("admission_status") == "admitted")
             };
             if let Some(existing) = existing_admitted {
+                let existing = record_admission_idempotency_tx(
+                    &tx,
+                    &existing,
+                    &operator_id,
+                    &request_idempotency_key,
+                    &payload_hash,
+                )
+                .await?;
+                ensure_admission_payload_hash_matches(&existing, &payload_hash)?;
                 existing
             } else {
                 if let Some(trigger) = admission_context.open_trigger.as_ref() {
@@ -895,6 +917,14 @@ impl RealmBootstrapStore {
                         retryable: true,
                     })?,
                 };
+                let row = record_admission_idempotency_tx(
+                    &tx,
+                    &row,
+                    &operator_id,
+                    &request_idempotency_key,
+                    &payload_hash,
+                )
+                .await?;
                 ensure_admission_payload_hash_matches(&row, &payload_hash)?;
                 maybe_open_member_overlap_trigger_tx(&tx, &realm_id, &account_id).await?;
                 row
@@ -3052,16 +3082,104 @@ async fn find_admission_by_idempotency_tx<C: GenericClient + Sync>(
     client
         .query_opt(
             "
-            SELECT *
-            FROM dao.realm_admissions
-            WHERE realm_id = $1
-              AND granted_by_actor_id = $2
-              AND request_idempotency_key = $3
+            WITH idempotency AS (
+                SELECT
+                    realm_admission_id,
+                    request_payload_hash,
+                    0 AS priority
+                FROM dao.realm_admission_idempotency_keys
+                WHERE realm_id = $1
+                  AND granted_by_actor_id = $2
+                  AND request_idempotency_key = $3
+                UNION ALL
+                SELECT
+                    realm_admission_id,
+                    request_payload_hash,
+                    1 AS priority
+                FROM dao.realm_admissions
+                WHERE realm_id = $1
+                  AND granted_by_actor_id = $2
+                  AND request_idempotency_key = $3
+                ORDER BY priority
+                LIMIT 1
+            )
+            SELECT
+                admission.*,
+                idempotency.request_payload_hash AS idempotency_request_payload_hash
+            FROM idempotency
+            JOIN dao.realm_admissions admission
+              ON admission.realm_admission_id = idempotency.realm_admission_id
             ",
             &[&realm_id, operator_id, &request_idempotency_key],
         )
         .await
         .map_err(db_error)
+}
+
+async fn record_admission_idempotency_tx<C: GenericClient + Sync>(
+    client: &C,
+    admission: &Row,
+    operator_id: &Uuid,
+    request_idempotency_key: &str,
+    request_payload_hash: &str,
+) -> Result<Row, RealmBootstrapError> {
+    let realm_id: String = admission.get("realm_id");
+    let realm_admission_id: Uuid = admission.get("realm_admission_id");
+    client
+        .query_opt(
+            "
+            WITH inserted AS (
+                INSERT INTO dao.realm_admission_idempotency_keys (
+                    realm_id,
+                    granted_by_actor_id,
+                    request_idempotency_key,
+                    realm_admission_id,
+                    request_payload_hash
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (
+                    realm_id,
+                    granted_by_actor_id,
+                    request_idempotency_key
+                )
+                DO NOTHING
+                RETURNING realm_admission_id, request_payload_hash
+            ),
+            idempotency AS (
+                SELECT realm_admission_id, request_payload_hash
+                FROM inserted
+                UNION ALL
+                SELECT realm_admission_id, request_payload_hash
+                FROM dao.realm_admission_idempotency_keys
+                WHERE realm_id = $1
+                  AND granted_by_actor_id = $2
+                  AND request_idempotency_key = $3
+                  AND NOT EXISTS (SELECT 1 FROM inserted)
+                LIMIT 1
+            )
+            SELECT
+                admission.*,
+                idempotency.request_payload_hash AS idempotency_request_payload_hash
+            FROM idempotency
+            JOIN dao.realm_admissions admission
+              ON admission.realm_admission_id = idempotency.realm_admission_id
+            ",
+            &[
+                &realm_id,
+                operator_id,
+                &request_idempotency_key,
+                &realm_admission_id,
+                &request_payload_hash,
+            ],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| RealmBootstrapError::Database {
+            message: "realm admission idempotency key was not recorded".to_owned(),
+            code: None,
+            constraint: None,
+            retryable: true,
+        })
 }
 
 async fn find_latest_admission_for_account_tx<C: GenericClient + Sync>(
@@ -3515,7 +3633,9 @@ fn ensure_admission_payload_hash_matches(
     row: &Row,
     payload_hash: &str,
 ) -> Result<(), RealmBootstrapError> {
-    let existing_hash: String = row.get("request_payload_hash");
+    let existing_hash: String = row
+        .try_get("idempotency_request_payload_hash")
+        .unwrap_or_else(|_| row.get("request_payload_hash"));
     if existing_hash == payload_hash {
         Ok(())
     } else {
