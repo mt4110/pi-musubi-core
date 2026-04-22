@@ -256,8 +256,8 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       'venue_context_text': _venueController.text.trim(),
       'expected_member_shape_text': _memberShapeController.text.trim(),
       'bootstrap_rationale_text': _rationaleController.text.trim(),
-      'proposed_sponsor_account_id': _sponsorController.text.trim(),
-      'proposed_steward_account_id': _stewardController.text.trim(),
+      'proposed_sponsor_account_id': _trimmedOrNull(_sponsorController.text),
+      'proposed_steward_account_id': _trimmedOrNull(_stewardController.text),
     });
   }
 

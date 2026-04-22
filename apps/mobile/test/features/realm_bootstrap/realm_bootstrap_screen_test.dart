@@ -82,6 +82,25 @@ void main() {
       repository.createdDrafts.last.requestIdempotencyKey,
       firstRequestKey,
     );
+
+    await tester.enterText(
+      find.byKey(const Key('realm_request_sponsor_account_id')),
+      '   ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_steward_account_id')),
+      '   ',
+    );
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+
+    expect(repository.createdDrafts, hasLength(3));
+    expect(repository.createdDraft?.proposedSponsorAccountId, isNull);
+    expect(repository.createdDraft?.proposedStewardAccountId, isNull);
+    expect(
+      repository.createdDrafts.last.requestIdempotencyKey,
+      firstRequestKey,
+    );
   });
 
   testWidgets('realm request UI regenerates key after edited failed intent', (

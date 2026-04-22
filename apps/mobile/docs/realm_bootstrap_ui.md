@@ -7,9 +7,9 @@ This UI is intentionally narrow:
 - participants can check a participant-safe bootstrap summary by `realm_id`
 - the operator / Steward panel is a redacted display surface only
 
-The Flutter Web client does not embed internal operator bearer tokens. Internal
-review actions stay on backend/operator-gated routes and are not made available
-from the participant web surface.
+The Flutter participant client does not embed internal operator bearer tokens.
+Internal review actions stay on backend/operator-gated routes and are not made
+available from the participant-facing client surface.
 
 The UI must not imply:
 - guaranteed admission
