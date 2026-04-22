@@ -80,7 +80,7 @@ void main() {
     expect(repository.createdDrafts, hasLength(2));
     expect(
       repository.createdDrafts.last.requestIdempotencyKey,
-      isNot(firstRequestKey),
+      firstRequestKey,
     );
   });
 

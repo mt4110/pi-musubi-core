@@ -789,77 +789,88 @@ impl RealmBootstrapStore {
             )
             .await?;
 
-            if let Some(trigger) = admission_context.open_trigger.as_ref() {
-                open_trigger_tx(
-                    &tx,
-                    Some(&realm_id),
-                    trigger.kind,
-                    trigger.reason_code,
-                    Some(&account_id),
-                    None,
-                    admission_context.sponsor_record_id.as_ref(),
-                    &trigger.context_json,
-                    &trigger.fingerprint,
-                )
-                .await?;
-            }
+            let existing_admitted = if admission_context.admission_status == "admitted" {
+                None
+            } else {
+                find_latest_admission_for_account_tx(&tx, &realm_id, &account_id)
+                    .await?
+                    .filter(|row| row.get::<_, String>("admission_status") == "admitted")
+            };
+            if let Some(existing) = existing_admitted {
+                existing
+            } else {
+                if let Some(trigger) = admission_context.open_trigger.as_ref() {
+                    open_trigger_tx(
+                        &tx,
+                        Some(&realm_id),
+                        trigger.kind,
+                        trigger.reason_code,
+                        Some(&account_id),
+                        None,
+                        admission_context.sponsor_record_id.as_ref(),
+                        &trigger.context_json,
+                        &trigger.fingerprint,
+                    )
+                    .await?;
+                }
 
-            let row = tx
-                .query_one(
-                    "
-                    INSERT INTO dao.realm_admissions (
-                        realm_admission_id,
-                        realm_id,
-                        account_id,
-                        admission_kind,
-                        admission_status,
-                        sponsor_record_id,
-                        bootstrap_corridor_id,
-                        granted_by_actor_kind,
-                        granted_by_actor_id,
-                        review_reason_code,
-                        source_fact_kind,
-                        source_fact_id,
-                        source_snapshot_json,
-                        request_idempotency_key,
-                        request_payload_hash
+                let row = tx
+                    .query_one(
+                        "
+                        INSERT INTO dao.realm_admissions (
+                            realm_admission_id,
+                            realm_id,
+                            account_id,
+                            admission_kind,
+                            admission_status,
+                            sponsor_record_id,
+                            bootstrap_corridor_id,
+                            granted_by_actor_kind,
+                            granted_by_actor_id,
+                            review_reason_code,
+                            source_fact_kind,
+                            source_fact_id,
+                            source_snapshot_json,
+                            request_idempotency_key,
+                            request_payload_hash
+                        )
+                        VALUES (
+                            $1, $2, $3, $4, $5, $6, $7,
+                            $8, $9, $10, $11, $12, $13, $14, $15
+                        )
+                        ON CONFLICT (
+                            realm_id,
+                            granted_by_actor_id,
+                            request_idempotency_key
+                        )
+                        DO UPDATE
+                        SET request_payload_hash = dao.realm_admissions.request_payload_hash
+                        RETURNING *
+                        ",
+                        &[
+                            &Uuid::new_v4(),
+                            &realm_id,
+                            &account_id,
+                            &admission_context.admission_kind,
+                            &admission_context.admission_status,
+                            &admission_context.sponsor_record_id,
+                            &admission_context.bootstrap_corridor_id,
+                            &granted_by_actor_kind,
+                            &operator_id,
+                            &admission_context.reason_code,
+                            &input.source_fact_kind,
+                            &input.source_fact_id,
+                            &input.source_snapshot_json,
+                            &request_idempotency_key,
+                            &payload_hash,
+                        ],
                     )
-                    VALUES (
-                        $1, $2, $3, $4, $5, $6, $7,
-                        $8, $9, $10, $11, $12, $13, $14, $15
-                    )
-                    ON CONFLICT (
-                        realm_id,
-                        granted_by_actor_id,
-                        request_idempotency_key
-                    )
-                    DO UPDATE
-                    SET request_payload_hash = dao.realm_admissions.request_payload_hash
-                    RETURNING *
-                    ",
-                    &[
-                        &Uuid::new_v4(),
-                        &realm_id,
-                        &account_id,
-                        &admission_context.admission_kind,
-                        &admission_context.admission_status,
-                        &admission_context.sponsor_record_id,
-                        &admission_context.bootstrap_corridor_id,
-                        &granted_by_actor_kind,
-                        &operator_id,
-                        &admission_context.reason_code,
-                        &input.source_fact_kind,
-                        &input.source_fact_id,
-                        &input.source_snapshot_json,
-                        &request_idempotency_key,
-                        &payload_hash,
-                    ],
-                )
-                .await
-                .map_err(db_error)?;
-            ensure_admission_payload_hash_matches(&row, &payload_hash)?;
-            maybe_open_member_overlap_trigger_tx(&tx, &realm_id, &account_id).await?;
-            row
+                    .await
+                    .map_err(db_error)?;
+                ensure_admission_payload_hash_matches(&row, &payload_hash)?;
+                maybe_open_member_overlap_trigger_tx(&tx, &realm_id, &account_id).await?;
+                row
+            }
         };
 
         let refreshed_admission: RealmAdmissionSnapshot = realm_admission_from_row(&row)?;
@@ -3011,6 +3022,27 @@ async fn find_admission_by_idempotency_tx<C: GenericClient + Sync>(
               AND request_idempotency_key = $3
             ",
             &[&realm_id, operator_id, &request_idempotency_key],
+        )
+        .await
+        .map_err(db_error)
+}
+
+async fn find_latest_admission_for_account_tx<C: GenericClient + Sync>(
+    client: &C,
+    realm_id: &str,
+    account_id: &Uuid,
+) -> Result<Option<Row>, RealmBootstrapError> {
+    client
+        .query_opt(
+            "
+            SELECT *
+            FROM dao.realm_admissions
+            WHERE realm_id = $1
+              AND account_id = $2
+            ORDER BY updated_at DESC, created_at DESC, realm_admission_id DESC
+            LIMIT 1
+            ",
+            &[&realm_id, account_id],
         )
         .await
         .map_err(db_error)

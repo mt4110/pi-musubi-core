@@ -1416,6 +1416,83 @@ async fn pending_admission_can_be_superseded_by_operator_admission_after_review(
 }
 
 #[tokio::test]
+async fn admitted_member_is_not_downgraded_by_later_admission_request_after_corridor_expiry() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-preserve-a", "realm-preserve-a").await;
+    let member = sign_in(&app, "pi-user-realm-preserve-b", "realm-preserve-b").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-preserve-admitted-001",
+    )
+    .await;
+
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "operator_review",
+            "source_fact_id": "realm-preserve-first",
+            "source_snapshot_json": {
+                "review_outcome": "approved"
+            },
+            "request_idempotency_key": "realm-preserve-first"
+        }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(first.body["admission_kind"], "corridor");
+    assert_eq!(first.body["admission_status"], "admitted");
+
+    expire_corridor_without_rebuild(&client, &realm_id).await;
+
+    let later = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "operator_review",
+            "source_fact_id": "realm-preserve-after-expiry",
+            "source_snapshot_json": {
+                "review_outcome": "still_admitted"
+            },
+            "request_idempotency_key": "realm-preserve-after-expiry"
+        }),
+    )
+    .await;
+    assert_eq!(later.status, StatusCode::OK);
+    assert_eq!(later.body["admission_kind"], "corridor");
+    assert_eq!(later.body["admission_status"], "admitted");
+    assert_eq!(
+        admission_count_for_account(&client, &realm_id, &member.account_id).await,
+        1
+    );
+
+    let member_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(member.token.as_str()),
+    )
+    .await;
+    assert_eq!(member_summary.status, StatusCode::OK);
+    assert_eq!(
+        member_summary.body["admission_view"]["admission_status"],
+        "admitted"
+    );
+}
+
+#[tokio::test]
 async fn corridor_member_cap_counts_distinct_accounts_when_pending_rows_repeat() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

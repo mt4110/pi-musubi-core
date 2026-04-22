@@ -233,8 +233,6 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       }
       setState(() {
         _request = request;
-        _pendingRequestKey = null;
-        _pendingRequestFingerprint = null;
         if (request.createdRealmId != null) {
           _realmIdController.text = request.createdRealmId!;
         }
