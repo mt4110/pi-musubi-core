@@ -2178,6 +2178,67 @@ async fn sponsor_quota_counts_reactivated_sponsor_lineage() {
 }
 
 #[tokio::test]
+async fn restrictive_sponsor_status_requires_existing_lineage() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-sponsor-restrictive-a",
+        "realm-sponsor-restrictive-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-sponsor-restrictive-b",
+        "realm-sponsor-restrictive-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "limited_bootstrap",
+        "realm-sponsor-restrictive",
+    )
+    .await;
+
+    let rate_limited = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "rate_limited",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_rate_limited",
+            "request_idempotency_key": "realm-sponsor-restrictive-rate-limited"
+        }),
+    )
+    .await;
+    assert_eq!(rate_limited.status, StatusCode::BAD_REQUEST);
+
+    let revoked = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/sponsor-records"),
+        &approver_id,
+        json!({
+            "sponsor_account_id": sponsor.account_id,
+            "sponsor_status": "revoked",
+            "quota_total": 1,
+            "status_reason_code": "sponsor_revoked",
+            "request_idempotency_key": "realm-sponsor-restrictive-revoked"
+        }),
+    )
+    .await;
+    assert_eq!(revoked.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());

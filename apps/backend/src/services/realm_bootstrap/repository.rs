@@ -3247,9 +3247,6 @@ async fn ensure_sponsor_status_transition_allowed_tx<C: GenericClient + Sync>(
     sponsor_account_id: &Uuid,
     next_sponsor_status: &str,
 ) -> Result<(), RealmBootstrapError> {
-    if !matches!(next_sponsor_status, "proposed" | "approved" | "active") {
-        return Ok(());
-    }
     let current_status = client
         .query_opt(
             "
@@ -3266,16 +3263,20 @@ async fn ensure_sponsor_status_transition_allowed_tx<C: GenericClient + Sync>(
         .map_err(db_error)?
         .map(|row| row.get::<_, String>("sponsor_status"));
 
-    let transition_allowed = matches!(
-        (current_status.as_deref(), next_sponsor_status),
-        (None, _)
-            | (Some("proposed"), "approved" | "active")
-            | (Some("approved"), "active")
-            | (
-                Some("rate_limited" | "revoked"),
-                "proposed" | "approved" | "active"
-            )
-    );
+    let transition_allowed = match next_sponsor_status {
+        "proposed" | "approved" | "active" => matches!(
+            (current_status.as_deref(), next_sponsor_status),
+            (None, _)
+                | (Some("proposed"), "approved" | "active")
+                | (Some("approved"), "active")
+                | (
+                    Some("rate_limited" | "revoked"),
+                    "proposed" | "approved" | "active"
+                )
+        ),
+        "rate_limited" | "revoked" => current_status.is_some(),
+        _ => false,
+    };
     if !transition_allowed {
         return Err(RealmBootstrapError::BadRequest(
             "sponsor account already has an open sponsor record for this realm".to_owned(),
