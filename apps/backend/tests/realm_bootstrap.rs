@@ -1110,6 +1110,97 @@ async fn approval_rejects_non_positive_sponsor_quota_total() {
 }
 
 #[tokio::test]
+async fn approval_sponsor_record_uses_normalized_review_idempotency_key() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-normalized-review-a",
+        "realm-normalized-review-a",
+    )
+    .await;
+    let sponsor = sign_in(
+        &app,
+        "pi-user-realm-normalized-review-b",
+        "realm-normalized-review-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let request = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "Normalized review key realm",
+            "slug_candidate": "normalized-review-key-realm",
+            "purpose_text": "Sponsor lineage should use normalized review keys.",
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "community_space"
+            },
+            "expected_member_shape_json": {
+                "pace": "quiet"
+            },
+            "bootstrap_rationale_text": "Keep approval replay keys stable.",
+            "proposed_sponsor_account_id": sponsor.account_id,
+            "request_idempotency_key": "realm-normalized-review-request"
+        }),
+    )
+    .await;
+    assert_eq!(request.status, StatusCode::OK);
+    let realm_request_id = request.body["realm_request_id"]
+        .as_str()
+        .expect("realm request id must exist");
+
+    let approval = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
+        &approver_id,
+        json!({
+            "target_realm_status": "active",
+            "review_reason_code": "active_after_review",
+            "sponsor_quota_total": 1,
+            "review_decision_idempotency_key": "  realm-normalized-review-approve  "
+        }),
+    )
+    .await;
+    assert_eq!(approval.status, StatusCode::OK);
+    let realm_id = approval.body["realm_id"]
+        .as_str()
+        .expect("realm id must exist");
+
+    let row = client
+        .query_one(
+            "
+            SELECT
+                request.review_decision_idempotency_key,
+                sponsor.request_idempotency_key AS sponsor_request_idempotency_key
+            FROM dao.realm_requests request
+            JOIN dao.realms realm
+              ON realm.created_from_realm_request_id = request.realm_request_id
+            JOIN dao.realm_sponsor_records sponsor
+              ON sponsor.realm_id = realm.realm_id
+            WHERE request.realm_request_id::text = $1
+              AND realm.realm_id = $2
+            ",
+            &[&realm_request_id, &realm_id],
+        )
+        .await
+        .expect("approval sponsor record must query");
+    assert_eq!(
+        row.get::<_, Option<String>>("review_decision_idempotency_key")
+            .as_deref(),
+        Some("realm-normalized-review-approve")
+    );
+    assert_eq!(
+        row.get::<_, String>("sponsor_request_idempotency_key"),
+        "realm-normalized-review-approve"
+    );
+}
+
+#[tokio::test]
 async fn sponsor_backed_admission_respects_quota_and_review_summary_is_redacted() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1231,6 +1322,96 @@ async fn sponsor_backed_admission_respects_quota_and_review_summary_is_redacted(
             .body
             .to_string()
             .contains("internal_trigger_context")
+    );
+}
+
+#[tokio::test]
+async fn pending_admission_can_be_superseded_by_operator_admission_after_review() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-supersede-a", "realm-supersede-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-supersede-b", "realm-supersede-b").await;
+    let first_member = sign_in(&app, "pi-user-realm-supersede-c", "realm-supersede-c").await;
+    let reviewed_member = sign_in(&app, "pi-user-realm-supersede-d", "realm-supersede-d").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        Some(&sponsor),
+        None,
+        &approver_id,
+        "active",
+        "realm-supersede-001",
+    )
+    .await;
+    let sponsor_record_id = sponsor_record_id_for_realm(&client, &realm_id).await;
+
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": first_member.account_id,
+            "sponsor_record_id": sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-supersede-first",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-supersede-first"
+        }),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(first.body["admission_status"], "admitted");
+
+    let pending = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": reviewed_member.account_id,
+            "sponsor_record_id": sponsor_record_id,
+            "source_fact_kind": "sponsor_invite",
+            "source_fact_id": "realm-supersede-pending",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-supersede-pending"
+        }),
+    )
+    .await;
+    assert_eq!(pending.status, StatusCode::OK);
+    assert_eq!(pending.body["admission_kind"], "review_required");
+    assert_eq!(pending.body["admission_status"], "pending");
+
+    let approved_after_review = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": reviewed_member.account_id,
+            "source_fact_kind": "operator_review",
+            "source_fact_id": "realm-supersede-approved",
+            "source_snapshot_json": {
+                "review_outcome": "approved"
+            },
+            "request_idempotency_key": "realm-supersede-approved"
+        }),
+    )
+    .await;
+    assert_eq!(approved_after_review.status, StatusCode::OK);
+    assert_eq!(approved_after_review.body["admission_kind"], "normal");
+    assert_eq!(approved_after_review.body["admission_status"], "admitted");
+
+    let member_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(reviewed_member.token.as_str()),
+    )
+    .await;
+    assert_eq!(member_summary.status, StatusCode::OK);
+    assert_eq!(
+        member_summary.body["admission_view"]["admission_status"],
+        "admitted"
     );
 }
 

@@ -291,7 +291,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_idempotency_unique
 
 CREATE UNIQUE INDEX IF NOT EXISTS realm_admissions_active_unique
     ON dao.realm_admissions (realm_id, account_id)
-    WHERE admission_status IN ('pending', 'admitted');
+    WHERE admission_status = 'admitted';
 
 CREATE INDEX IF NOT EXISTS realm_admissions_realm_status_idx
     ON dao.realm_admissions (realm_id, admission_status, created_at);

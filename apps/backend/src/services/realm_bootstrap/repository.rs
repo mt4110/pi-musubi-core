@@ -520,7 +520,7 @@ impl RealmBootstrapStore {
                     sponsor_status: "active".to_owned(),
                     quota_total,
                     status_reason_code: input.review_reason_code.clone(),
-                    request_idempotency_key: input.review_decision_idempotency_key.clone(),
+                    request_idempotency_key: review_decision_idempotency_key.clone(),
                 },
                 sponsor_account_id,
             );
@@ -532,7 +532,7 @@ impl RealmBootstrapStore {
                 quota_total,
                 &input.review_reason_code,
                 &operator_id,
-                input.review_decision_idempotency_key.clone(),
+                review_decision_idempotency_key.clone(),
                 sponsor_payload_hash,
             )
             .await?;
@@ -3973,7 +3973,7 @@ fn db_error(error: tokio_postgres::Error) -> RealmBootstrapError {
             }
             Some("realm_admissions_active_unique") => {
                 return RealmBootstrapError::BadRequest(
-                    "account already has a pending or admitted realm admission".to_owned(),
+                    "account already has an admitted realm admission".to_owned(),
                 );
             }
             Some("realm_admissions_idempotency_unique") => {
