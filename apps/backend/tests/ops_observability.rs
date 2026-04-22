@@ -72,7 +72,7 @@ async fn ops_readiness_does_not_probe_migration_advisory_lock() {
 }
 
 #[tokio::test]
-async fn ops_snapshot_requires_internal_gate() {
+async fn ops_snapshot_route_is_internal_only() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
 
