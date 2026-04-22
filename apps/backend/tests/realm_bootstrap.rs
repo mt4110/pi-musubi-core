@@ -4,7 +4,10 @@ use axum::{
     http::{Request, StatusCode},
 };
 use chrono::{DateTime, Duration, Utc};
-use musubi_backend::{build_app, new_state_from_config, new_test_state};
+use musubi_backend::{
+    build_app, new_state_from_config, new_test_state,
+    services::realm_bootstrap::CreateRealmRequestInput,
+};
 use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
 use tokio_postgres::error::SqlState;
@@ -3838,6 +3841,34 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
         inactive_candidate_replay.body["realm_request_id"],
         realm_request_id
     );
+
+    set_account_state(&client, &requester.account_id, "suspended").await;
+    let inactive_requester_replay = test_state
+        .state
+        .realm_bootstrap
+        .create_realm_request(
+            &requester.account_id,
+            CreateRealmRequestInput {
+                display_name: "神戸読書会".to_owned(),
+                slug_candidate: "kobe-reading-room".to_owned(),
+                purpose_text: "静かな読書と対話です。".to_owned(),
+                venue_context_json: json!({
+                    "city": "Kobe",
+                    "venue_type": "bookstore"
+                }),
+                expected_member_shape_json: json!({
+                    "size": "small"
+                }),
+                bootstrap_rationale_text: "まずは小さく始めます。".to_owned(),
+                proposed_sponsor_account_id: Some(proposed_sponsor.account_id.clone()),
+                proposed_steward_account_id: Some(proposed_steward.account_id.clone()),
+                request_idempotency_key: "realm-idem-request".to_owned(),
+            },
+        )
+        .await
+        .expect("request replay should bypass mutable account-state gates");
+    assert_eq!(inactive_requester_replay.realm_request_id, realm_request_id);
+    set_account_state(&client, &requester.account_id, "active").await;
 
     let mismatched_request = post_json(
         &app,
