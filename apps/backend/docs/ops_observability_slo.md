@@ -79,10 +79,13 @@ Day 1 thresholds:
 | Orchestration backlog oldest pending/processing item | `>= 300_000 ms` | `>= 1_800_000 ms` |
 
 Projection summaries read precomputed freshness rows from
-`projection.projection_meta` by `projection_name`. Snapshot requests do not run
-`COUNT(*)` or `MAX(...)` scans across projection tables. Missing projection
-tables or missing precomputed freshness metadata report `unknown`; populated
-metadata rows are classified from `projection_lag_ms`.
+`projection.projection_meta` by `projection_name` for the projection names that
+currently maintain those metadata rows. Snapshot requests do not run `COUNT(*)`
+or `MAX(...)` scans across projection tables. Missing projection tables or
+missing precomputed freshness metadata report `unknown`; populated metadata
+rows are classified from `projection_lag_ms`. New projection families should be
+added to this summary only when their refresh or rebuild path upserts
+`projection.projection_meta`.
 
 Queue and backlog summaries report `unknown` when their source tables are
 missing. Empty queues report `ok`; non-empty queues are classified from the

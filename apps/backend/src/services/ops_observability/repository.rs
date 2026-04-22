@@ -51,30 +51,6 @@ const PROJECTION_SOURCES: &[ProjectionSource] = &[
         projection_name: "realm_trust_snapshots",
         relation: "projection.realm_trust_snapshots",
     },
-    ProjectionSource {
-        projection_name: "review_status_views",
-        relation: "projection.review_status_views",
-    },
-    ProjectionSource {
-        projection_name: "room_progression_views",
-        relation: "projection.room_progression_views",
-    },
-    ProjectionSource {
-        projection_name: "realm_bootstrap_views",
-        relation: "projection.realm_bootstrap_views",
-    },
-    ProjectionSource {
-        projection_name: "realm_admission_views",
-        relation: "projection.realm_admission_views",
-    },
-    ProjectionSource {
-        projection_name: "realm_review_summaries",
-        relation: "projection.realm_review_summaries",
-    },
-    ProjectionSource {
-        projection_name: "projection_meta",
-        relation: PROJECTION_META_RELATION,
-    },
 ];
 
 #[derive(Clone)]
@@ -358,6 +334,7 @@ async fn projection_relation_metadata(
     let relations = PROJECTION_SOURCES
         .iter()
         .map(|source| source.relation)
+        .chain(std::iter::once(PROJECTION_META_RELATION))
         .collect::<Vec<_>>();
     let rows = client
         .query(
@@ -385,6 +362,9 @@ async fn projection_relation_metadata(
         .iter()
         .map(|source| (source.relation.to_owned(), HashSet::new()))
         .collect::<HashMap<_, _>>();
+    columns_by_relation
+        .entry(PROJECTION_META_RELATION.to_owned())
+        .or_default();
     for row in rows {
         let relation = row.get::<_, String>("relation");
         if let Some(column_name) = row.get::<_, Option<String>>("column_name") {

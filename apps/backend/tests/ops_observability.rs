@@ -143,17 +143,17 @@ async fn ops_snapshot_classifies_stale_projection_as_warning_without_rebuilding(
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "projection-lag").await;
     let before_projected_at = force_stale_review_status_projection(&client, &review_case_id).await;
-    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 120_000, 0).await;
+    upsert_projection_meta_freshness_row(&client, "promise_views", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body["status"], "warning");
-    let review_status_metric = projection_metric(&response.body, "review_status_views");
-    assert_eq!(review_status_metric["status"], "warning");
-    let lag = review_status_metric["max_projection_lag_ms"]
+    let promise_metric = projection_metric(&response.body, "promise_views");
+    assert_eq!(promise_metric["status"], "warning");
+    let lag = promise_metric["max_projection_lag_ms"]
         .as_i64()
-        .expect("review_status_views lag must be reported");
+        .expect("promise_views lag must be reported");
     assert!(lag >= 60_000, "expected stale projection lag, got {lag}");
     assert!(
         lag < 1_800_000,
@@ -171,43 +171,62 @@ async fn ops_snapshot_does_not_drift_idle_projection_lag() {
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "idle-projection").await;
     force_idle_review_status_projection(&client, &review_case_id).await;
-    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 0, 7_200_000).await;
+    upsert_projection_meta_freshness_row(&client, "promise_views", 1, 0, 7_200_000).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
     assert_eq!(response.status, StatusCode::OK);
-    let review_status_metric = projection_metric(&response.body, "review_status_views");
-    assert_eq!(review_status_metric["status"], "ok");
-    assert_eq!(review_status_metric["max_projection_lag_ms"], 0);
+    let promise_metric = projection_metric(&response.body, "promise_views");
+    assert_eq!(promise_metric["status"], "ok");
+    assert_eq!(promise_metric["max_projection_lag_ms"], 0);
 }
 
 #[tokio::test]
-async fn ops_snapshot_reports_projection_meta_freshness() {
+async fn ops_snapshot_reports_maintained_projection_meta_freshness() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let client = test_db_client().await;
-    upsert_projection_meta_freshness_row(&client, "projection_meta", 1, 120_000, 0).await;
+    upsert_projection_meta_freshness_row(&client, "settlement_views", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
     assert_eq!(response.status, StatusCode::OK);
-    let projection_meta_metric = projection_metric(&response.body, "projection_meta");
-    assert_ne!(projection_meta_metric["status"], "unknown");
+    let settlement_metric = projection_metric(&response.body, "settlement_views");
+    assert_ne!(settlement_metric["status"], "unknown");
     assert!(
-        projection_meta_metric["row_count"]
+        settlement_metric["row_count"]
             .as_i64()
-            .expect("projection_meta row count must be numeric")
+            .expect("settlement_views row count must be numeric")
             >= 1
     );
-    assert!(
-        projection_meta_metric["latest_projected_at"]
-            .as_str()
-            .is_some()
-    );
-    let lag = projection_meta_metric["max_projection_lag_ms"]
+    assert!(settlement_metric["latest_projected_at"].as_str().is_some());
+    let lag = settlement_metric["max_projection_lag_ms"]
         .as_i64()
-        .expect("projection_meta lag must be reported");
-    assert!(lag >= 60_000, "expected projection_meta lag, got {lag}");
+        .expect("settlement_views lag must be reported");
+    assert!(lag >= 60_000, "expected settlement_views lag, got {lag}");
+}
+
+#[tokio::test]
+async fn ops_snapshot_excludes_unmaintained_projection_meta_sources() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    for projection_name in [
+        "review_status_views",
+        "room_progression_views",
+        "realm_bootstrap_views",
+        "realm_admission_views",
+        "realm_review_summaries",
+        "projection_meta",
+    ] {
+        assert!(
+            maybe_projection_metric(&response.body, projection_name).is_none(),
+            "{projection_name} should not be reported until its refresh path maintains projection_meta"
+        );
+    }
 }
 
 #[tokio::test]
@@ -218,7 +237,7 @@ async fn ops_snapshot_aggregates_warning_status() {
     let review_case_id =
         create_review_case_with_private_fields(&app, &client, "aggregate-warning").await;
     force_stale_review_status_projection(&client, &review_case_id).await;
-    upsert_projection_meta_freshness_row(&client, "review_status_views", 1, 120_000, 0).await;
+    upsert_projection_meta_freshness_row(&client, "promise_views", 1, 120_000, 0).await;
 
     let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
 
@@ -558,12 +577,15 @@ async fn review_status_projected_at(
 }
 
 fn projection_metric<'a>(body: &'a Value, projection_name: &str) -> &'a Value {
+    maybe_projection_metric(body, projection_name).expect("projection metric must exist")
+}
+
+fn maybe_projection_metric<'a>(body: &'a Value, projection_name: &str) -> Option<&'a Value> {
     body["projection_lag"]
         .as_array()
         .expect("projection_lag must be an array")
         .iter()
         .find(|metric| metric["projection_name"] == projection_name)
-        .expect("projection metric must exist")
 }
 
 async fn migration_tracking_count(client: &tokio_postgres::Client) -> i64 {
