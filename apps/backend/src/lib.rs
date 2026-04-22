@@ -23,6 +23,7 @@ pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
     pub happy_route: services::happy_route::HappyRouteStore,
+    pub ops_observability: services::ops_observability::OpsObservabilityStore,
     pub operator_review: services::operator_review::OperatorReviewStore,
     pub realm_bootstrap: services::realm_bootstrap::RealmBootstrapStore,
     pub room_progression: services::room_progression::RoomProgressionStore,
@@ -44,6 +45,8 @@ pub async fn new_state() -> musubi_db_runtime::Result<SharedState> {
 pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Result<SharedState> {
     Ok(Arc::new(AppState {
         happy_route: services::happy_route::HappyRouteStore::connect(config).await?,
+        ops_observability: services::ops_observability::OpsObservabilityStore::connect(config)
+            .await?,
         operator_review: services::operator_review::OperatorReviewStore::connect(config).await?,
         realm_bootstrap: services::realm_bootstrap::RealmBootstrapStore::connect(config).await?,
         room_progression: services::room_progression::RoomProgressionStore::connect(config).await?,
@@ -88,6 +91,11 @@ pub async fn new_test_state() -> Result<TestState, String> {
     let state = new_state_from_config(&config)
         .await
         .map_err(|error| error.to_string())?;
+    state
+        .ops_observability
+        .reset_for_test()
+        .await
+        .map_err(|error| error.message().to_owned())?;
     state
         .happy_route
         .reset_for_test()
@@ -180,6 +188,22 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/projection/realms/{realm_id}/bootstrap-summary",
             get(handlers::realm_bootstrap::get_bootstrap_summary),
+        )
+        .route(
+            "/api/internal/ops/health",
+            get(handlers::ops_observability::get_ops_health),
+        )
+        .route(
+            "/api/internal/ops/readiness",
+            get(handlers::ops_observability::get_ops_readiness),
+        )
+        .route(
+            "/api/internal/ops/observability/snapshot",
+            get(handlers::ops_observability::get_ops_snapshot),
+        )
+        .route(
+            "/api/internal/ops/observability/slo",
+            get(handlers::ops_observability::get_ops_slo),
         );
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(

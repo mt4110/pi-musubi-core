@@ -146,7 +146,10 @@ fn print_status(status: &MigrationStatusReport) {
     println!("bootstrap required: {}", status.bootstrap_required);
     println!(
         "migration lock available: {}",
-        status.migration_lock_available
+        status
+            .migration_lock_available
+            .map(|available| available.to_string())
+            .unwrap_or_else(|| "unknown".to_owned())
     );
     println!("applied migrations: {}", status.applied.len());
     println!("unexpected applied: {}", status.unexpected_applied.len());

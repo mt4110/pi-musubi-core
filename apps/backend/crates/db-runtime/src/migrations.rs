@@ -9,7 +9,7 @@ use tokio_postgres::{Client, Row};
 
 use crate::{DbConfig, DbRuntimeError, Result, connect_writer};
 
-const MIGRATION_LOCK_KEY: i64 = 411_000_008;
+pub const MIGRATION_LOCK_KEY: i64 = 411_000_008;
 const TRACKING_TABLE: &str = "public.musubi_schema_migrations";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub struct ChecksumDrift {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MigrationStatusReport {
     pub bootstrap_required: bool,
-    pub migration_lock_available: bool,
+    pub migration_lock_available: Option<bool>,
     pub applied: Vec<AppliedMigration>,
     pub unexpected_applied: Vec<AppliedMigration>,
     pub pending: Vec<String>,
@@ -41,7 +41,7 @@ pub struct MigrationStatusReport {
 impl MigrationStatusReport {
     pub fn is_current(&self) -> bool {
         !self.bootstrap_required
-            && self.migration_lock_available
+            && self.migration_lock_available != Some(false)
             && self.unexpected_applied.is_empty()
             && self.pending.is_empty()
             && self.failed.is_empty()
@@ -102,7 +102,14 @@ impl MigrationRunner {
 
     pub async fn status(&self, config: &DbConfig) -> Result<MigrationStatusReport> {
         let client = connect_writer(config, "musubi-ops db status").await?;
-        self.status_with_client(&client).await
+        self.status_with_client(&client, true).await
+    }
+
+    pub async fn status_without_lock_probe_with_client(
+        &self,
+        client: &Client,
+    ) -> Result<MigrationStatusReport> {
+        self.status_with_client(client, false).await
     }
 
     pub async fn migrate(&self, config: &DbConfig) -> Result<MigrationOutcome> {
@@ -125,7 +132,7 @@ impl MigrationRunner {
 
     pub async fn verify_startup(&self, config: &DbConfig) -> Result<StartupCheck> {
         let client = connect_writer(config, "musubi-backend startup").await?;
-        let status = self.status_with_client(&client).await?;
+        let status = self.status_with_client(&client, true).await?;
         if config.require_latest_schema {
             ensure_current(&status)?;
         }
@@ -171,7 +178,7 @@ impl MigrationRunner {
     }
 
     async fn migrate_locked(&self, client: &mut Client) -> Result<MigrationOutcome> {
-        let status = self.status_with_client(client).await?;
+        let status = self.status_with_client(client, true).await?;
         ensure_no_unexpected_failed_or_drift(&status)?;
 
         let local_migrations = self.load_migrations()?;
@@ -252,10 +259,18 @@ impl MigrationRunner {
             .collect()
     }
 
-    async fn status_with_client(&self, client: &Client) -> Result<MigrationStatusReport> {
+    async fn status_with_client(
+        &self,
+        client: &Client,
+        probe_migration_lock: bool,
+    ) -> Result<MigrationStatusReport> {
         let local_migrations = self.load_migrations()?;
         if !tracking_table_exists(client).await? {
-            let migration_lock_available = check_advisory_lock_available(client).await?;
+            let migration_lock_available = if probe_migration_lock {
+                Some(check_advisory_lock_available(client).await?)
+            } else {
+                None
+            };
             return Ok(MigrationStatusReport {
                 bootstrap_required: true,
                 migration_lock_available,
@@ -270,7 +285,11 @@ impl MigrationRunner {
             });
         }
 
-        let migration_lock_available = check_advisory_lock_available(client).await?;
+        let migration_lock_available = if probe_migration_lock {
+            Some(check_advisory_lock_available(client).await?)
+        } else {
+            None
+        };
         let rows = client
             .query(
                 "
@@ -299,7 +318,7 @@ fn build_status_report(
     local_migrations: Vec<LocalMigration>,
     applied: Vec<AppliedMigration>,
     bootstrap_required: bool,
-    migration_lock_available: bool,
+    migration_lock_available: Option<bool>,
 ) -> MigrationStatusReport {
     if bootstrap_required {
         return MigrationStatusReport {
@@ -370,7 +389,7 @@ fn ensure_current(status: &MigrationStatusReport) -> Result<()> {
     if status.bootstrap_required {
         return Err(DbRuntimeError::BootstrapRequired);
     }
-    if !status.migration_lock_available {
+    if matches!(status.migration_lock_available, None | Some(false)) {
         return Err(DbRuntimeError::MigrationLockUnavailable);
     }
     ensure_no_unexpected_failed_or_drift(status)?;
@@ -669,7 +688,7 @@ mod tests {
     fn startup_status_requires_all_migrations_current() {
         let status = MigrationStatusReport {
             bootstrap_required: false,
-            migration_lock_available: true,
+            migration_lock_available: Some(true),
             applied: Vec::new(),
             unexpected_applied: Vec::new(),
             pending: vec!["0001_create_core_schema".to_owned()],
@@ -692,7 +711,7 @@ mod tests {
                 applied_migration("0002_removed_from_checkout", "db-0002"),
             ],
             false,
-            true,
+            Some(true),
         );
 
         assert_eq!(

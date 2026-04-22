@@ -9,6 +9,10 @@ Current local HTTP surface:
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true` and the request includes `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`
+- `GET /api/internal/ops/health` under the internal/debug auth gate, independent of orchestration drain enablement; reports DB connectivity only
+- `GET /api/internal/ops/readiness` under the internal/debug auth gate, independent of orchestration drain enablement; reports migration posture without mutating migration state or probing the migration advisory lock
+- `GET /api/internal/ops/observability/snapshot` under the internal/debug auth gate, independent of orchestration drain enablement; returns a redacted ops snapshot without raw evidence, operator notes, source identifiers, or participant data
+- `GET /api/internal/ops/observability/slo` under the internal/debug auth gate, independent of orchestration drain enablement; aliases the redacted SLO snapshot
 - `POST /api/internal/projection/rebuild` under the same internal/debug gate and release-time internal bearer-token requirement
 - `POST /api/internal/operator/review-cases` under the same internal/debug gate; requires `x-musubi-operator-id` with a durable operator role grant
 - `GET /api/internal/operator/review-cases` under the same internal/debug gate; requires `x-musubi-operator-id` with a durable operator role grant
@@ -137,7 +141,8 @@ Issue #22 adds derived Promise, expanded settlement, and bounded trust read mode
 Design source: ISSUE-12-operator-review-appeal-evidence.md adds the operator review / appeal / evidence workflow baseline. Operator decisions are append-only facts, original writer truth is not overwritten, concurrent idempotent replays return the preserved case or fact instead of surfacing a duplicate-write error, replay mismatches are checked with payload hashes, legacy rows backfill missing replay hashes on first retry, and user-facing review state is projected with bounded status and reason codes. See `docs/operator_review_workflow.md`.
 Design source: ISSUE-13-room-progression.md adds the room progression surface baseline. Room progression facts are append-only writer facts in `dao`, user-facing room state is rebuilt into `projection`, sealed fallback can link to ISSUE-12 review cases without duplicating review/evidence truth, and state-changing progression decisions read writer truth instead of projection rows. See `docs/room_progression_surface.md`.
 Design source: ISSUE-15-realm-bootstrap-and-admission.md adds the first bounded realm bootstrap and admission baseline. Realm creation requests, sponsor records, bootstrap corridors, admissions, and review triggers live in writer-owned `dao` tables, while participant-safe and operator-safe realm summaries stay rebuildable in `projection`. Sponsor quota, revoked/rate-limited sponsor state, corridor expiry/caps, and restricted/suspended realm blocking are enforced on the writer path, not by client/UI state or projection rows. See `docs/realm_bootstrap_surface.md`.
-Issue #17 adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
+Design source: ISSUE-17-observability-slo-prompt-pack adds an internal-only, read-only ops observability surface. Health, readiness, projection lag, review queue, Realm review-trigger, and orchestration backlog signals are reported as redacted operational posture only. Unsupported SLIs return `unknown` instead of fake zero values, and projection lag remains display-only rather than writer truth. See `docs/ops_observability_slo.md`.
+The backend also adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 ISSUE-10 adds Day 1 safer venue proof primitives.
 The public HTTP surface supports the normal venue-code path only.
 Proof challenges are short-lived, proof envelopes are server-verified before acceptance, exact replays are rejected with server-keyed replay keys, and venue verification is realm-scoped, server-secret-backed, and bound to the challenge-issued key version.
@@ -156,6 +161,7 @@ These proof records are input facts only; they are not settlement truth or final
 - `docs/operator_review_workflow.md`: ISSUE-12 operator review, appeal, evidence, and append-only decision boundary
 - `docs/room_progression_surface.md`: ISSUE-13 Intent / Coordination / Relationship / Sealed Room progression surface boundary
 - `docs/realm_bootstrap_surface.md`: ISSUE-15 bounded realm bootstrap, admission, sponsor, and corridor boundary
+- `docs/ops_observability_slo.md`: internal-only ISSUE-17 observability SLO skeleton and redaction boundary
 - `docs/guardrails.md`: executable architectural guardrails
 - `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path
