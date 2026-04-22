@@ -80,6 +80,30 @@ void main() {
     expect(summary.admissionView, isNull);
   });
 
+  test('api realm repository maps missing fetched request to business error',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      expect(
+        options.path,
+        '/api/realms/requests/request%2Fwith%20space',
+      );
+      return _jsonResponse(404, {'error': 'realm request was not found'});
+    });
+    final repository = ApiRealmBootstrapRepository(ApiClient(dio));
+
+    await expectLater(
+      repository.fetchRealmRequest('request/with space'),
+      throwsA(
+        isA<BusinessException>().having(
+          (error) => error.message,
+          'message',
+          'Realm申請を確認できませんでした。',
+        ),
+      ),
+    );
+  });
+
   test('api realm repository maps malformed request response to business error',
       () async {
     final dio = Dio();

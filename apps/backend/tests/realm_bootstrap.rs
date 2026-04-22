@@ -1000,6 +1000,96 @@ async fn active_realm_uses_normal_admission_kind_and_open_posture() {
 }
 
 #[tokio::test]
+async fn realm_admission_replay_survives_operator_role_revocation() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-admission-replay-a",
+        "realm-admission-replay-a",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-admission-replay-b",
+        "realm-admission-replay-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-admission-replay",
+    )
+    .await;
+    let body = json!({
+        "account_id": member.account_id,
+        "source_fact_kind": "realm_admin_invite",
+        "source_fact_id": "realm-admission-replay",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-admission-replay"
+    });
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    let admission_id = first.body["realm_admission_id"]
+        .as_str()
+        .expect("admission id must exist")
+        .to_owned();
+
+    let approver_uuid = Uuid::parse_str(&approver_id).expect("operator id must be uuid");
+    client
+        .execute(
+            "
+            UPDATE core.operator_role_assignments
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE operator_account_id = $1
+              AND operator_role = 'approver'
+              AND revoked_at IS NULL
+            ",
+            &[&approver_uuid],
+        )
+        .await
+        .expect("operator role must be revoked");
+
+    let replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::OK);
+    assert_eq!(replay.body["realm_admission_id"], admission_id);
+
+    let drifted_replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-admission-replay-drifted",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-admission-replay"
+        }),
+    )
+    .await;
+    assert_eq!(drifted_replay.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn bootstrap_summary_authorizes_against_latest_admission_status() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
