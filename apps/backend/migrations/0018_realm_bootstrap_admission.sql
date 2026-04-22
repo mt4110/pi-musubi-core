@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS dao.realm_requests (
     CHECK (
         (reviewed_at IS NULL AND reviewed_by_operator_id IS NULL)
         OR (reviewed_at IS NOT NULL AND reviewed_by_operator_id IS NOT NULL)
+    ),
+    CHECK (
+        (
+            request_state IN ('approved', 'rejected')
+            AND review_decision_idempotency_key IS NOT NULL
+            AND review_decision_payload_hash IS NOT NULL
+        )
+        OR (
+            request_state IN ('requested', 'pending_review')
+            AND review_decision_idempotency_key IS NULL
+            AND review_decision_payload_hash IS NULL
+        )
     )
 );
 
