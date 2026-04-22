@@ -661,6 +661,12 @@ async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
         )
         .await;
         assert_eq!(rejected.status, StatusCode::OK);
+        if index == 1 {
+            assert_eq!(
+                rejected.body["open_review_triggers"][0]["trigger_kind"],
+                "repeated_rejected_requests"
+            );
+        }
     }
 
     let repeated_request = post_json(
@@ -3348,8 +3354,19 @@ async fn operator_review_summary_read_refreshes_lag_metadata() {
         "realm-summary-lag",
     )
     .await;
+    client
+        .execute(
+            "
+            UPDATE projection.realm_review_summaries
+            SET projection_lag_ms = 999999,
+                last_projected_at = last_projected_at - interval '1 second'
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("review summary lag fixture must update");
     let projected_at = current_review_summary_last_projected_at(&client, &realm_id).await;
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
     let review_summary = operator_get_json(
         &app,

@@ -650,8 +650,11 @@ impl RealmBootstrapStore {
                     &review_decision_idempotency_key,
                     &decision_payload_hash,
                 )?;
+                let mut snapshot = realm_request_from_row(&request)?;
+                snapshot.open_review_triggers =
+                    read_open_realm_request_triggers_tx(&tx, &realm_request_id).await?;
                 tx.commit().await.map_err(db_error)?;
-                return realm_request_from_row(&request);
+                return Ok(snapshot);
             }
             "approved" => {
                 return Err(RealmBootstrapError::BadRequest(
@@ -690,8 +693,11 @@ impl RealmBootstrapStore {
         .map_err(db_error)?;
         maybe_open_repeated_rejection_trigger_tx(&tx, &realm_request_id).await?;
         let refreshed = lock_realm_request_tx(&tx, &realm_request_id).await?;
+        let mut snapshot = realm_request_from_row(&refreshed)?;
+        snapshot.open_review_triggers =
+            read_open_realm_request_triggers_tx(&tx, &realm_request_id).await?;
         tx.commit().await.map_err(db_error)?;
-        realm_request_from_row(&refreshed)
+        Ok(snapshot)
     }
 
     pub async fn create_realm_sponsor_record(
@@ -3751,9 +3757,7 @@ fn write_canonical_json(value: &Value, output: &mut String) {
             let _ = write!(output, "{number}");
         }
         Value::String(string) => {
-            output.push_str(
-                &serde_json::to_string(string).expect("serializing a JSON string should not fail"),
-            );
+            write_json_string(string, output);
         }
         Value::Array(values) => {
             output.push('[');
@@ -3773,16 +3777,33 @@ fn write_canonical_json(value: &Value, output: &mut String) {
                 if index > 0 {
                     output.push(',');
                 }
-                output.push_str(
-                    &serde_json::to_string(key)
-                        .expect("serializing a JSON object key should not fail"),
-                );
+                write_json_string(key, output);
                 output.push(':');
                 write_canonical_json(value, output);
             }
             output.push('}');
         }
     }
+}
+
+fn write_json_string(value: &str, output: &mut String) {
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0c}' => output.push_str("\\f"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            control if control <= '\u{1f}' => {
+                let _ = write!(output, "\\u{:04x}", control as u32);
+            }
+            other => output.push(other),
+        }
+    }
+    output.push('"');
 }
 
 fn parse_uuid(value: &str, field_name: &str) -> Result<Uuid, RealmBootstrapError> {
