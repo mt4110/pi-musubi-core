@@ -192,8 +192,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
   }
 
   Future<void> _submitRequest() async {
-    final session = ref.read(authSessionControllerProvider).valueOrNull;
-    if (session == null) {
+    if (ref.read(authSessionControllerProvider).valueOrNull == null) {
       _showSnack('サインイン状態を確認できませんでした。');
       return;
     }
