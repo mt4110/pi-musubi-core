@@ -62,6 +62,13 @@ pub struct RejectRealmRequestInput {
     pub review_decision_idempotency_key: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ListRealmRequestsInput {
+    pub limit: Option<i64>,
+    pub before_created_at: Option<DateTime<Utc>>,
+    pub before_realm_request_id: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct CreateRealmSponsorRecordInput {
     pub sponsor_account_id: String,

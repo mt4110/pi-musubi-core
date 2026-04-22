@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
 };
 use chrono::{DateTime, Utc};
@@ -18,8 +18,8 @@ use crate::{
         happy_route::authorize_account,
         realm_bootstrap::{
             CreateRealmAdmissionInput, CreateRealmRequestInput, CreateRealmSponsorRecordInput,
-            RealmAdmissionSnapshot, RealmAdmissionViewSnapshot, RealmBootstrapError,
-            RealmBootstrapRebuildSnapshot, RealmBootstrapSummarySnapshot,
+            ListRealmRequestsInput, RealmAdmissionSnapshot, RealmAdmissionViewSnapshot,
+            RealmBootstrapError, RealmBootstrapRebuildSnapshot, RealmBootstrapSummarySnapshot,
             RealmBootstrapViewSnapshot, RealmRequestSnapshot, RealmReviewSummarySnapshot,
             RealmReviewTriggerSnapshot, RealmSnapshot, RealmSponsorRecordSnapshot,
             RejectRealmRequestInput, ReviewRealmRequestInput,
@@ -60,6 +60,13 @@ pub struct ReviewRealmRequestRequest {
 pub struct RejectRealmRequestRequest {
     pub review_reason_code: String,
     pub review_decision_idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListRealmRequestsQuery {
+    pub limit: Option<i64>,
+    pub before_created_at: Option<DateTime<Utc>>,
+    pub before_realm_request_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -286,12 +293,20 @@ pub async fn get_realm_request(
 pub async fn list_realm_requests(
     State(state): State<SharedState>,
     headers: HeaderMap,
+    Query(query): Query<ListRealmRequestsQuery>,
 ) -> ApiResult<Vec<RealmRequestOperatorResponse>> {
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
     let snapshots = state
         .realm_bootstrap
-        .list_realm_requests_for_operator(&operator_id)
+        .list_realm_requests_for_operator(
+            &operator_id,
+            ListRealmRequestsInput {
+                limit: query.limit,
+                before_created_at: query.before_created_at,
+                before_realm_request_id: query.before_realm_request_id,
+            },
+        )
         .await
         .map_err(map_realm_bootstrap_error)?;
     Ok(Json(

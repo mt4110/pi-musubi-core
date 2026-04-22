@@ -10,10 +10,11 @@ use uuid::Uuid;
 
 use super::types::{
     CreateRealmAdmissionInput, CreateRealmRequestInput, CreateRealmSponsorRecordInput,
-    RealmAdmissionSnapshot, RealmAdmissionViewSnapshot, RealmBootstrapError,
-    RealmBootstrapRebuildSnapshot, RealmBootstrapSummarySnapshot, RealmBootstrapViewSnapshot,
-    RealmRequestSnapshot, RealmReviewSummarySnapshot, RealmReviewTriggerSnapshot, RealmSnapshot,
-    RealmSponsorRecordSnapshot, RejectRealmRequestInput, ReviewRealmRequestInput,
+    ListRealmRequestsInput, RealmAdmissionSnapshot, RealmAdmissionViewSnapshot,
+    RealmBootstrapError, RealmBootstrapRebuildSnapshot, RealmBootstrapSummarySnapshot,
+    RealmBootstrapViewSnapshot, RealmRequestSnapshot, RealmReviewSummarySnapshot,
+    RealmReviewTriggerSnapshot, RealmSnapshot, RealmSponsorRecordSnapshot, RejectRealmRequestInput,
+    ReviewRealmRequestInput,
 };
 
 const SPONSOR_STATUSES: &[&str] = &["proposed", "approved", "active", "rate_limited", "revoked"];
@@ -50,6 +51,8 @@ const APPROVAL_REASON_CODES: &[&str] = &["limited_bootstrap_active", "active_aft
 const REJECTION_REASON_CODES: &[&str] = &["request_rejected", "duplicate_or_invalid"];
 const OPERATOR_READ_ROLES: &[&str] = &["reviewer", "approver", "steward", "auditor", "support"];
 const OPERATOR_WRITE_ROLES: &[&str] = &["approver", "steward"];
+const REALM_REQUEST_LIST_DEFAULT_LIMIT: i64 = 50;
+const REALM_REQUEST_LIST_MAX_LIMIT: i64 = 100;
 
 #[derive(Clone)]
 pub struct RealmBootstrapStore {
@@ -296,8 +299,21 @@ impl RealmBootstrapStore {
     pub async fn list_realm_requests_for_operator(
         &self,
         operator_id: &str,
+        input: ListRealmRequestsInput,
     ) -> Result<Vec<RealmRequestSnapshot>, RealmBootstrapError> {
         let operator_id = parse_uuid(operator_id, "operator id")?;
+        let limit = normalize_realm_request_list_limit(input.limit)?;
+        let before_realm_request_id = input
+            .before_realm_request_id
+            .as_deref()
+            .map(|value| parse_uuid(value, "before realm request id"))
+            .transpose()?;
+        if input.before_created_at.is_some() != before_realm_request_id.is_some() {
+            return Err(RealmBootstrapError::BadRequest(
+                "realm request list cursor requires before_created_at and before_realm_request_id"
+                    .to_owned(),
+            ));
+        }
         let client = self.client.lock().await;
         ensure_operator_role_tx(&*client, &operator_id, OPERATOR_READ_ROLES).await?;
         let rows = client
@@ -309,9 +325,15 @@ impl RealmBootstrapStore {
                 FROM dao.realm_requests request
                 LEFT JOIN dao.realms realm
                   ON realm.created_from_realm_request_id = request.realm_request_id
+                WHERE (
+                    $1::timestamptz IS NULL
+                    OR $2::uuid IS NULL
+                    OR (request.created_at, request.realm_request_id) < ($1, $2)
+                )
                 ORDER BY request.created_at DESC, request.realm_request_id DESC
+                LIMIT $3
                 ",
-                &[],
+                &[&input.before_created_at, &before_realm_request_id, &limit],
             )
             .await
             .map_err(db_error)?;
@@ -980,17 +1002,6 @@ impl RealmBootstrapStore {
         .map_err(db_error)?;
         update_expired_corridors_tx(&tx, None).await?;
 
-        let realm_rows = tx
-            .query(
-                "
-                SELECT realm_id
-                FROM dao.realms
-                ORDER BY realm_id
-                ",
-                &[],
-            )
-            .await
-            .map_err(db_error)?;
         let rebuild_generation = current_rebuild_generation_tx(&tx).await?;
         tx.execute("DELETE FROM projection.realm_admission_views", &[])
             .await
@@ -1001,30 +1012,9 @@ impl RealmBootstrapStore {
         tx.execute("DELETE FROM projection.realm_bootstrap_views", &[])
             .await
             .map_err(db_error)?;
-
-        for row in &realm_rows {
-            let realm_id: String = row.get("realm_id");
-            refresh_realm_bootstrap_view_tx(&tx, &realm_id, Some(rebuild_generation)).await?;
-            refresh_realm_review_summary_tx(&tx, &realm_id, Some(rebuild_generation)).await?;
-        }
-
-        let admission_rows = tx
-            .query(
-                "
-                SELECT DISTINCT realm_id, account_id
-                FROM dao.realm_admissions
-                ORDER BY realm_id, account_id
-                ",
-                &[],
-            )
-            .await
-            .map_err(db_error)?;
-        for row in &admission_rows {
-            let realm_id: String = row.get("realm_id");
-            let account_id: Uuid = row.get("account_id");
-            refresh_realm_admission_view_tx(&tx, &realm_id, &account_id, Some(rebuild_generation))
-                .await?;
-        }
+        rebuild_all_realm_bootstrap_views_tx(&tx, rebuild_generation).await?;
+        rebuild_all_realm_review_summaries_tx(&tx, rebuild_generation).await?;
+        rebuild_all_realm_admission_views_tx(&tx, rebuild_generation).await?;
 
         let bootstrap_view_count = tx
             .query_one(
@@ -1862,6 +1852,438 @@ async fn refresh_realm_projection_bundle_tx<C: GenericClient + Sync>(
     if let Some(account_id) = account_id {
         refresh_realm_admission_view_tx(client, realm_id, account_id, None).await?;
     }
+    Ok(())
+}
+
+async fn rebuild_all_realm_bootstrap_views_tx<C: GenericClient + Sync>(
+    client: &C,
+    rebuild_generation: i64,
+) -> Result<(), RealmBootstrapError> {
+    client
+        .execute(
+            "
+            INSERT INTO projection.realm_bootstrap_views (
+                realm_id,
+                slug,
+                display_name,
+                realm_status,
+                admission_posture,
+                corridor_status,
+                public_reason_code,
+                sponsor_display_state,
+                source_watermark_at,
+                source_fact_count,
+                projection_lag_ms,
+                rebuild_generation,
+                last_projected_at
+            )
+            WITH latest_corridor AS (
+                SELECT DISTINCT ON (realm_id)
+                    realm_id,
+                    corridor_status,
+                    starts_at,
+                    ends_at,
+                    updated_at
+                FROM dao.bootstrap_corridors
+                ORDER BY realm_id, updated_at DESC, bootstrap_corridor_id DESC
+            ),
+            current_sponsor_lineages AS (
+                SELECT DISTINCT ON (realm_id, sponsor_account_id)
+                    realm_id,
+                    sponsor_account_id,
+                    sponsor_status
+                FROM dao.realm_sponsor_records
+                ORDER BY
+                    realm_id,
+                    sponsor_account_id,
+                    updated_at DESC,
+                    created_at DESC,
+                    realm_sponsor_record_id DESC
+            ),
+            sponsor_counts AS (
+                SELECT
+                    realm_id,
+                    COUNT(*) FILTER (
+                        WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
+                    ) AS active_sponsor_count
+                FROM current_sponsor_lineages
+                GROUP BY realm_id
+            ),
+            sponsor_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_sponsor_records
+                GROUP BY realm_id
+            ),
+            admission_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_admissions
+                GROUP BY realm_id
+            ),
+            corridor_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.bootstrap_corridors
+                GROUP BY realm_id
+            ),
+            trigger_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_review_triggers
+                GROUP BY realm_id
+            ),
+            computed AS (
+                SELECT
+                    realm.realm_id,
+                    realm.slug,
+                    realm.display_name,
+                    realm.realm_status,
+                    CASE
+                        WHEN realm.realm_status IN ('restricted', 'suspended') THEN 'closed'
+                        WHEN realm.realm_status = 'active' THEN 'open'
+                        WHEN realm.realm_status = 'limited_bootstrap'
+                             AND corridor.corridor_status = 'active'
+                             AND corridor.starts_at <= CURRENT_TIMESTAMP
+                             AND corridor.ends_at > CURRENT_TIMESTAMP THEN 'limited'
+                        ELSE 'review_required'
+                    END AS admission_posture,
+                    COALESCE(corridor.corridor_status, 'none') AS corridor_status,
+                    realm.public_reason_code,
+                    CASE
+                        WHEN COALESCE(sponsor_counts.active_sponsor_count, 0) > 0
+                             AND realm.steward_account_id IS NOT NULL THEN 'sponsor_and_steward'
+                        WHEN COALESCE(sponsor_counts.active_sponsor_count, 0) > 0 THEN 'sponsor_backed'
+                        WHEN realm.steward_account_id IS NOT NULL THEN 'steward_present'
+                        ELSE 'none'
+                    END AS sponsor_display_state,
+                    GREATEST(
+                        realm.updated_at,
+                        COALESCE(sponsor_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(admission_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(corridor_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(trigger_fact_counts.watermark_at, realm.updated_at)
+                    ) AS source_watermark_at,
+                    (
+                        1
+                        + COALESCE(sponsor_fact_counts.fact_count, 0)
+                        + COALESCE(admission_fact_counts.fact_count, 0)
+                        + COALESCE(corridor_fact_counts.fact_count, 0)
+                        + COALESCE(trigger_fact_counts.fact_count, 0)
+                    ) AS source_fact_count
+                FROM dao.realms realm
+                LEFT JOIN latest_corridor corridor
+                  ON corridor.realm_id = realm.realm_id
+                LEFT JOIN sponsor_counts
+                  ON sponsor_counts.realm_id = realm.realm_id
+                LEFT JOIN sponsor_fact_counts
+                  ON sponsor_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN admission_fact_counts
+                  ON admission_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN corridor_fact_counts
+                  ON corridor_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN trigger_fact_counts
+                  ON trigger_fact_counts.realm_id = realm.realm_id
+            )
+            SELECT
+                realm_id,
+                slug,
+                display_name,
+                realm_status,
+                admission_posture,
+                corridor_status,
+                public_reason_code,
+                sponsor_display_state,
+                source_watermark_at,
+                source_fact_count,
+                GREATEST(
+                    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source_watermark_at)) * 1000),
+                    0
+                )::bigint AS projection_lag_ms,
+                $1,
+                CURRENT_TIMESTAMP
+            FROM computed
+            ",
+            &[&rebuild_generation],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(())
+}
+
+async fn rebuild_all_realm_admission_views_tx<C: GenericClient + Sync>(
+    client: &C,
+    rebuild_generation: i64,
+) -> Result<(), RealmBootstrapError> {
+    client
+        .execute(
+            "
+            INSERT INTO projection.realm_admission_views (
+                realm_id,
+                account_id,
+                admission_status,
+                admission_kind,
+                public_reason_code,
+                source_watermark_at,
+                source_fact_count,
+                projection_lag_ms,
+                rebuild_generation,
+                last_projected_at
+            )
+            WITH latest_admission AS (
+                SELECT DISTINCT ON (realm_id, account_id)
+                    realm_id,
+                    account_id,
+                    admission_status,
+                    admission_kind,
+                    review_reason_code,
+                    updated_at
+                FROM dao.realm_admissions
+                ORDER BY
+                    realm_id,
+                    account_id,
+                    updated_at DESC,
+                    created_at DESC,
+                    realm_admission_id DESC
+            ),
+            source_counts AS (
+                SELECT realm_id, account_id, COUNT(*) AS source_fact_count
+                FROM dao.realm_admissions
+                GROUP BY realm_id, account_id
+            ),
+            computed AS (
+                SELECT
+                    latest_admission.realm_id,
+                    latest_admission.account_id,
+                    latest_admission.admission_status,
+                    latest_admission.admission_kind,
+                    latest_admission.review_reason_code AS public_reason_code,
+                    latest_admission.updated_at AS source_watermark_at,
+                    COALESCE(source_counts.source_fact_count, 0) AS source_fact_count
+                FROM latest_admission
+                LEFT JOIN source_counts
+                  ON source_counts.realm_id = latest_admission.realm_id
+                 AND source_counts.account_id = latest_admission.account_id
+            )
+            SELECT
+                realm_id,
+                account_id,
+                admission_status,
+                admission_kind,
+                public_reason_code,
+                source_watermark_at,
+                source_fact_count,
+                GREATEST(
+                    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source_watermark_at)) * 1000),
+                    0
+                )::bigint AS projection_lag_ms,
+                $1,
+                CURRENT_TIMESTAMP
+            FROM computed
+            ",
+            &[&rebuild_generation],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(())
+}
+
+async fn rebuild_all_realm_review_summaries_tx<C: GenericClient + Sync>(
+    client: &C,
+    rebuild_generation: i64,
+) -> Result<(), RealmBootstrapError> {
+    client
+        .execute(
+            "
+            INSERT INTO projection.realm_review_summaries (
+                realm_id,
+                realm_status,
+                corridor_status,
+                corridor_remaining_seconds,
+                active_sponsor_count,
+                sponsor_backed_admission_count,
+                recent_admission_count_7d,
+                open_review_trigger_count,
+                open_review_case_count,
+                latest_redacted_reason_code,
+                source_watermark_at,
+                source_fact_count,
+                projection_lag_ms,
+                rebuild_generation,
+                last_projected_at
+            )
+            WITH latest_corridor AS (
+                SELECT DISTINCT ON (realm_id)
+                    realm_id,
+                    corridor_status,
+                    ends_at,
+                    updated_at
+                FROM dao.bootstrap_corridors
+                ORDER BY realm_id, updated_at DESC, bootstrap_corridor_id DESC
+            ),
+            current_sponsor_lineages AS (
+                SELECT DISTINCT ON (realm_id, sponsor_account_id)
+                    realm_id,
+                    sponsor_account_id,
+                    sponsor_status
+                FROM dao.realm_sponsor_records
+                ORDER BY
+                    realm_id,
+                    sponsor_account_id,
+                    updated_at DESC,
+                    created_at DESC,
+                    realm_sponsor_record_id DESC
+            ),
+            active_sponsors AS (
+                SELECT realm_id, COUNT(*) AS active_sponsor_count
+                FROM current_sponsor_lineages
+                WHERE sponsor_status IN ('approved', 'active', 'rate_limited')
+                GROUP BY realm_id
+            ),
+            sponsor_backed_admissions AS (
+                SELECT realm_id, COUNT(*) AS sponsor_backed_admission_count
+                FROM dao.realm_admissions
+                WHERE admission_kind = 'sponsor_backed'
+                  AND admission_status IN ('pending', 'admitted')
+                GROUP BY realm_id
+            ),
+            recent_admissions AS (
+                SELECT realm_id, COUNT(*) AS recent_admission_count_7d
+                FROM dao.realm_admissions
+                WHERE created_at >= (CURRENT_TIMESTAMP - interval '7 days')
+                GROUP BY realm_id
+            ),
+            open_triggers AS (
+                SELECT realm_id, COUNT(*) AS open_review_trigger_count
+                FROM dao.realm_review_triggers
+                WHERE trigger_state = 'open'
+                GROUP BY realm_id
+            ),
+            open_cases AS (
+                SELECT related_realm_id AS realm_id, COUNT(*) AS open_review_case_count
+                FROM dao.review_cases
+                WHERE related_realm_id IS NOT NULL
+                  AND review_status <> 'closed'
+                GROUP BY related_realm_id
+            ),
+            latest_reason AS (
+                SELECT DISTINCT ON (realm_id)
+                    realm_id,
+                    redacted_reason_code
+                FROM dao.realm_review_triggers
+                ORDER BY realm_id, updated_at DESC, realm_review_trigger_id DESC
+            ),
+            sponsor_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_sponsor_records
+                GROUP BY realm_id
+            ),
+            admission_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_admissions
+                GROUP BY realm_id
+            ),
+            corridor_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.bootstrap_corridors
+                GROUP BY realm_id
+            ),
+            trigger_fact_counts AS (
+                SELECT realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.realm_review_triggers
+                GROUP BY realm_id
+            ),
+            case_fact_counts AS (
+                SELECT related_realm_id AS realm_id, COUNT(*) AS fact_count, MAX(updated_at) AS watermark_at
+                FROM dao.review_cases
+                WHERE related_realm_id IS NOT NULL
+                GROUP BY related_realm_id
+            ),
+            computed AS (
+                SELECT
+                    realm.realm_id,
+                    realm.realm_status,
+                    COALESCE(corridor.corridor_status, 'none') AS corridor_status,
+                    CASE
+                        WHEN corridor.corridor_status = 'active'
+                            THEN GREATEST(EXTRACT(EPOCH FROM (corridor.ends_at - CURRENT_TIMESTAMP))::bigint, 0)
+                        ELSE 0
+                    END AS corridor_remaining_seconds,
+                    COALESCE(active_sponsors.active_sponsor_count, 0) AS active_sponsor_count,
+                    COALESCE(
+                        sponsor_backed_admissions.sponsor_backed_admission_count,
+                        0
+                    ) AS sponsor_backed_admission_count,
+                    COALESCE(recent_admissions.recent_admission_count_7d, 0) AS recent_admission_count_7d,
+                    COALESCE(open_triggers.open_review_trigger_count, 0) AS open_review_trigger_count,
+                    COALESCE(open_cases.open_review_case_count, 0) AS open_review_case_count,
+                    COALESCE(
+                        latest_reason.redacted_reason_code,
+                        realm.public_reason_code
+                    ) AS latest_redacted_reason_code,
+                    GREATEST(
+                        realm.updated_at,
+                        COALESCE(sponsor_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(admission_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(corridor_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(trigger_fact_counts.watermark_at, realm.updated_at),
+                        COALESCE(case_fact_counts.watermark_at, realm.updated_at)
+                    ) AS source_watermark_at,
+                    (
+                        1
+                        + COALESCE(sponsor_fact_counts.fact_count, 0)
+                        + COALESCE(admission_fact_counts.fact_count, 0)
+                        + COALESCE(corridor_fact_counts.fact_count, 0)
+                        + COALESCE(trigger_fact_counts.fact_count, 0)
+                        + COALESCE(case_fact_counts.fact_count, 0)
+                    ) AS source_fact_count
+                FROM dao.realms realm
+                LEFT JOIN latest_corridor corridor
+                  ON corridor.realm_id = realm.realm_id
+                LEFT JOIN active_sponsors
+                  ON active_sponsors.realm_id = realm.realm_id
+                LEFT JOIN sponsor_backed_admissions
+                  ON sponsor_backed_admissions.realm_id = realm.realm_id
+                LEFT JOIN recent_admissions
+                  ON recent_admissions.realm_id = realm.realm_id
+                LEFT JOIN open_triggers
+                  ON open_triggers.realm_id = realm.realm_id
+                LEFT JOIN open_cases
+                  ON open_cases.realm_id = realm.realm_id
+                LEFT JOIN latest_reason
+                  ON latest_reason.realm_id = realm.realm_id
+                LEFT JOIN sponsor_fact_counts
+                  ON sponsor_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN admission_fact_counts
+                  ON admission_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN corridor_fact_counts
+                  ON corridor_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN trigger_fact_counts
+                  ON trigger_fact_counts.realm_id = realm.realm_id
+                LEFT JOIN case_fact_counts
+                  ON case_fact_counts.realm_id = realm.realm_id
+            )
+            SELECT
+                realm_id,
+                realm_status,
+                corridor_status,
+                corridor_remaining_seconds,
+                active_sponsor_count,
+                sponsor_backed_admission_count,
+                recent_admission_count_7d,
+                open_review_trigger_count,
+                open_review_case_count,
+                latest_redacted_reason_code,
+                source_watermark_at,
+                source_fact_count,
+                GREATEST(
+                    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source_watermark_at)) * 1000),
+                    0
+                )::bigint AS projection_lag_ms,
+                $1,
+                CURRENT_TIMESTAMP
+            FROM computed
+            ",
+            &[&rebuild_generation],
+        )
+        .await
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -3115,6 +3537,16 @@ fn normalize_optional(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+}
+
+fn normalize_realm_request_list_limit(limit: Option<i64>) -> Result<i64, RealmBootstrapError> {
+    match limit {
+        Some(value) if value <= 0 => Err(RealmBootstrapError::BadRequest(
+            "realm request list limit must be positive".to_owned(),
+        )),
+        Some(value) => Ok(value.min(REALM_REQUEST_LIST_MAX_LIMIT)),
+        None => Ok(REALM_REQUEST_LIST_DEFAULT_LIMIT),
+    }
 }
 
 fn normalize_slug_candidate(value: &str) -> Result<String, RealmBootstrapError> {

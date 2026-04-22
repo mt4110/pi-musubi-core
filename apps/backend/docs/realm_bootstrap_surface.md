@@ -84,6 +84,8 @@ Participant-facing:
 
 Internal/debug-gated:
 - `GET /api/internal/operator/realms/requests`
+  - accepts `limit`, `before_created_at`, and `before_realm_request_id`
+  - the store enforces a bounded page size; callers page with the last row's `created_at` and `realm_request_id`
 - `GET /api/internal/operator/realms/requests/{realm_request_id}`
 - `POST /api/internal/operator/realms/requests/{realm_request_id}/approve`
 - `POST /api/internal/operator/realms/requests/{realm_request_id}/reject`
@@ -93,6 +95,8 @@ Internal/debug-gated:
 - `POST /api/internal/projection/realms/rebuild`
 
 The internal operator routes reuse the existing internal/debug gate and `x-musubi-operator-id` role checks. ISSUE-15 does not add a separate launch framework.
+
+Projection rebuilds use set-based `INSERT ... SELECT` refreshes for bootstrap views, admission views, and review summaries. Rebuild output stays derived display state and must not be used for writer-owned admission decisions.
 
 ## Policy posture
 

@@ -393,6 +393,96 @@ async fn concurrent_realm_request_replay_returns_existing_request() {
 }
 
 #[tokio::test]
+async fn operator_realm_request_list_is_bounded_and_cursor_paged() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "reviewer").await;
+
+    for index in 0..3 {
+        let requester = sign_in(
+            &app,
+            &format!("pi-user-realm-list-{index}"),
+            &format!("realm-list-{index}"),
+        )
+        .await;
+        let request = post_json(
+            &app,
+            "/api/realms/requests",
+            Some(requester.token.as_str()),
+            json!({
+                "display_name": format!("Realm list {index}"),
+                "slug_candidate": format!("realm-list-{index}"),
+                "purpose_text": "Operator list pagination coverage.",
+                "venue_context_json": {
+                    "city": "Tokyo",
+                    "venue": format!("list-{index}")
+                },
+                "expected_member_shape_json": {
+                    "pace": "calm",
+                    "index": index
+                },
+                "bootstrap_rationale_text": "Keep the operator list bounded.",
+                "request_idempotency_key": format!("realm-list-{index}")
+            }),
+        )
+        .await;
+        assert_eq!(request.status, StatusCode::OK);
+    }
+
+    let first_page = operator_get_json(
+        &app,
+        "/api/internal/operator/realms/requests?limit=2",
+        &operator_id,
+    )
+    .await;
+    assert_eq!(first_page.status, StatusCode::OK);
+    let first_items = first_page
+        .body
+        .as_array()
+        .expect("first page must be an array");
+    assert_eq!(first_items.len(), 2);
+    let cursor_item = &first_items[1];
+    let cursor_created_at = cursor_item["created_at"]
+        .as_str()
+        .expect("cursor created_at must exist");
+    let cursor_request_id = cursor_item["realm_request_id"]
+        .as_str()
+        .expect("cursor realm_request_id must exist");
+
+    let second_page = operator_get_json(
+        &app,
+        &format!(
+            "/api/internal/operator/realms/requests?limit=2&before_created_at={cursor_created_at}&before_realm_request_id={cursor_request_id}"
+        ),
+        &operator_id,
+    )
+    .await;
+    assert_eq!(second_page.status, StatusCode::OK);
+    let second_items = second_page
+        .body
+        .as_array()
+        .expect("second page must be an array");
+    assert_eq!(second_items.len(), 1);
+    assert_ne!(
+        second_items[0]["realm_request_id"],
+        first_items[0]["realm_request_id"]
+    );
+    assert_ne!(
+        second_items[0]["realm_request_id"],
+        first_items[1]["realm_request_id"]
+    );
+
+    let invalid_limit = operator_get_json(
+        &app,
+        "/api/internal/operator/realms/requests?limit=0",
+        &operator_id,
+    )
+    .await;
+    assert_eq!(invalid_limit.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn suspicious_requests_enter_review_even_when_trigger_is_already_open() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
