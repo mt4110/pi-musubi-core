@@ -32,17 +32,21 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Tokyo slow coffee');
     await tester.enterText(find.byType(TextField).at(1), 'tokyo-slow-coffee');
     await tester.enterText(
-        find.byType(TextField).at(2), 'Calm local meetings.');
+      find.byType(TextField).at(2),
+      'Calm local meetings.',
+    );
     await tester.enterText(find.byType(TextField).at(3), 'Tokyo cafe');
     await tester.enterText(find.byType(TextField).at(4), 'Small and local');
     await tester.enterText(
       find.byType(TextField).at(5),
       'Start with bounded growth.',
     );
-    tester
-        .widget<MusubiPrimaryButton>(find.byType(MusubiPrimaryButton))
-        .onPressed
-        ?.call();
+    final submitButton = find.byType(MusubiPrimaryButton);
+    expect(
+      tester.widget<MusubiPrimaryButton>(submitButton).onPressed,
+      isNotNull,
+    );
+    await tester.tap(submitButton);
     await tester.pumpAndSettle();
 
     expect(repository.createdDraft?.displayName, 'Tokyo slow coffee');
@@ -52,16 +56,67 @@ void main() {
     expect(find.textContaining('source fact'), findsNothing);
 
     final firstRequestKey = repository.createdDraft!.requestIdempotencyKey;
-    tester
-        .widget<MusubiPrimaryButton>(find.byType(MusubiPrimaryButton))
-        .onPressed
-        ?.call();
+    expect(
+      tester.widget<MusubiPrimaryButton>(submitButton).onPressed,
+      isNotNull,
+    );
+    await tester.tap(submitButton);
     await tester.pumpAndSettle();
 
     expect(repository.createdDrafts, hasLength(2));
     expect(
       repository.createdDrafts.last.requestIdempotencyKey,
       isNot(firstRequestKey),
+    );
+  });
+
+  testWidgets('realm request UI regenerates key after edited failed intent', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final repository = _FakeRealmBootstrapRepository()..failNextCreate = true;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWith((ref) => _FakeAuthRepository()),
+          realmBootstrapRepositoryProvider.overrideWith((ref) => repository),
+        ],
+        child: const _WarmAuthSession(
+          child: MaterialApp(home: RealmBootstrapScreen()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), 'Tokyo slow coffee');
+    await tester.enterText(find.byType(TextField).at(1), 'tokyo-slow-coffee');
+    await tester.enterText(
+      find.byType(TextField).at(2),
+      'Calm local meetings.',
+    );
+    await tester.enterText(find.byType(TextField).at(3), 'Tokyo cafe');
+    await tester.enterText(find.byType(TextField).at(4), 'Small and local');
+    await tester.enterText(
+      find.byType(TextField).at(5),
+      'Start with bounded growth.',
+    );
+
+    final submitButton = find.byType(MusubiPrimaryButton);
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+    final failedRequestKey = repository.createdDraft!.requestIdempotencyKey;
+
+    await tester.enterText(
+      find.byType(TextField).at(2),
+      'Calm local meetings with a smaller first circle.',
+    );
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+
+    expect(repository.createdDrafts, hasLength(2));
+    expect(
+      repository.createdDrafts.last.requestIdempotencyKey,
+      isNot(failedRequestKey),
     );
   });
 
@@ -85,12 +140,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    tester
-        .widget<MusubiGhostButton>(
-          find.widgetWithText(MusubiGhostButton, '状態を確認'),
-        )
-        .onPressed
-        ?.call();
+    final summaryButton = find.widgetWithText(MusubiGhostButton, '状態を確認');
+    expect(
+      tester.widget<MusubiGhostButton>(summaryButton).onPressed,
+      isNotNull,
+    );
+    await tester.tap(summaryButton);
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pumpAndSettle();
@@ -147,6 +202,7 @@ class _FakeAuthRepository implements AuthRepository {
 class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
   CreateRealmRequestDraft? createdDraft;
   final createdDrafts = <CreateRealmRequestDraft>[];
+  bool failNextCreate = false;
 
   @override
   Future<RealmRequestView> createRealmRequest(
@@ -154,6 +210,10 @@ class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
   ) async {
     createdDraft = draft;
     createdDrafts.add(draft);
+    if (failNextCreate) {
+      failNextCreate = false;
+      throw Exception('realm request failed');
+    }
     return RealmRequestView(
       realmRequestId: 'request-1',
       displayName: draft.displayName,

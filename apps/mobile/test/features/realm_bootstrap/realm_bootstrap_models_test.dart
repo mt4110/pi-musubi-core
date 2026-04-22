@@ -47,6 +47,30 @@ void main() {
     expect(participantBootstrapCopy(summary), isNot(contains('source')));
   });
 
+  test('realm request parsing summarizes arbitrary context JSON', () {
+    final request = RealmRequestView.fromJson({
+      'realm_request_id': 'request-1',
+      'display_name': 'Tokyo slow coffee',
+      'slug_candidate': 'tokyo-slow-coffee',
+      'purpose_text': 'Small calm meetings.',
+      'venue_context_json': {
+        'city': 'Tokyo',
+        'venue_type': 'cafe',
+      },
+      'expected_member_shape_json': {
+        'size': 'small',
+        'locality': 'neighborhood',
+      },
+      'bootstrap_rationale_text': 'Start with a bounded group.',
+      'request_state': 'approved',
+      'review_reason_code': 'limited_bootstrap_active',
+    });
+
+    expect(request.venueContextSummary, contains('city: Tokyo'));
+    expect(request.venueContextSummary, contains('venue_type: cafe'));
+    expect(request.expectedMemberShapeSummary, contains('size: small'));
+  });
+
   test('realm bootstrap copy stays calm and non-gamified', () {
     const summary = RealmBootstrapSummaryBundle(
       realmRequest: null,

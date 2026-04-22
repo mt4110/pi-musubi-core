@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:musubi_mobile/core/riverpod_compat.dart';
 
@@ -30,6 +32,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
   bool _isSubmitting = false;
   bool _isLoadingSummary = false;
   String? _pendingRequestKey;
+  String? _pendingRequestFingerprint;
   RealmRequestView? _request;
   RealmBootstrapSummaryBundle? _summary;
 
@@ -191,10 +194,15 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       return;
     }
 
+    final requestFingerprint = _currentRequestFingerprint();
     setState(() {
       _isSubmitting = true;
-      _pendingRequestKey ??=
-          'realm-ui-${session.userId}-${randomHex(bytes: 8)}';
+      if (_pendingRequestKey == null ||
+          _pendingRequestFingerprint != requestFingerprint) {
+        _pendingRequestKey =
+            'realm-ui-${session.userId}-${randomHex(bytes: 8)}';
+        _pendingRequestFingerprint = requestFingerprint;
+      }
     });
     try {
       final request =
@@ -217,6 +225,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       setState(() {
         _request = request;
         _pendingRequestKey = null;
+        _pendingRequestFingerprint = null;
         if (request.createdRealmId != null) {
           _realmIdController.text = request.createdRealmId!;
         }
@@ -231,6 +240,19 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  String _currentRequestFingerprint() {
+    return jsonEncode({
+      'display_name': _displayNameController.text.trim(),
+      'slug_candidate': _slugController.text.trim(),
+      'purpose_text': _purposeController.text.trim(),
+      'venue_context_text': _venueController.text.trim(),
+      'expected_member_shape_text': _memberShapeController.text.trim(),
+      'bootstrap_rationale_text': _rationaleController.text.trim(),
+      'proposed_sponsor_account_id': _sponsorController.text.trim(),
+      'proposed_steward_account_id': _stewardController.text.trim(),
+    });
   }
 
   Future<void> _loadSummary() async {

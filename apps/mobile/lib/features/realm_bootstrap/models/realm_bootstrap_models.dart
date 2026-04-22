@@ -73,8 +73,10 @@ class RealmRequestView {
       displayName: _stringField(json, 'display_name'),
       slugCandidate: _stringField(json, 'slug_candidate'),
       purposeText: _stringField(json, 'purpose_text'),
-      venueContextSummary: _summaryFromJson(json['venue_context_json']),
-      expectedMemberShapeSummary: _summaryFromJson(
+      venueContextSummary: _summaryOrFallbackFromJson(
+        json['venue_context_json'],
+      ),
+      expectedMemberShapeSummary: _summaryOrFallbackFromJson(
         json['expected_member_shape_json'],
       ),
       bootstrapRationaleText: _stringField(
@@ -326,12 +328,43 @@ String? _trimmedOrNull(String? value) {
   return normalized;
 }
 
-String _summaryFromJson(Object? value) {
+String _summaryOrFallbackFromJson(Object? value) {
   if (value is Map) {
     final summary = value['summary'];
-    if (summary != null && '$summary'.trim().isNotEmpty) {
-      return '$summary';
+    if (summary is String && summary.trim().isNotEmpty) {
+      return summary.trim();
     }
   }
-  return '';
+  return _jsonValueToSummary(value);
+}
+
+String _jsonValueToSummary(Object? value) {
+  if (value == null) {
+    return '';
+  }
+  if (value is String) {
+    return value.trim();
+  }
+  if (value is num || value is bool) {
+    return value.toString();
+  }
+  if (value is List) {
+    final parts = value
+        .map(_jsonValueToSummary)
+        .where((part) => part.isNotEmpty)
+        .toList();
+    return parts.join(', ');
+  }
+  if (value is Map) {
+    final parts = <String>[];
+    value.forEach((key, nestedValue) {
+      final nestedSummary = _jsonValueToSummary(nestedValue);
+      if (nestedSummary.isEmpty) {
+        return;
+      }
+      parts.add('${key.toString()}: $nestedSummary');
+    });
+    return parts.join(', ');
+  }
+  return value.toString().trim();
 }
