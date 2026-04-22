@@ -90,8 +90,8 @@ void main() {
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
 
-    expect(
-      () => repository.createRealmRequest(
+    await expectLater(
+      repository.createRealmRequest(
         const CreateRealmRequestDraft(
           displayName: 'Tokyo slow coffee',
           slugCandidate: 'tokyo-slow-coffee',
@@ -122,8 +122,8 @@ void main() {
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
 
-    expect(
-      () => repository.createRealmRequest(
+    await expectLater(
+      repository.createRealmRequest(
         const CreateRealmRequestDraft(
           displayName: 'Tokyo slow coffee',
           slugCandidate: 'tokyo-slow-coffee',
@@ -155,8 +155,8 @@ void main() {
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
 
-    expect(
-      () => repository.fetchBootstrapSummary('realm-missing'),
+    await expectLater(
+      repository.fetchBootstrapSummary('realm-missing'),
       throwsA(
         isA<BusinessException>().having(
           (error) => error.message,

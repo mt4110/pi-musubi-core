@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../core/errors/app_exception.dart';
 import '../../features/realm_bootstrap/models/realm_bootstrap_models.dart';
 import 'realm_bootstrap_repository.dart';
@@ -84,16 +86,20 @@ class DummyRealmBootstrapRepository implements RealmBootstrapRepository {
 }
 
 String _fingerprint(CreateRealmRequestDraft draft) {
-  return [
-    draft.displayName.trim(),
-    draft.slugCandidate.trim(),
-    draft.purposeText.trim(),
-    draft.venueContextText.trim(),
-    draft.expectedMemberShapeText.trim(),
-    draft.bootstrapRationaleText.trim(),
-    _trimmedOrNull(draft.proposedSponsorAccountId) ?? '',
-    _trimmedOrNull(draft.proposedStewardAccountId) ?? '',
-  ].join('|');
+  return jsonEncode({
+    'display_name': draft.displayName.trim(),
+    'slug_candidate': draft.slugCandidate.trim(),
+    'purpose_text': draft.purposeText.trim(),
+    'venue_context_summary': draft.venueContextText.trim(),
+    'expected_member_shape_summary': draft.expectedMemberShapeText.trim(),
+    'bootstrap_rationale_text': draft.bootstrapRationaleText.trim(),
+    'proposed_sponsor_account_id': _trimmedOrNull(
+      draft.proposedSponsorAccountId,
+    ),
+    'proposed_steward_account_id': _trimmedOrNull(
+      draft.proposedStewardAccountId,
+    ),
+  });
 }
 
 String? _trimmedOrNull(String? value) {
