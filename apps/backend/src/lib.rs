@@ -166,7 +166,8 @@ pub fn build_app(state: SharedState) -> Router {
         )
         .route(
             "/api/realms/requests",
-            post(handlers::realm_bootstrap::create_realm_request),
+            post(handlers::realm_bootstrap::create_realm_request)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/realms/requests/{realm_request_id}",
@@ -228,19 +229,23 @@ pub fn build_app(state: SharedState) -> Router {
         )
         .route(
             "/api/internal/operator/realms/requests/{realm_request_id}/approve",
-            post(handlers::realm_bootstrap::approve_realm_request),
+            post(handlers::realm_bootstrap::approve_realm_request)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/internal/operator/realms/requests/{realm_request_id}/reject",
-            post(handlers::realm_bootstrap::reject_realm_request),
+            post(handlers::realm_bootstrap::reject_realm_request)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/internal/realms/{realm_id}/sponsor-records",
-            post(handlers::realm_bootstrap::create_realm_sponsor_record),
+            post(handlers::realm_bootstrap::create_realm_sponsor_record)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/internal/realms/{realm_id}/admissions",
-            post(handlers::realm_bootstrap::create_realm_admission),
+            post(handlers::realm_bootstrap::create_realm_admission)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/internal/operator/realms/{realm_id}/review-summary",
@@ -248,7 +253,8 @@ pub fn build_app(state: SharedState) -> Router {
         )
         .route(
             "/api/internal/projection/realms/rebuild",
-            post(handlers::realm_bootstrap::rebuild_realm_bootstrap_views),
+            post(handlers::realm_bootstrap::rebuild_realm_bootstrap_views)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/api/internal/room-progressions",

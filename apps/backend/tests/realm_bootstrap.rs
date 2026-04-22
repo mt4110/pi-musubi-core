@@ -7,6 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use musubi_backend::{build_app, new_state_from_config, new_test_state};
 use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
+use tokio_postgres::error::SqlState;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -46,6 +47,7 @@ async fn realm_request_can_be_approved_into_limited_bootstrap_and_participant_su
     .await;
     assert_eq!(request.status, StatusCode::OK);
     assert_eq!(request.body["request_state"], "requested");
+    assert!(request.body.get("requested_by_account_id").is_none());
     assert!(request.body.get("reviewed_by_operator_id").is_none());
     let realm_request_id = request.body["realm_request_id"]
         .as_str()
@@ -90,6 +92,7 @@ async fn realm_request_can_be_approved_into_limited_bootstrap_and_participant_su
     assert_eq!(requester_view.status, StatusCode::OK);
     assert_eq!(requester_view.body["request_state"], "approved");
     assert_eq!(requester_view.body["created_realm_id"], realm_id);
+    assert!(requester_view.body.get("requested_by_account_id").is_none());
     assert!(requester_view.body.get("reviewed_by_operator_id").is_none());
 
     let summary = get_json(
@@ -113,6 +116,11 @@ async fn realm_request_can_be_approved_into_limited_bootstrap_and_participant_su
     );
     assert!(
         summary.body["realm_request"]
+            .get("requested_by_account_id")
+            .is_none()
+    );
+    assert!(
+        summary.body["realm_request"]
             .get("reviewed_by_operator_id")
             .is_none()
     );
@@ -131,6 +139,36 @@ async fn realm_request_can_be_approved_into_limited_bootstrap_and_participant_su
             .get("rebuild_generation")
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn realm_request_body_size_is_bounded() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-large-body", "realm-large-body").await;
+
+    let oversized = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        json!({
+            "display_name": "Large body Realm",
+            "slug_candidate": "large-body-realm",
+            "purpose_text": "x".repeat(17 * 1024),
+            "venue_context_json": {
+                "city": "Tokyo",
+                "venue_type": "cafe"
+            },
+            "expected_member_shape_json": {
+                "pace": "quiet"
+            },
+            "bootstrap_rationale_text": "The route must reject oversized JSON before deserialization.",
+            "request_idempotency_key": "large-body-realm"
+        }),
+    )
+    .await;
+
+    assert_eq!(oversized.status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[tokio::test]
@@ -722,6 +760,34 @@ async fn realm_request_requires_venue_context_and_expected_member_shape() {
     )
     .await;
     assert_eq!(empty_shape.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn realm_bootstrap_internal_json_posts_reject_oversized_bodies() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    for path in [
+        "/api/internal/operator/realms/requests/request-id/approve",
+        "/api/internal/operator/realms/requests/request-id/reject",
+        "/api/internal/realms/realm-id/sponsor-records",
+        "/api/internal/realms/realm-id/admissions",
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .body(Body::from(vec![b'a'; 20_000]))
+            .expect("request must build");
+
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("app should respond");
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+    }
 }
 
 #[tokio::test]
@@ -3054,6 +3120,196 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
     assert_eq!(duplicate_admission.status, StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn realm_bootstrap_idempotency_keys_reject_blank_values_at_db_layer() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(&app, "pi-user-realm-db-key-a", "realm-db-key-a").await;
+    let sponsor = sign_in(&app, "pi-user-realm-db-key-b", "realm-db-key-b").await;
+    let member = sign_in(&app, "pi-user-realm-db-key-c", "realm-db-key-c").await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let requester_id = Uuid::parse_str(&requester.account_id).expect("requester id must be uuid");
+    let sponsor_id = Uuid::parse_str(&sponsor.account_id).expect("sponsor id must be uuid");
+    let member_id = Uuid::parse_str(&member.account_id).expect("member id must be uuid");
+    let approver_uuid = Uuid::parse_str(&approver_id).expect("approver id must be uuid");
+    let blank_request_id = Uuid::new_v4();
+    let blank_review_request_id = Uuid::new_v4();
+    let blank_sponsor_record_id = Uuid::new_v4();
+    let blank_admission_id = Uuid::new_v4();
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_requests (
+                    realm_request_id,
+                    requested_by_account_id,
+                    display_name,
+                    slug_candidate,
+                    purpose_text,
+                    venue_context_json,
+                    expected_member_shape_json,
+                    bootstrap_rationale_text,
+                    request_state,
+                    review_reason_code,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    'Blank key realm',
+                    'blank-key-realm-request',
+                    'A blank request key must fail.',
+                    '{\"city\":\"Tokyo\"}'::jsonb,
+                    '{\"size\":\"small\"}'::jsonb,
+                    'The database owns the idempotency contract.',
+                    'requested',
+                    'request_received',
+                    '   ',
+                    repeat('0', 64)
+                )
+                ",
+                &[&blank_request_id, &requester_id],
+            )
+            .await,
+    );
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_requests (
+                    realm_request_id,
+                    requested_by_account_id,
+                    display_name,
+                    slug_candidate,
+                    purpose_text,
+                    venue_context_json,
+                    expected_member_shape_json,
+                    bootstrap_rationale_text,
+                    request_state,
+                    review_reason_code,
+                    request_idempotency_key,
+                    request_payload_hash,
+                    reviewed_by_operator_id,
+                    review_decision_idempotency_key,
+                    review_decision_payload_hash,
+                    reviewed_at
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    'Blank review key realm',
+                    'blank-review-key-realm-request',
+                    'A blank review key must fail.',
+                    '{\"city\":\"Tokyo\"}'::jsonb,
+                    '{\"size\":\"small\"}'::jsonb,
+                    'The database owns review idempotency too.',
+                    'approved',
+                    'active_after_review',
+                    'db-valid-request-key',
+                    repeat('1', 64),
+                    $3,
+                    '   ',
+                    repeat('2', 64),
+                    CURRENT_TIMESTAMP
+                )
+                ",
+                &[&blank_review_request_id, &requester_id, &approver_uuid],
+            )
+            .await,
+    );
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "db-key-blank",
+    )
+    .await;
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_sponsor_records (
+                    realm_sponsor_record_id,
+                    realm_id,
+                    sponsor_account_id,
+                    sponsor_status,
+                    quota_total,
+                    status_reason_code,
+                    approved_by_operator_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'approved',
+                    1,
+                    'active_after_review',
+                    $4,
+                    '   ',
+                    repeat('3', 64)
+                )
+                ",
+                &[
+                    &blank_sponsor_record_id,
+                    &realm_id,
+                    &sponsor_id,
+                    &approver_uuid,
+                ],
+            )
+            .await,
+    );
+
+    assert_check_violation(
+        client
+            .execute(
+                "
+                INSERT INTO dao.realm_admissions (
+                    realm_admission_id,
+                    realm_id,
+                    account_id,
+                    admission_kind,
+                    admission_status,
+                    granted_by_actor_kind,
+                    granted_by_actor_id,
+                    review_reason_code,
+                    source_fact_kind,
+                    source_fact_id,
+                    request_idempotency_key,
+                    request_payload_hash
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'normal',
+                    'admitted',
+                    'operator',
+                    $4,
+                    'active_after_review',
+                    'db_test',
+                    'blank-admission-key',
+                    '   ',
+                    repeat('4', 64)
+                )
+                ",
+                &[&blank_admission_id, &realm_id, &member_id, &approver_uuid],
+            )
+            .await,
+    );
+}
+
 async fn create_realm(
     app: &Router,
     requester: &SignedInUser,
@@ -3131,6 +3387,11 @@ async fn create_realm(
             .to_owned(),
         realm_request_id,
     )
+}
+
+fn assert_check_violation(result: Result<u64, tokio_postgres::Error>) {
+    let error = result.expect_err("blank idempotency key must fail a database check");
+    assert_eq!(error.code(), Some(&SqlState::CHECK_VIOLATION));
 }
 
 async fn sponsor_record_id_for_realm(client: &tokio_postgres::Client, realm_id: &str) -> String {

@@ -79,18 +79,21 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 16),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_display_name'),
                   controller: _displayNameController,
                   label: 'Realm name',
                   icon: Icons.public_rounded,
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_slug'),
                   controller: _slugController,
                   label: 'slug',
                   icon: Icons.link_rounded,
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_purpose'),
                   controller: _purposeController,
                   label: 'purpose',
                   icon: Icons.flag_outlined,
@@ -98,6 +101,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_venue_context'),
                   controller: _venueController,
                   label: 'venue / locality / context',
                   icon: Icons.place_outlined,
@@ -105,6 +109,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_member_shape'),
                   controller: _memberShapeController,
                   label: 'intended member pattern',
                   icon: Icons.groups_2_outlined,
@@ -112,6 +117,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_bootstrap_rationale'),
                   controller: _rationaleController,
                   label: 'bootstrap rationale',
                   icon: Icons.auto_awesome_motion_outlined,
@@ -119,6 +125,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_sponsor_account_id'),
                   controller: _sponsorController,
                   label: 'sponsor account id',
                   icon: Icons.volunteer_activism_outlined,
@@ -126,6 +133,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 12),
                 _RealmTextField(
+                  fieldKey: const Key('realm_request_steward_account_id'),
                   controller: _stewardController,
                   label: 'Steward account id',
                   icon: Icons.verified_user_outlined,
@@ -157,6 +165,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
                 ),
                 const SizedBox(height: 14),
                 _RealmTextField(
+                  fieldKey: const Key('realm_summary_realm_id'),
                   controller: _realmIdController,
                   label: 'realm_id',
                   icon: Icons.tag_rounded,
@@ -204,22 +213,21 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       }
     });
     try {
-      final request =
-          await ref.read(realmBootstrapRepositoryProvider).createRealmRequest(
-                CreateRealmRequestDraft(
-                  displayName: _displayNameController.text,
-                  slugCandidate: _slugController.text,
-                  purposeText: _purposeController.text,
-                  venueContextText: _venueController.text,
-                  expectedMemberShapeText: _memberShapeController.text,
-                  bootstrapRationaleText: _rationaleController.text,
-                  proposedSponsorAccountId:
-                      _trimmedOrNull(_sponsorController.text),
-                  proposedStewardAccountId:
-                      _trimmedOrNull(_stewardController.text),
-                  requestIdempotencyKey: _pendingRequestKey!,
-                ),
-              );
+      final request = await ref
+          .read(realmBootstrapRepositoryProvider)
+          .createRealmRequest(
+            CreateRealmRequestDraft(
+              displayName: _displayNameController.text,
+              slugCandidate: _slugController.text,
+              purposeText: _purposeController.text,
+              venueContextText: _venueController.text,
+              expectedMemberShapeText: _memberShapeController.text,
+              bootstrapRationaleText: _rationaleController.text,
+              proposedSponsorAccountId: _trimmedOrNull(_sponsorController.text),
+              proposedStewardAccountId: _trimmedOrNull(_stewardController.text),
+              requestIdempotencyKey: _pendingRequestKey!,
+            ),
+          );
       if (!mounted) {
         return;
       }
@@ -311,6 +319,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
 
 class _RealmTextField extends StatelessWidget {
   const _RealmTextField({
+    required this.fieldKey,
     required this.controller,
     required this.label,
     required this.icon,
@@ -318,6 +327,7 @@ class _RealmTextField extends StatelessWidget {
     this.requiredField = true,
   });
 
+  final Key fieldKey;
   final TextEditingController controller;
   final String label;
   final IconData icon;
@@ -327,6 +337,7 @@ class _RealmTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TextField(
+      key: fieldKey,
       controller: controller,
       maxLines: maxLines,
       textInputAction:

@@ -29,16 +29,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).at(0), 'Tokyo slow coffee');
-    await tester.enterText(find.byType(TextField).at(1), 'tokyo-slow-coffee');
     await tester.enterText(
-      find.byType(TextField).at(2),
+      find.byKey(const Key('realm_request_display_name')),
+      'Tokyo slow coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_slug')),
+      'tokyo-slow-coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_purpose')),
       'Calm local meetings.',
     );
-    await tester.enterText(find.byType(TextField).at(3), 'Tokyo cafe');
-    await tester.enterText(find.byType(TextField).at(4), 'Small and local');
     await tester.enterText(
-      find.byType(TextField).at(5),
+      find.byKey(const Key('realm_request_venue_context')),
+      'Tokyo cafe',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_member_shape')),
+      'Small and local',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_bootstrap_rationale')),
       'Start with bounded growth.',
     );
     final submitButton = find.byType(MusubiPrimaryButton);
@@ -90,16 +102,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).at(0), 'Tokyo slow coffee');
-    await tester.enterText(find.byType(TextField).at(1), 'tokyo-slow-coffee');
     await tester.enterText(
-      find.byType(TextField).at(2),
+      find.byKey(const Key('realm_request_display_name')),
+      'Tokyo slow coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_slug')),
+      'tokyo-slow-coffee',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_purpose')),
       'Calm local meetings.',
     );
-    await tester.enterText(find.byType(TextField).at(3), 'Tokyo cafe');
-    await tester.enterText(find.byType(TextField).at(4), 'Small and local');
     await tester.enterText(
-      find.byType(TextField).at(5),
+      find.byKey(const Key('realm_request_venue_context')),
+      'Tokyo cafe',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_member_shape')),
+      'Small and local',
+    );
+    await tester.enterText(
+      find.byKey(const Key('realm_request_bootstrap_rationale')),
       'Start with bounded growth.',
     );
 
@@ -109,7 +133,7 @@ void main() {
     final failedRequestKey = repository.createdDraft!.requestIdempotencyKey;
 
     await tester.enterText(
-      find.byType(TextField).at(2),
+      find.byKey(const Key('realm_request_purpose')),
       'Calm local meetings with a smaller first circle.',
     );
     await tester.tap(submitButton);
@@ -143,7 +167,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-      find.byType(TextField).last,
+      find.byKey(const Key('realm_summary_realm_id')),
       'realm-00000000-0000-4000-8000-000000000001',
     );
     final summaryButton = find.widgetWithText(MusubiGhostButton, '状態を確認');

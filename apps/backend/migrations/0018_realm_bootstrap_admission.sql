@@ -38,10 +38,15 @@ CREATE TABLE IF NOT EXISTS dao.realm_requests (
             'operator_restriction'
         )
     ),
-    request_idempotency_key TEXT,
+    request_idempotency_key TEXT CHECK (
+        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     reviewed_by_operator_id UUID REFERENCES core.accounts(account_id),
-    review_decision_idempotency_key TEXT,
+    review_decision_idempotency_key TEXT CHECK (
+        review_decision_idempotency_key IS NULL
+        OR char_length(trim(review_decision_idempotency_key)) > 0
+    ),
     review_decision_payload_hash TEXT CHECK (
         review_decision_payload_hash IS NULL OR review_decision_payload_hash ~ '^[0-9a-f]{64}$'
     ),
@@ -157,7 +162,9 @@ CREATE TABLE IF NOT EXISTS dao.realm_sponsor_records (
         )
     ),
     approved_by_operator_id UUID NOT NULL REFERENCES core.accounts(account_id),
-    request_idempotency_key TEXT,
+    request_idempotency_key TEXT CHECK (
+        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -261,7 +268,9 @@ CREATE TABLE IF NOT EXISTS dao.realm_admissions (
     source_fact_kind TEXT NOT NULL CHECK (char_length(trim(source_fact_kind)) > 0),
     source_fact_id TEXT NOT NULL CHECK (char_length(trim(source_fact_id)) > 0),
     source_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    request_idempotency_key TEXT,
+    request_idempotency_key TEXT CHECK (
+        request_idempotency_key IS NULL OR char_length(trim(request_idempotency_key)) > 0
+    ),
     request_payload_hash TEXT NOT NULL CHECK (request_payload_hash ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

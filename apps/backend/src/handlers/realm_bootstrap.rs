@@ -1,5 +1,6 @@
 use axum::{
     Json,
+    body::Bytes,
     extract::{Path, Query, State},
     http::HeaderMap,
 };
@@ -91,7 +92,6 @@ pub struct CreateRealmAdmissionRequest {
 #[derive(Debug, Serialize)]
 pub struct RealmRequestResponse {
     pub realm_request_id: String,
-    pub requested_by_account_id: String,
     pub display_name: String,
     pub slug_candidate: String,
     pub purpose_text: String,
@@ -480,7 +480,11 @@ pub async fn get_review_summary(
 pub async fn rebuild_realm_bootstrap_views(
     State(state): State<SharedState>,
     headers: HeaderMap,
+    body: Bytes,
 ) -> ApiResult<RealmBootstrapRebuildResponse> {
+    if !body.is_empty() {
+        return Err(bad_request("request body must be empty"));
+    }
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
     let snapshot = state
@@ -494,7 +498,6 @@ pub async fn rebuild_realm_bootstrap_views(
 fn realm_request_response(snapshot: RealmRequestSnapshot) -> RealmRequestResponse {
     RealmRequestResponse {
         realm_request_id: snapshot.realm_request_id,
-        requested_by_account_id: snapshot.requested_by_account_id,
         display_name: snapshot.display_name,
         slug_candidate: snapshot.slug_candidate,
         purpose_text: snapshot.purpose_text,
@@ -681,9 +684,16 @@ fn map_realm_bootstrap_error(error: RealmBootstrapError) -> ApiError {
         RealmBootstrapError::Unauthorized(message) => unauthorized(message),
         RealmBootstrapError::NotFound(message) => not_found(message),
         RealmBootstrapError::Database {
-            message, retryable, ..
+            message,
+            code,
+            constraint,
+            retryable,
         } => {
-            eprintln!("database realm bootstrap error: {message}");
+            eprintln!(
+                "database realm bootstrap error: message={message}; code={}; constraint={}",
+                code.as_deref().unwrap_or("none"),
+                constraint.as_deref().unwrap_or("none")
+            );
             if retryable {
                 service_unavailable("temporarily unavailable")
             } else {
