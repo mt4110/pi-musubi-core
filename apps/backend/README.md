@@ -9,10 +9,10 @@ Current local HTTP surface:
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true` and the request includes `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`
-- `GET /api/internal/ops/health` under the same internal/debug gate; reports DB connectivity only
-- `GET /api/internal/ops/readiness` under the same internal/debug gate; reports migration posture without mutating migration state
-- `GET /api/internal/ops/observability/snapshot` under the same internal/debug gate; returns a redacted ops snapshot without raw evidence, operator notes, source identifiers, or participant data
-- `GET /api/internal/ops/observability/slo` under the same internal/debug gate; aliases the redacted SLO snapshot
+- `GET /api/internal/ops/health` under the internal/debug auth gate, independent of orchestration drain enablement; reports DB connectivity only
+- `GET /api/internal/ops/readiness` under the internal/debug auth gate, independent of orchestration drain enablement; reports migration posture without mutating migration state or probing the migration advisory lock
+- `GET /api/internal/ops/observability/snapshot` under the internal/debug auth gate, independent of orchestration drain enablement; returns a redacted ops snapshot without raw evidence, operator notes, source identifiers, or participant data
+- `GET /api/internal/ops/observability/slo` under the internal/debug auth gate, independent of orchestration drain enablement; aliases the redacted SLO snapshot
 - `POST /api/internal/projection/rebuild` under the same internal/debug gate and release-time internal bearer-token requirement
 - `POST /api/internal/operator/review-cases` under the same internal/debug gate; requires `x-musubi-operator-id` with a durable operator role grant
 - `GET /api/internal/operator/review-cases` under the same internal/debug gate; requires `x-musubi-operator-id` with a durable operator role grant

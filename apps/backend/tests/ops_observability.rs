@@ -9,6 +9,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 const TEST_RESPONSE_BODY_LIMIT: usize = 4 * 1024 * 1024;
+const MIGRATION_LOCK_KEY: i64 = 411_000_008;
 
 #[tokio::test]
 async fn ops_health_returns_ok_when_db_available() {
@@ -36,6 +37,33 @@ async fn ops_readiness_reports_migration_status_without_mutation() {
     assert_eq!(response.body["migrations"]["pending_count"], 0);
     assert_eq!(response.body["migrations"]["failed_count"], 0);
     assert_eq!(before, after);
+}
+
+#[tokio::test]
+async fn ops_readiness_does_not_probe_migration_advisory_lock() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK_KEY])
+        .await
+        .expect("migration advisory lock must be held");
+
+    let response = get_json(&app, "/api/internal/ops/readiness", None).await;
+
+    client
+        .query_one(
+            "SELECT pg_advisory_unlock($1) AS unlocked",
+            &[&MIGRATION_LOCK_KEY],
+        )
+        .await
+        .expect("migration advisory lock must unlock");
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body["status"], "ready");
+    assert_eq!(
+        response.body["migrations"]["migration_lock_available"],
+        true
+    );
 }
 
 #[tokio::test]

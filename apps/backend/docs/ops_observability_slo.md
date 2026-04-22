@@ -31,7 +31,13 @@ Internal/debug-gated:
 These routes are intentionally not participant-facing. In debug builds, they
 follow the existing internal route posture, but a participant bearer token is
 not accepted as an ops credential. In release, the existing internal bearer-token
-requirement applies.
+requirement applies. They are registered independently from the orchestration
+drain endpoint, so disabling the drain worker does not remove the read-only ops
+surface.
+
+Readiness reads migration tracking and local migration files without probing or
+taking the migration advisory lock. This keeps frequent readiness checks from
+contending with `db migrate`.
 
 ## Reported Posture
 

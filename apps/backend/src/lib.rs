@@ -188,19 +188,6 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/projection/realms/{realm_id}/bootstrap-summary",
             get(handlers::realm_bootstrap::get_bootstrap_summary),
-        );
-    let app = if unauthenticated_pi_callback_enabled() {
-        app.route(
-            "/api/payment/callback",
-            post(handlers::payments::payment_callback).layer(DefaultBodyLimit::max(16 * 1024)),
-        )
-    } else {
-        app
-    };
-    let app = if internal_orchestration_drain_enabled() {
-        app.route(
-            "/api/internal/orchestration/drain",
-            post(handlers::orchestration::drain_outbox),
         )
         .route(
             "/api/internal/ops/health",
@@ -217,6 +204,19 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/internal/ops/observability/slo",
             get(handlers::ops_observability::get_ops_slo),
+        );
+    let app = if unauthenticated_pi_callback_enabled() {
+        app.route(
+            "/api/payment/callback",
+            post(handlers::payments::payment_callback).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+    } else {
+        app
+    };
+    let app = if internal_orchestration_drain_enabled() {
+        app.route(
+            "/api/internal/orchestration/drain",
+            post(handlers::orchestration::drain_outbox),
         )
         .route(
             "/api/internal/projection/rebuild",

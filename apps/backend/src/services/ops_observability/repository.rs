@@ -129,7 +129,7 @@ impl OpsObservabilityStore {
         drop(client);
 
         let status = MigrationRunner::new(self.config.migrations_dir.clone())
-            .status(&self.config)
+            .status_without_lock_probe(&self.config)
             .await?;
         let migrations = MigrationReadinessSnapshot {
             status: if status.is_current() {

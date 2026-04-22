@@ -102,7 +102,15 @@ impl MigrationRunner {
 
     pub async fn status(&self, config: &DbConfig) -> Result<MigrationStatusReport> {
         let client = connect_writer(config, "musubi-ops db status").await?;
-        self.status_with_client(&client).await
+        self.status_with_client(&client, true).await
+    }
+
+    pub async fn status_without_lock_probe(
+        &self,
+        config: &DbConfig,
+    ) -> Result<MigrationStatusReport> {
+        let client = connect_writer(config, "musubi-ops db status").await?;
+        self.status_with_client(&client, false).await
     }
 
     pub async fn migrate(&self, config: &DbConfig) -> Result<MigrationOutcome> {
@@ -125,7 +133,7 @@ impl MigrationRunner {
 
     pub async fn verify_startup(&self, config: &DbConfig) -> Result<StartupCheck> {
         let client = connect_writer(config, "musubi-backend startup").await?;
-        let status = self.status_with_client(&client).await?;
+        let status = self.status_with_client(&client, true).await?;
         if config.require_latest_schema {
             ensure_current(&status)?;
         }
@@ -171,7 +179,7 @@ impl MigrationRunner {
     }
 
     async fn migrate_locked(&self, client: &mut Client) -> Result<MigrationOutcome> {
-        let status = self.status_with_client(client).await?;
+        let status = self.status_with_client(client, true).await?;
         ensure_no_unexpected_failed_or_drift(&status)?;
 
         let local_migrations = self.load_migrations()?;
@@ -252,10 +260,18 @@ impl MigrationRunner {
             .collect()
     }
 
-    async fn status_with_client(&self, client: &Client) -> Result<MigrationStatusReport> {
+    async fn status_with_client(
+        &self,
+        client: &Client,
+        probe_migration_lock: bool,
+    ) -> Result<MigrationStatusReport> {
         let local_migrations = self.load_migrations()?;
         if !tracking_table_exists(client).await? {
-            let migration_lock_available = check_advisory_lock_available(client).await?;
+            let migration_lock_available = if probe_migration_lock {
+                check_advisory_lock_available(client).await?
+            } else {
+                true
+            };
             return Ok(MigrationStatusReport {
                 bootstrap_required: true,
                 migration_lock_available,
@@ -270,7 +286,11 @@ impl MigrationRunner {
             });
         }
 
-        let migration_lock_available = check_advisory_lock_available(client).await?;
+        let migration_lock_available = if probe_migration_lock {
+            check_advisory_lock_available(client).await?
+        } else {
+            true
+        };
         let rows = client
             .query(
                 "
