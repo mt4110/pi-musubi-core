@@ -128,12 +128,6 @@ impl RealmBootstrapStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
         ensure_active_account_exists_tx(&tx, &requester_account_id).await?;
-        if let Some(sponsor_account_id) = proposed_sponsor_account_id.as_ref() {
-            ensure_active_account_exists_tx(&tx, sponsor_account_id).await?;
-        }
-        if let Some(steward_account_id) = proposed_steward_account_id.as_ref() {
-            ensure_active_account_exists_tx(&tx, steward_account_id).await?;
-        }
 
         let row = if let Some(existing) = find_realm_request_by_idempotency_tx(
             &tx,
@@ -145,6 +139,12 @@ impl RealmBootstrapStore {
             ensure_request_payload_hash_matches(&existing, &request_payload_hash)?;
             existing
         } else {
+            if let Some(sponsor_account_id) = proposed_sponsor_account_id.as_ref() {
+                ensure_active_account_exists_tx(&tx, sponsor_account_id).await?;
+            }
+            if let Some(steward_account_id) = proposed_steward_account_id.as_ref() {
+                ensure_active_account_exists_tx(&tx, steward_account_id).await?;
+            }
             let request_row = match tx
                 .query_opt(
                     "

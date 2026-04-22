@@ -3732,6 +3732,8 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
     let app = build_app(test_state.state.clone());
     let requester = sign_in(&app, "pi-user-realm-idem-a", "realm-idem-a").await;
     let member = sign_in(&app, "pi-user-realm-idem-b", "realm-idem-b").await;
+    let proposed_sponsor = sign_in(&app, "pi-user-realm-idem-c", "realm-idem-c").await;
+    let proposed_steward = sign_in(&app, "pi-user-realm-idem-d", "realm-idem-d").await;
     let client = test_db_client().await;
     let approver_id = insert_operator_account(&client, "approver").await;
 
@@ -3747,6 +3749,8 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
             "size": "small"
         },
         "bootstrap_rationale_text": "まずは小さく始めます。",
+        "proposed_sponsor_account_id": proposed_sponsor.account_id,
+        "proposed_steward_account_id": proposed_steward.account_id,
         "request_idempotency_key": "realm-idem-request"
     });
     let first_request = post_json(
@@ -3766,11 +3770,26 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
         &app,
         "/api/realms/requests",
         Some(requester.token.as_str()),
-        request_body,
+        request_body.clone(),
     )
     .await;
     assert_eq!(replayed_request.status, StatusCode::OK);
     assert_eq!(replayed_request.body["realm_request_id"], realm_request_id);
+
+    set_account_state(&client, &proposed_sponsor.account_id, "suspended").await;
+    set_account_state(&client, &proposed_steward.account_id, "suspended").await;
+    let inactive_candidate_replay = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(requester.token.as_str()),
+        request_body.clone(),
+    )
+    .await;
+    assert_eq!(inactive_candidate_replay.status, StatusCode::OK);
+    assert_eq!(
+        inactive_candidate_replay.body["realm_request_id"],
+        realm_request_id
+    );
 
     let mismatched_request = post_json(
         &app,
@@ -3788,12 +3807,16 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
                 "size": "small"
             },
             "bootstrap_rationale_text": "まずは小さく始めます。",
+            "proposed_sponsor_account_id": proposed_sponsor.account_id,
+            "proposed_steward_account_id": proposed_steward.account_id,
             "request_idempotency_key": "realm-idem-request"
         }),
     )
     .await;
     assert_eq!(mismatched_request.status, StatusCode::BAD_REQUEST);
 
+    set_account_state(&client, &proposed_sponsor.account_id, "active").await;
+    set_account_state(&client, &proposed_steward.account_id, "active").await;
     let approval = operator_post_json(
         &app,
         &format!("/api/internal/operator/realms/requests/{realm_request_id}/approve"),
@@ -3801,6 +3824,7 @@ async fn request_and_admission_idempotency_replay_mismatch_is_rejected() {
         json!({
             "target_realm_status": "active",
             "review_reason_code": "active_after_review",
+            "sponsor_quota_total": 1,
             "review_decision_idempotency_key": "realm-idem-approve"
         }),
     )
