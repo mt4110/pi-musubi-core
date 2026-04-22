@@ -83,17 +83,12 @@ class ApiRealmBootstrapRepository implements RealmBootstrapRepository {
   }
 
   String? _errorResponseMessage(Object? data) {
-    if (data is Map<String, dynamic>) {
-      final message = data['error'];
-      if (message is String && message.isNotEmpty) {
-        return message;
-      }
+    if (data is! Map) {
+      return null;
     }
-    if (data is Map) {
-      final message = data['error'];
-      if (message is String && message.isNotEmpty) {
-        return message;
-      }
+    final message = data['error'];
+    if (message is String && message.isNotEmpty) {
+      return message;
     }
     return null;
   }

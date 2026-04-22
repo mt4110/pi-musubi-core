@@ -199,8 +199,7 @@ class _RealmBootstrapScreenState extends ConsumerState<RealmBootstrapScreen> {
       _isSubmitting = true;
       if (_pendingRequestKey == null ||
           _pendingRequestFingerprint != requestFingerprint) {
-        _pendingRequestKey =
-            'realm-ui-${session.userId}-${randomHex(bytes: 8)}';
+        _pendingRequestKey = 'realm-ui-${randomHex(bytes: 16)}';
         _pendingRequestFingerprint = requestFingerprint;
       }
     });
