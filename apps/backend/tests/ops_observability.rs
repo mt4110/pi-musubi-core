@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+const TEST_RESPONSE_BODY_LIMIT: usize = 4 * 1024 * 1024;
+
 #[tokio::test]
 async fn ops_health_returns_ok_when_db_available() {
     let test_state = new_test_state().await.expect("test database state");
@@ -125,6 +127,23 @@ async fn ops_snapshot_classifies_stale_projection_as_warning_without_rebuilding(
     );
     let after_projected_at = review_status_projected_at(&client, &review_case_id).await;
     assert_eq!(before_projected_at, after_projected_at);
+}
+
+#[tokio::test]
+async fn ops_snapshot_does_not_drift_idle_projection_lag() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let review_case_id =
+        create_review_case_with_private_fields(&app, &client, "idle-projection").await;
+    force_idle_review_status_projection(&client, &review_case_id).await;
+
+    let response = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let review_status_metric = projection_metric(&response.body, "review_status_views");
+    assert_eq!(review_status_metric["status"], "ok");
+    assert_eq!(review_status_metric["max_projection_lag_ms"], 0);
 }
 
 #[tokio::test]
@@ -386,6 +405,24 @@ async fn force_stale_review_status_projection(
         .get("last_projected_at")
 }
 
+async fn force_idle_review_status_projection(
+    client: &tokio_postgres::Client,
+    review_case_id: &str,
+) {
+    client
+        .execute(
+            "
+            UPDATE projection.review_status_views
+            SET source_watermark_at = CURRENT_TIMESTAMP - INTERVAL '2 hours',
+                last_projected_at = CURRENT_TIMESTAMP - INTERVAL '2 hours'
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review status projection must update");
+}
+
 async fn review_status_projected_at(
     client: &tokio_postgres::Client,
     review_case_id: &str,
@@ -601,7 +638,7 @@ async fn request_json(
         .await
         .expect("app should respond");
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), usize::MAX)
+    let bytes = to_bytes(response.into_body(), TEST_RESPONSE_BODY_LIMIT)
         .await
         .expect("body must be readable");
     let body = if bytes.is_empty() {

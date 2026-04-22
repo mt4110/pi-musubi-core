@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
+use musubi_db_runtime::DbRuntimeError;
 use serde::Serialize;
 use serde_json::Value;
+use tokio_postgres::error::SqlState;
 
 #[derive(Debug)]
 pub enum OpsObservabilityError {
@@ -18,20 +20,41 @@ impl OpsObservabilityError {
 
 impl From<tokio_postgres::Error> for OpsObservabilityError {
     fn from(error: tokio_postgres::Error) -> Self {
+        let retryable = postgres_error_is_retryable(&error);
         Self::Database {
             message: error.to_string(),
-            retryable: false,
+            retryable,
         }
     }
 }
 
-impl From<musubi_db_runtime::DbRuntimeError> for OpsObservabilityError {
-    fn from(error: musubi_db_runtime::DbRuntimeError) -> Self {
+impl From<DbRuntimeError> for OpsObservabilityError {
+    fn from(error: DbRuntimeError) -> Self {
+        let retryable = match &error {
+            DbRuntimeError::Database(source) => postgres_error_is_retryable(source),
+            DbRuntimeError::AcquireTimeout | DbRuntimeError::MigrationLockUnavailable => true,
+            _ => false,
+        };
         Self::Database {
             message: error.to_string(),
-            retryable: false,
+            retryable,
         }
     }
+}
+
+pub(super) fn postgres_error_is_retryable(error: &tokio_postgres::Error) -> bool {
+    matches!(
+        error.code(),
+        Some(&SqlState::T_R_SERIALIZATION_FAILURE)
+            | Some(&SqlState::T_R_DEADLOCK_DETECTED)
+            | Some(&SqlState::CONNECTION_EXCEPTION)
+            | Some(&SqlState::CONNECTION_DOES_NOT_EXIST)
+            | Some(&SqlState::CONNECTION_FAILURE)
+            | Some(&SqlState::SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION)
+            | Some(&SqlState::SQLSERVER_REJECTED_ESTABLISHMENT_OF_SQLCONNECTION)
+            | Some(&SqlState::TRANSACTION_RESOLUTION_UNKNOWN)
+            | Some(&SqlState::PROTOCOL_VIOLATION)
+    )
 }
 
 #[derive(Clone, Debug, Serialize)]

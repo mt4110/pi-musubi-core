@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use chrono::Utc;
 use musubi_db_runtime::{DbConfig, MigrationRunner, connect_writer};
@@ -10,6 +13,7 @@ use super::types::{
     MigrationReadinessSnapshot, ObservabilityBoundarySnapshot, OperatorReviewQueueSummary,
     OpsHealthSnapshot, OpsObservabilityError, OpsObservabilitySnapshot, OpsReadinessSnapshot,
     OpsSliMetric, OrchestrationBacklogSummary, ProjectionLagSummary, RealmReviewTriggerSummary,
+    postgres_error_is_retryable,
 };
 
 const SERVICE_NAME: &str = "musubi-backend";
@@ -75,6 +79,24 @@ pub struct OpsObservabilityStore {
 struct ProjectionSource {
     projection_name: &'static str,
     relation: &'static str,
+}
+
+struct ProjectionRelationMetadata {
+    columns_by_relation: HashMap<String, HashSet<String>>,
+}
+
+impl ProjectionRelationMetadata {
+    fn relation_exists(&self, relation: &str) -> bool {
+        self.columns_by_relation
+            .get(relation)
+            .is_some_and(|columns| !columns.is_empty())
+    }
+
+    fn columns_exist(&self, relation: &str, columns: &[&str]) -> bool {
+        self.columns_by_relation
+            .get(relation)
+            .is_some_and(|existing| columns.iter().all(|column| existing.contains(*column)))
+    }
 }
 
 impl OpsObservabilityStore {
@@ -183,9 +205,10 @@ async fn check_database(client: &Client) -> Result<(), OpsObservabilityError> {
 async fn projection_lag_summaries(
     client: &Client,
 ) -> Result<Vec<ProjectionLagSummary>, OpsObservabilityError> {
+    let metadata = projection_relation_metadata(client).await?;
     let mut summaries = Vec::with_capacity(PROJECTION_SOURCES.len());
     for source in PROJECTION_SOURCES {
-        summaries.push(projection_lag_summary(client, source).await?);
+        summaries.push(projection_lag_summary(client, source, &metadata).await?);
     }
     Ok(summaries)
 }
@@ -193,8 +216,9 @@ async fn projection_lag_summaries(
 async fn projection_lag_summary(
     client: &Client,
     source: &ProjectionSource,
+    metadata: &ProjectionRelationMetadata,
 ) -> Result<ProjectionLagSummary, OpsObservabilityError> {
-    if !relation_exists(client, source.relation).await? {
+    if !metadata.relation_exists(source.relation) {
         return Ok(ProjectionLagSummary {
             projection_name: source.projection_name.to_owned(),
             status: "unknown".to_owned(),
@@ -206,13 +230,10 @@ async fn projection_lag_summary(
             reason: Some("projection table is not present in the current schema".to_owned()),
         });
     }
-    if !columns_exist(
-        client,
+    if !metadata.columns_exist(
         source.relation,
         &["source_watermark_at", "last_projected_at"],
-    )
-    .await?
-    {
+    ) {
         return Ok(ProjectionLagSummary {
             projection_name: source.projection_name.to_owned(),
             status: "unknown".to_owned(),
@@ -225,11 +246,11 @@ async fn projection_lag_summary(
         });
     }
 
-    let has_projection_lag = columns_exist(client, source.relation, &["projection_lag_ms"]).await?;
+    let has_projection_lag = metadata.columns_exist(source.relation, &["projection_lag_ms"]);
     let lag_expr = if has_projection_lag {
         "projection_lag_ms"
     } else {
-        "GREATEST((EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - source_watermark_at)) * 1000)::bigint, 0)"
+        "GREATEST((EXTRACT(EPOCH FROM (last_projected_at - source_watermark_at)) * 1000)::bigint, 0)"
     };
     let query = format!(
         "
@@ -265,6 +286,54 @@ async fn projection_lag_summary(
         latest_source_watermark_at: row.get("latest_source_watermark_at"),
         latest_projected_at: row.get("latest_projected_at"),
         reason: None,
+    })
+}
+
+async fn projection_relation_metadata(
+    client: &Client,
+) -> Result<ProjectionRelationMetadata, OpsObservabilityError> {
+    let relations = PROJECTION_SOURCES
+        .iter()
+        .map(|source| source.relation)
+        .collect::<Vec<_>>();
+    let rows = client
+        .query(
+            "
+            WITH requested AS (
+                SELECT unnest($1::text[]) AS relation
+            )
+            SELECT
+                requested.relation,
+                columns.column_name
+            FROM requested
+            LEFT JOIN LATERAL (
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = split_part(requested.relation, '.', 1)
+                  AND table_name = split_part(requested.relation, '.', 2)
+            ) columns ON TRUE
+            ",
+            &[&relations],
+        )
+        .await
+        .map_err(db_error)?;
+
+    let mut columns_by_relation = PROJECTION_SOURCES
+        .iter()
+        .map(|source| (source.relation.to_owned(), HashSet::new()))
+        .collect::<HashMap<_, _>>();
+    for row in rows {
+        let relation = row.get::<_, String>("relation");
+        if let Some(column_name) = row.get::<_, Option<String>>("column_name") {
+            columns_by_relation
+                .entry(relation)
+                .or_default()
+                .insert(column_name);
+        }
+    }
+
+    Ok(ProjectionRelationMetadata {
+        columns_by_relation,
     })
 }
 
@@ -555,40 +624,10 @@ async fn relation_exists(client: &Client, relation: &str) -> Result<bool, OpsObs
     Ok(row.get("exists"))
 }
 
-async fn columns_exist(
-    client: &Client,
-    relation: &str,
-    columns: &[&str],
-) -> Result<bool, OpsObservabilityError> {
-    let (schema_name, table_name) = relation.split_once('.').ok_or_else(|| {
-        OpsObservabilityError::Internal(format!("invalid relation name {relation}"))
-    })?;
-    for column in columns {
-        let row = client
-            .query_one(
-                "
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM information_schema.columns
-                    WHERE table_schema = $1
-                      AND table_name = $2
-                      AND column_name = $3
-                ) AS exists
-                ",
-                &[&schema_name, &table_name, column],
-            )
-            .await
-            .map_err(db_error)?;
-        if !row.get::<_, bool>("exists") {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
 fn db_error(error: tokio_postgres::Error) -> OpsObservabilityError {
+    let retryable = postgres_error_is_retryable(&error);
     OpsObservabilityError::Database {
         message: error.to_string(),
-        retryable: false,
+        retryable,
     }
 }

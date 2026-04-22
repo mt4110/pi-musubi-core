@@ -78,7 +78,7 @@ fn require_ops_internal_access(headers: &HeaderMap) -> Result<(), ApiError> {
             }
         }
         return Err(unauthorized(
-            "participant bearer tokens cannot access internal ops observability",
+            "internal authorization bearer token is required",
         ));
     }
 
