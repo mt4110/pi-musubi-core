@@ -19,7 +19,7 @@ class DummyRealmBootstrapRepository implements RealmBootstrapRepository {
       expectedMemberShapeSummary: draft.expectedMemberShapeText.trim(),
       bootstrapRationaleText: draft.bootstrapRationaleText.trim(),
       requestState: 'requested',
-      reviewReasonCode: 'pending_operator_review',
+      reviewReasonCode: 'request_received',
       createdRealmId: null,
       proposedSponsorAccountId: _trimmedOrNull(draft.proposedSponsorAccountId),
       proposedStewardAccountId: _trimmedOrNull(draft.proposedStewardAccountId),

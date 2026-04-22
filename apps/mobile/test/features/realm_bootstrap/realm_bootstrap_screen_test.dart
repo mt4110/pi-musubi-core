@@ -227,7 +227,7 @@ class _FakeRealmBootstrapRepository implements RealmBootstrapRepository {
       expectedMemberShapeSummary: draft.expectedMemberShapeText,
       bootstrapRationaleText: draft.bootstrapRationaleText,
       requestState: 'requested',
-      reviewReasonCode: 'pending_operator_review',
+      reviewReasonCode: 'request_received',
       createdRealmId: null,
       proposedSponsorAccountId: null,
       proposedStewardAccountId: null,

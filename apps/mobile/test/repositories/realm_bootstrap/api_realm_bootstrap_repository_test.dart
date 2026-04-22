@@ -27,7 +27,7 @@ void main() {
         'expected_member_shape_json': {'summary': 'small'},
         'bootstrap_rationale_text': 'Start bounded.',
         'request_state': 'requested',
-        'review_reason_code': 'pending_operator_review',
+        'review_reason_code': 'request_received',
       });
     });
     final repository = ApiRealmBootstrapRepository(ApiClient(dio));
