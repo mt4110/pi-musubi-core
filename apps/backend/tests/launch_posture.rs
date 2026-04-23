@@ -358,6 +358,60 @@ async fn paused_launch_blocks_realm_request() {
 }
 
 #[tokio::test]
+async fn paused_launch_blocks_appeal_creation() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let appellant = sign_in(&app, "pi-launch-appeal", "launch-appeal").await;
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
+        .await;
+
+    let response = post_json(
+        &app,
+        &format!("/api/review-cases/{}/appeals", Uuid::new_v4()),
+        Some(appellant.token.as_str()),
+        appeal_body("paused"),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        response.body
+    );
+    assert_eq!(response.body["message_code"], "launch_paused");
+}
+
+#[tokio::test]
+async fn appeal_creation_kill_switch_blocks_new_appeals() {
+    let test_state = new_test_state().await.expect("test database state");
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::with_kill_switch_for_test(
+            LaunchAction::AppealCreation,
+        ))
+        .await;
+    let app = build_app(test_state.state.clone());
+    let appellant = sign_in(&app, "pi-launch-appeal-switch", "launch-appeal-switch").await;
+
+    let response = post_json(
+        &app,
+        &format!("/api/review-cases/{}/appeals", Uuid::new_v4()),
+        Some(appellant.token.as_str()),
+        appeal_body("kill-switch"),
+    )
+    .await;
+
+    assert_eq!(
+        response.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        response.body
+    );
+    assert_eq!(response.body["message_code"], "appeal_creation_paused");
+}
+
+#[tokio::test]
 async fn realm_admission_kill_switch_blocks_new_admissions() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
@@ -615,6 +669,18 @@ fn realm_admission_body(account_id: &str, suffix: &str) -> Value {
         "source_fact_id": format!("launch-admission-{suffix}"),
         "source_snapshot_json": {},
         "request_idempotency_key": format!("launch-admission-{suffix}")
+    })
+}
+
+fn appeal_body(suffix: &str) -> Value {
+    json!({
+        "source_decision_fact_id": null,
+        "submitted_reason_code": "appeal_received",
+        "appellant_statement": format!("Launch posture appeal {suffix}"),
+        "new_evidence_summary_json": {
+            "safe_summary": format!("appeal {suffix}")
+        },
+        "appeal_idempotency_key": format!("launch-appeal-{suffix}")
     })
 }
 

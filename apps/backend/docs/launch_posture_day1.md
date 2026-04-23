@@ -54,6 +54,7 @@ All keys are optional unless noted.
 | `MUSUBI_KILL_SWITCH_PROOF_SUBMISSION` | `false` | fail closed for proof submission |
 | `MUSUBI_KILL_SWITCH_REALM_REQUESTS` | `false` | fail closed for Realm requests |
 | `MUSUBI_KILL_SWITCH_REALM_ADMISSIONS` | `false` | fail closed for Realm admissions |
+| `MUSUBI_KILL_SWITCH_APPEAL_CREATION` | `false` | fail closed for appeal creation |
 
 Boolean switches parse `1/0`, `true/false`, `yes/no`, and `on/off`
 case-insensitively. Any other value turns that switch on and adds an internal
@@ -127,6 +128,7 @@ Server-side launch gates protect:
 - `POST /api/promise/intents`
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
+- `POST /api/review-cases/{review_case_id}/appeals`
 - `POST /api/realms/requests`
 - `POST /api/internal/realms/{realm_id}/admissions`
 
@@ -155,6 +157,7 @@ Route-level kill switch message codes:
 - `proof_submission_paused`
 - `realm_request_paused`
 - `realm_admission_paused`
+- `appeal_creation_paused`
 
 Mode block message codes:
 

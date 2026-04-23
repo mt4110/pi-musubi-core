@@ -125,6 +125,7 @@ Day 1 launch posture defaults closed unless configured:
 - `MUSUBI_KILL_SWITCH_PROOF_SUBMISSION`
 - `MUSUBI_KILL_SWITCH_REALM_REQUESTS`
 - `MUSUBI_KILL_SWITCH_REALM_ADMISSIONS`
+- `MUSUBI_KILL_SWITCH_APPEAL_CREATION`
 
 Invalid launch mode, unsupported `open_preview`, or invalid boolean kill switch
 values fail closed. Internal Realm admission is launch-gated by the target

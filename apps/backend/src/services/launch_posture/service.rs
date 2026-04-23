@@ -15,6 +15,7 @@ const KILL_SWITCH_PROOF_CHALLENGE_KEY: &str = "MUSUBI_KILL_SWITCH_PROOF_CHALLENG
 const KILL_SWITCH_PROOF_SUBMISSION_KEY: &str = "MUSUBI_KILL_SWITCH_PROOF_SUBMISSION";
 const KILL_SWITCH_REALM_REQUESTS_KEY: &str = "MUSUBI_KILL_SWITCH_REALM_REQUESTS";
 const KILL_SWITCH_REALM_ADMISSIONS_KEY: &str = "MUSUBI_KILL_SWITCH_REALM_ADMISSIONS";
+const KILL_SWITCH_APPEAL_CREATION_KEY: &str = "MUSUBI_KILL_SWITCH_APPEAL_CREATION";
 
 #[derive(Clone)]
 pub struct LaunchPostureService {
@@ -37,6 +38,7 @@ pub enum LaunchAction {
     ProofSubmission,
     RealmRequest,
     RealmAdmission,
+    AppealCreation,
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +65,7 @@ pub struct KillSwitchSnapshot {
     pub proof_submission: bool,
     pub realm_requests: bool,
     pub realm_admissions: bool,
+    pub appeal_creation: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -187,6 +190,11 @@ impl LaunchPostureConfig {
                 lookup(KILL_SWITCH_REALM_ADMISSIONS_KEY).as_deref(),
                 &mut config_warnings,
             ),
+            appeal_creation: parse_bool_switch(
+                KILL_SWITCH_APPEAL_CREATION_KEY,
+                lookup(KILL_SWITCH_APPEAL_CREATION_KEY).as_deref(),
+                &mut config_warnings,
+            ),
         };
         let support_contact = parse_support_contact(
             lookup(SUPPORT_CONTACT_LABEL_KEY),
@@ -261,6 +269,7 @@ impl LaunchPostureConfig {
             LaunchAction::ProofSubmission => config.kill_switches.proof_submission = true,
             LaunchAction::RealmRequest => config.kill_switches.realm_requests = true,
             LaunchAction::RealmAdmission => config.kill_switches.realm_admissions = true,
+            LaunchAction::AppealCreation => config.kill_switches.appeal_creation = true,
         }
         config
     }
@@ -362,6 +371,9 @@ impl LaunchPostureConfig {
             }
             LaunchAction::RealmAdmission if self.kill_switches.realm_admissions => {
                 "realm_admission_paused"
+            }
+            LaunchAction::AppealCreation if self.kill_switches.appeal_creation => {
+                "appeal_creation_paused"
             }
             _ => return None,
         };

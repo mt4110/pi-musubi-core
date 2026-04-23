@@ -10,12 +10,13 @@ use serde_json::Value;
 use crate::{
     SharedState,
     handlers::{
-        ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
-        require_bearer_token, require_internal_bearer_token, require_operator_id,
-        service_unavailable, unauthorized,
+        ApiError, ApiResult, bad_request, internal_server_error, launch_blocked,
+        map_happy_route_error, not_found, require_bearer_token, require_internal_bearer_token,
+        require_operator_id, service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
+        launch_posture::LaunchAction,
         operator_review::{
             AppealCaseSnapshot, AttachEvidenceBundleInput, CreateAppealCaseInput,
             CreateReviewCaseInput, EvidenceAccessGrantSnapshot, EvidenceBundleSnapshot,
@@ -335,6 +336,15 @@ pub async fn create_appeal_case(
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    state
+        .launch_posture
+        .check_participant_action(
+            LaunchAction::AppealCreation,
+            &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
+        )
+        .await
+        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let snapshot = state
         .operator_review
         .create_appeal_case(
