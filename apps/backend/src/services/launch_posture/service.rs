@@ -128,6 +128,10 @@ impl LaunchPostureService {
         self.config.read().await.internal_snapshot()
     }
 
+    pub(crate) async fn config_snapshot_for_check(&self) -> LaunchPostureConfig {
+        self.config.read().await.clone()
+    }
+
     pub async fn check_pi_auth(
         &self,
         pi_uid: &str,
@@ -333,7 +337,7 @@ impl LaunchPostureConfig {
         }
     }
 
-    fn check_participant_action(
+    pub(crate) fn check_participant_action(
         &self,
         action: LaunchAction,
         account_id: &str,

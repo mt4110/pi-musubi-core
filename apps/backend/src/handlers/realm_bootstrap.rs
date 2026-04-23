@@ -445,26 +445,17 @@ pub async fn create_realm_admission(
             .unwrap_or_else(|| Value::Object(Default::default())),
         request_idempotency_key: payload.request_idempotency_key,
     };
-    let admission_replay = state
-        .realm_bootstrap
-        .is_realm_admission_replay(&operator_id, realm_id.trim(), &input)
-        .await
-        .map_err(map_realm_bootstrap_error)?;
-    if !admission_replay {
-        state
-            .realm_bootstrap
-            .ensure_operator_write_role(&operator_id)
-            .await
-            .map_err(map_realm_bootstrap_error)?;
-        state
-            .launch_posture
-            .check_participant_action(LaunchAction::RealmAdmission, input.account_id.trim(), None)
-            .await
-            .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
-    }
+    let launch_config = state.launch_posture.config_snapshot_for_check().await;
     let snapshot = state
         .realm_bootstrap
-        .create_realm_admission(&operator_id, realm_id.trim(), input)
+        .create_realm_admission(&operator_id, realm_id.trim(), input, |account_id| {
+            launch_config
+                .check_participant_action(LaunchAction::RealmAdmission, account_id, None)
+                .map_err(|block| RealmBootstrapError::LaunchBlocked {
+                    status_code: block.status_code,
+                    message_code: block.message_code,
+                })
+        })
         .await
         .map_err(map_realm_bootstrap_error)?;
     Ok(Json(realm_admission_response(snapshot)))
@@ -727,6 +718,10 @@ fn map_realm_bootstrap_error(error: RealmBootstrapError) -> ApiError {
                 internal_server_error("internal server error")
             }
         }
+        RealmBootstrapError::LaunchBlocked {
+            status_code,
+            message_code,
+        } => launch_blocked(status_code, message_code),
         RealmBootstrapError::Internal(message) => {
             eprintln!("internal realm bootstrap error: {message}");
             internal_server_error("internal server error")

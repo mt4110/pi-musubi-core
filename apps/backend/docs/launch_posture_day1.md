@@ -105,7 +105,8 @@ Internal response:
     "proof_challenge": false,
     "proof_submission": false,
     "realm_requests": false,
-    "realm_admissions": false
+    "realm_admissions": false,
+    "appeal_creation": false
   },
   "allowlist": {
     "source": "none",

@@ -12,6 +12,10 @@ pub enum RealmBootstrapError {
         constraint: Option<String>,
         retryable: bool,
     },
+    LaunchBlocked {
+        status_code: axum::http::StatusCode,
+        message_code: &'static str,
+    },
     Internal(String),
 }
 
@@ -23,6 +27,7 @@ impl RealmBootstrapError {
             | Self::NotFound(message)
             | Self::Database { message, .. }
             | Self::Internal(message) => message,
+            Self::LaunchBlocked { message_code, .. } => message_code,
         }
     }
 }
