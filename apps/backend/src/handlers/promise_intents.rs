@@ -47,6 +47,7 @@ pub async fn create_promise_intent(
         .check_participant_action(
             LaunchAction::PromiseCreation,
             &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
         )
         .await
         .map_err(|block| launch_blocked(block.status_code, block.message_code))?;

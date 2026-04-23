@@ -65,11 +65,7 @@ async fn open_preview_env_mode_fails_closed_and_blocks_participant_writes() {
     );
 
     let test_state = new_test_state().await.expect("test database state");
-    test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(config)
-        .await;
+    test_state.replace_launch_config_for_test(config).await;
     let app = build_app(test_state.state.clone());
 
     let response = post_json(
@@ -93,9 +89,7 @@ async fn open_preview_env_mode_fails_closed_and_blocks_participant_writes() {
 async fn launch_public_posture_redacts_internal_allowlist() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::from_lookup(|name| match name {
+        .replace_launch_config_for_test(LaunchPostureConfig::from_lookup(|name| match name {
             "MUSUBI_LAUNCH_MODE" => Some("pilot".to_owned()),
             "MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS" => Some("pi-private-a,pi-private-b".to_owned()),
             "MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS" => Some(Uuid::new_v4().to_string()),
@@ -135,6 +129,10 @@ async fn launch_internal_posture_requires_internal_gate() {
     .await;
 
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.body["error"],
+        "internal authorization bearer token is required"
+    );
 }
 
 #[tokio::test]
@@ -142,9 +140,7 @@ async fn launch_internal_posture_reports_allowlist_counts_not_members() {
     let test_state = new_test_state().await.expect("test database state");
     let account_id = Uuid::new_v4().to_string();
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::from_lookup(|name| match name {
+        .replace_launch_config_for_test(LaunchPostureConfig::from_lookup(|name| match name {
             "MUSUBI_LAUNCH_MODE" => Some("pilot".to_owned()),
             "MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS" => Some("pi-count-a, pi-count-b".to_owned()),
             "MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS" => Some(account_id.clone()),
@@ -169,9 +165,7 @@ async fn launch_internal_posture_reports_allowlist_counts_not_members() {
 async fn closed_launch_blocks_non_allowlisted_pi_auth() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::closed_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::closed_for_test())
         .await;
     let app = build_app(test_state.state.clone());
 
@@ -197,9 +191,7 @@ async fn closed_launch_blocks_non_allowlisted_pi_auth() {
 async fn pilot_launch_allows_allowlisted_pi_auth() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::pilot_for_test(
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
             &["pi-launch-pilot-allowed"],
             &[],
         ))
@@ -224,15 +216,39 @@ async fn pilot_launch_allows_allowlisted_pi_auth() {
 }
 
 #[tokio::test]
+async fn pilot_launch_pi_allowlisted_account_can_use_participant_write_after_auth() {
+    let test_state = new_test_state().await.expect("test database state");
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
+            &["pi-launch-pilot-write"],
+            &[],
+        ))
+        .await;
+    let app = build_app(test_state.state.clone());
+    let participant = sign_in(&app, "pi-launch-pilot-write", "launch-pilot-write").await;
+
+    let response = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(participant.token.as_str()),
+        realm_request_body("pilot-pi-allowlisted-write"),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["request_state"], "requested");
+    assert!(response.body["realm_request_id"].as_str().is_some());
+    assert!(response.body.get("requested_by_account_id").is_none());
+}
+
+#[tokio::test]
 async fn paused_launch_blocks_promise_creation() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let initiator = sign_in(&app, "pi-launch-promise-a", "launch-promise-a").await;
     let counterparty = sign_in(&app, "pi-launch-promise-b", "launch-promise-b").await;
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
 
     let response = post_json(
@@ -264,9 +280,7 @@ async fn paused_launch_blocks_proof_submission() {
     let app = build_app(test_state.state.clone());
     let subject = sign_in(&app, "pi-launch-proof", "launch-proof").await;
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
 
     let response = post_json(
@@ -296,9 +310,7 @@ async fn paused_launch_blocks_realm_request() {
     let app = build_app(test_state.state.clone());
     let requester = sign_in(&app, "pi-launch-realm", "launch-realm").await;
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
 
     let response = post_json(
@@ -322,9 +334,7 @@ async fn paused_launch_blocks_realm_request() {
 async fn realm_admission_kill_switch_blocks_new_admissions() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::with_kill_switch_for_test(
+        .replace_launch_config_for_test(LaunchPostureConfig::with_kill_switch_for_test(
             LaunchAction::RealmAdmission,
         ))
         .await;
@@ -357,9 +367,7 @@ async fn realm_admission_kill_switch_blocks_new_admissions() {
 async fn paused_launch_blocks_internal_realm_admission() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
     let app = build_app(test_state.state.clone());
 
@@ -381,9 +389,7 @@ async fn paused_launch_blocks_internal_realm_admission() {
 async fn closed_launch_blocks_internal_realm_admission_for_non_allowlisted_account() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::closed_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::closed_for_test())
         .await;
     let app = build_app(test_state.state.clone());
 
@@ -405,9 +411,7 @@ async fn closed_launch_blocks_internal_realm_admission_for_non_allowlisted_accou
 async fn pilot_launch_blocks_internal_realm_admission_for_non_allowlisted_account() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::pilot_for_test(&[], &[]))
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(&[], &[]))
         .await;
     let app = build_app(test_state.state.clone());
 
@@ -439,9 +443,7 @@ async fn pilot_launch_allows_allowlisted_internal_realm_admission_to_reach_realm
     )
     .await;
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::pilot_for_test(
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
             &[],
             &[member.account_id.as_str()],
         ))
@@ -472,9 +474,7 @@ async fn pilot_launch_allows_allowlisted_internal_realm_admission_to_reach_realm
 async fn internal_ops_health_still_available_when_launch_paused() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
     let app = build_app(test_state.state.clone());
 
@@ -488,9 +488,7 @@ async fn internal_ops_health_still_available_when_launch_paused() {
 async fn observability_status_does_not_override_launch_mode() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
-        .state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::paused_for_test())
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
     let app = build_app(test_state.state.clone());
 

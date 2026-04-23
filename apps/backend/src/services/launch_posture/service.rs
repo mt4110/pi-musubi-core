@@ -112,7 +112,7 @@ impl LaunchPostureService {
         }
     }
 
-    pub async fn replace_config_for_test(&self, config: LaunchPostureConfig) {
+    pub(crate) async fn replace_config_for_test(&self, config: LaunchPostureConfig) {
         *self.config.write().await = config;
     }
 
@@ -135,11 +135,12 @@ impl LaunchPostureService {
         &self,
         action: LaunchAction,
         account_id: &str,
+        pi_uid: Option<&str>,
     ) -> Result<(), LaunchBlock> {
         self.config
             .read()
             .await
-            .check_account_action(action, account_id)
+            .check_participant_action(action, account_id, pi_uid)
     }
 }
 
@@ -307,10 +308,11 @@ impl LaunchPostureConfig {
         }
     }
 
-    fn check_account_action(
+    fn check_participant_action(
         &self,
         action: LaunchAction,
         account_id: &str,
+        pi_uid: Option<&str>,
     ) -> Result<(), LaunchBlock> {
         if let Some(block) = self.kill_switch_block(action) {
             return Err(block);
@@ -320,7 +322,9 @@ impl LaunchPostureConfig {
             LaunchMode::Paused => Err(block_service_unavailable("launch_paused")),
             LaunchMode::Closed => Err(block_forbidden("launch_closed")),
             LaunchMode::Pilot => {
-                if self.allowlist_account_ids.contains(account_id) {
+                if self.allowlist_account_ids.contains(account_id)
+                    || pi_uid.is_some_and(|pi_uid| self.allowlist_pi_uids.contains(pi_uid))
+                {
                     Ok(())
                 } else {
                     Err(block_forbidden("launch_pilot_not_allowed"))

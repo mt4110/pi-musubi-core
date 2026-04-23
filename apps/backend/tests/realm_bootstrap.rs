@@ -378,9 +378,11 @@ async fn concurrent_realm_request_replay_returns_existing_request() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
-    second_state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
         .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-request-race", "realm-request-race").await;
@@ -2474,9 +2476,11 @@ async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
-    second_state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
         .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(
@@ -3867,9 +3871,11 @@ async fn concurrent_sponsor_and_admission_replays_return_existing_rows() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
-    second_state
-        .launch_posture
-        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
         .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-idem-race-a", "realm-idem-race-a").await;

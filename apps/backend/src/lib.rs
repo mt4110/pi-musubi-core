@@ -61,6 +61,24 @@ pub struct TestState {
     _guard: OwnedMutexGuard<()>,
 }
 
+impl TestState {
+    pub async fn replace_launch_config_for_test(
+        &self,
+        config: services::launch_posture::LaunchPostureConfig,
+    ) {
+        self.replace_launch_config_for_state_for_test(&self.state, config)
+            .await;
+    }
+
+    pub async fn replace_launch_config_for_state_for_test(
+        &self,
+        state: &SharedState,
+        config: services::launch_posture::LaunchPostureConfig,
+    ) {
+        state.launch_posture.replace_config_for_test(config).await;
+    }
+}
+
 static TEST_DB_LOCK: OnceLock<Arc<AsyncMutex<()>>> = OnceLock::new();
 static TEST_DB_MIGRATED: OnceLock<Arc<AsyncMutex<bool>>> = OnceLock::new();
 

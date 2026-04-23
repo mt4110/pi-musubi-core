@@ -68,6 +68,7 @@ pub async fn start_proof_challenge(
         .check_participant_action(
             LaunchAction::ProofChallenge,
             &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
         )
         .await
         .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
@@ -117,6 +118,7 @@ pub async fn submit_proof_envelope(
         .check_participant_action(
             LaunchAction::ProofSubmission,
             &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
         )
         .await
         .map_err(|block| launch_blocked(block.status_code, block.message_code))?;

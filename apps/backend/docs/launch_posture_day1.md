@@ -2,7 +2,7 @@
 
 Design source: ISSUE-18 launch posture / Day 1 pilot.
 
-The GitHub issue number is intentionally not hardcoded.
+The GitHub issue URL is intentionally not hardcoded.
 
 ## Purpose
 
@@ -61,6 +61,11 @@ config warning.
 
 Allowlist members are never returned by API responses. Internal posture may
 return counts only.
+
+For token-authenticated participant writes, pilot allowlist checks accept either
+the account id or the linked Pi UID from the authorized session. Internal
+target-account gates that do not carry a participant session only evaluate the
+target account id.
 
 ## HTTP Surface
 

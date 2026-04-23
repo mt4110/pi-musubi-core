@@ -37,7 +37,7 @@ fn require_launch_internal_access(headers: &HeaderMap) -> Result<(), ApiError> {
             }
         }
         return Err(unauthorized(
-            "participant bearer tokens cannot access internal launch posture",
+            "internal authorization bearer token is required",
         ));
     }
 

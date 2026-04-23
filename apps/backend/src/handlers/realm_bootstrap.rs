@@ -256,7 +256,11 @@ pub async fn create_realm_request(
         .map_err(map_happy_route_error)?;
     state
         .launch_posture
-        .check_participant_action(LaunchAction::RealmRequest, &account.account_id)
+        .check_participant_action(
+            LaunchAction::RealmRequest,
+            &account.account_id,
+            Some(&account.pi_uid),
+        )
         .await
         .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let snapshot = state
@@ -433,7 +437,11 @@ pub async fn create_realm_admission(
     let operator_id = require_operator_id(&headers)?;
     state
         .launch_posture
-        .check_participant_action(LaunchAction::RealmAdmission, payload.account_id.trim())
+        .check_participant_action(
+            LaunchAction::RealmAdmission,
+            payload.account_id.trim(),
+            None,
+        )
         .await
         .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let snapshot = state
