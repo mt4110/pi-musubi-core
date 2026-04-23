@@ -12,12 +12,12 @@ use crate::{
     SharedState,
     handlers::{
         ApiError, ApiResult, bad_request, internal_server_error, launch_blocked,
-        map_happy_route_error, not_found, require_bearer_token, require_internal_bearer_token,
-        require_operator_id, service_unavailable, unauthorized,
+        launch_blocked_from_service, map_happy_route_error, not_found, require_bearer_token,
+        require_internal_bearer_token, require_operator_id, service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
-        launch_posture::LaunchAction,
+        launch_posture::{LaunchAction, LaunchBlockKind},
         realm_bootstrap::{
             CreateRealmAdmissionInput, CreateRealmRequestInput, CreateRealmSponsorRecordInput,
             ListRealmRequestsInput, RealmAdmissionSnapshot, RealmAdmissionViewSnapshot,
@@ -262,7 +262,7 @@ pub async fn create_realm_request(
             Some(&account.pi_uid),
         )
         .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+        .map_err(launch_blocked_from_service)?;
     let snapshot = state
         .realm_bootstrap
         .create_realm_request(
@@ -452,7 +452,7 @@ pub async fn create_realm_admission(
             launch_config
                 .check_participant_action(LaunchAction::RealmAdmission, account_id, None)
                 .map_err(|block| RealmBootstrapError::LaunchBlocked {
-                    status_code: block.status_code,
+                    kind: block.kind,
                     message_code: block.message_code,
                 })
         })
@@ -718,10 +718,13 @@ fn map_realm_bootstrap_error(error: RealmBootstrapError) -> ApiError {
                 internal_server_error("internal server error")
             }
         }
-        RealmBootstrapError::LaunchBlocked {
-            status_code,
+        RealmBootstrapError::LaunchBlocked { kind, message_code } => launch_blocked(
+            match kind {
+                LaunchBlockKind::Forbidden => axum::http::StatusCode::FORBIDDEN,
+                LaunchBlockKind::ServiceUnavailable => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            },
             message_code,
-        } => launch_blocked(status_code, message_code),
+        ),
         RealmBootstrapError::Internal(message) => {
             eprintln!("internal realm bootstrap error: {message}");
             internal_server_error("internal server error")

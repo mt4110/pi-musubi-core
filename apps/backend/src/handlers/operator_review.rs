@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::{
     SharedState,
     handlers::{
-        ApiError, ApiResult, bad_request, internal_server_error, launch_blocked,
+        ApiError, ApiResult, bad_request, internal_server_error, launch_blocked_from_service,
         map_happy_route_error, not_found, require_bearer_token, require_internal_bearer_token,
         require_operator_id, service_unavailable, unauthorized,
     },
@@ -344,7 +344,7 @@ pub async fn create_appeal_case(
             Some(&authenticated_account.pi_uid),
         )
         .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+        .map_err(launch_blocked_from_service)?;
     let snapshot = state
         .operator_review
         .create_appeal_case(

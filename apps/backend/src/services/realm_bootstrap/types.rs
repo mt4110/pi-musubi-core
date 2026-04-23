@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
+use crate::services::launch_posture::LaunchBlockKind;
+
 #[derive(Debug)]
 pub enum RealmBootstrapError {
     BadRequest(String),
@@ -13,7 +15,7 @@ pub enum RealmBootstrapError {
         retryable: bool,
     },
     LaunchBlocked {
-        status_code: axum::http::StatusCode,
+        kind: LaunchBlockKind,
         message_code: &'static str,
     },
     Internal(String),

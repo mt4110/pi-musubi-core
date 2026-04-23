@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     SharedState,
     handlers::{
-        ApiResult, bad_request, launch_blocked, map_happy_route_error, require_bearer_token,
+        ApiResult, bad_request, launch_blocked_from_service, map_happy_route_error,
+        require_bearer_token,
     },
     services::{
         happy_route::{
@@ -50,7 +51,7 @@ pub async fn create_promise_intent(
             Some(&authenticated_account.pi_uid),
         )
         .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+        .map_err(launch_blocked_from_service)?;
     let internal_idempotency_key = payload.internal_idempotency_key.trim().to_owned();
     if internal_idempotency_key.is_empty() {
         return Err(bad_request("internal_idempotency_key is required"));

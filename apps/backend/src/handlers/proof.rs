@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     SharedState,
     handlers::{
-        ApiResult, bad_request, launch_blocked, map_happy_route_error, require_bearer_token,
+        ApiResult, bad_request, launch_blocked_from_service, map_happy_route_error,
+        require_bearer_token,
     },
     services::{
         happy_route::authorize_account,
@@ -71,7 +72,7 @@ pub async fn start_proof_challenge(
             Some(&authenticated_account.pi_uid),
         )
         .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+        .map_err(launch_blocked_from_service)?;
     if public_fallback_mode(&payload.fallback_mode)? != "none" {
         return Err(bad_request(
             "operator_pin fallback is not available from the public proof challenge endpoint",
@@ -121,7 +122,7 @@ pub async fn submit_proof_envelope(
             Some(&authenticated_account.pi_uid),
         )
         .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+        .map_err(launch_blocked_from_service)?;
 
     let outcome = submit_proof_envelope_service(
         &state,

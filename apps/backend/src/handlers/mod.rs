@@ -4,7 +4,10 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::services::happy_route::{HappyRouteError, ProviderErrorClass};
+use crate::services::{
+    happy_route::{HappyRouteError, ProviderErrorClass},
+    launch_posture::{LaunchBlock, LaunchBlockKind},
+};
 
 pub mod auth;
 pub mod launch_posture;
@@ -87,6 +90,14 @@ pub fn launch_blocked(status: StatusCode, message_code: impl Into<String>) -> Ap
             message_code: Some(message_code),
         }),
     )
+}
+
+pub fn launch_blocked_from_service(block: LaunchBlock) -> ApiError {
+    let status = match block.kind {
+        LaunchBlockKind::Forbidden => StatusCode::FORBIDDEN,
+        LaunchBlockKind::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    launch_blocked(status, block.message_code)
 }
 
 pub fn require_bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {

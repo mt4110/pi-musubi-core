@@ -832,7 +832,8 @@ impl RealmBootstrapStore {
         }
 
         ensure_operator_role_tx(&tx, &operator_id, OPERATOR_WRITE_ROLES).await?;
-        check_new_admission(&account_id.to_string())?;
+        let account_id_text = account_id.to_string();
+        check_new_admission(&account_id_text)?;
 
         let row = {
             ensure_active_account_exists_tx(&tx, &account_id).await?;

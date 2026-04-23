@@ -101,8 +101,14 @@ pub struct LaunchAllowlistSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct LaunchBlock {
-    pub status_code: axum::http::StatusCode,
+    pub kind: LaunchBlockKind,
     pub message_code: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchBlockKind {
+    Forbidden,
+    ServiceUnavailable,
 }
 
 impl LaunchPostureService {
@@ -502,14 +508,14 @@ fn parse_support_contact(
 
 fn block_forbidden(message_code: &'static str) -> LaunchBlock {
     LaunchBlock {
-        status_code: axum::http::StatusCode::FORBIDDEN,
+        kind: LaunchBlockKind::Forbidden,
         message_code,
     }
 }
 
 fn block_service_unavailable(message_code: &'static str) -> LaunchBlock {
     LaunchBlock {
-        status_code: axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        kind: LaunchBlockKind::ServiceUnavailable,
         message_code,
     }
 }
