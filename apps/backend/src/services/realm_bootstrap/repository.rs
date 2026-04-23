@@ -98,6 +98,39 @@ impl RealmBootstrapStore {
         ensure_operator_role_tx(&*client, &operator_id, OPERATOR_WRITE_ROLES).await
     }
 
+    pub async fn is_realm_admission_replay(
+        &self,
+        operator_id: &str,
+        realm_id: &str,
+        input: &CreateRealmAdmissionInput,
+    ) -> Result<bool, RealmBootstrapError> {
+        let operator_id = parse_uuid(operator_id, "operator id")?;
+        let realm_id = normalize_required(realm_id, "realm id")?;
+        let account_id = parse_uuid(&input.account_id, "account id")?;
+        let sponsor_record_id = parse_optional_uuid(&input.sponsor_record_id, "sponsor record id")?;
+        let request_idempotency_key =
+            normalize_optional(Some(input.request_idempotency_key.as_str())).ok_or_else(|| {
+                RealmBootstrapError::BadRequest(
+                    "admission creation requires request_idempotency_key".to_owned(),
+                )
+            })?;
+        let payload_hash = create_admission_payload_hash(input, &account_id, &sponsor_record_id);
+        let client = self.client.lock().await;
+        if let Some(existing) = find_admission_by_idempotency_tx(
+            &*client,
+            &realm_id,
+            &operator_id,
+            &request_idempotency_key,
+        )
+        .await?
+        {
+            ensure_admission_payload_hash_matches(&existing, &payload_hash)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn create_realm_request(
         &self,
         requester_account_id: &str,

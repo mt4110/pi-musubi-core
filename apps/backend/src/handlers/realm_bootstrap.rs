@@ -435,36 +435,36 @@ pub async fn create_realm_admission(
 ) -> ApiResult<RealmAdmissionResponse> {
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
-    state
+    let input = CreateRealmAdmissionInput {
+        account_id: payload.account_id,
+        sponsor_record_id: payload.sponsor_record_id,
+        source_fact_kind: payload.source_fact_kind,
+        source_fact_id: payload.source_fact_id,
+        source_snapshot_json: payload
+            .source_snapshot_json
+            .unwrap_or_else(|| Value::Object(Default::default())),
+        request_idempotency_key: payload.request_idempotency_key,
+    };
+    let admission_replay = state
         .realm_bootstrap
-        .ensure_operator_write_role(&operator_id)
+        .is_realm_admission_replay(&operator_id, realm_id.trim(), &input)
         .await
         .map_err(map_realm_bootstrap_error)?;
-    state
-        .launch_posture
-        .check_participant_action(
-            LaunchAction::RealmAdmission,
-            payload.account_id.trim(),
-            None,
-        )
-        .await
-        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+    if !admission_replay {
+        state
+            .realm_bootstrap
+            .ensure_operator_write_role(&operator_id)
+            .await
+            .map_err(map_realm_bootstrap_error)?;
+        state
+            .launch_posture
+            .check_participant_action(LaunchAction::RealmAdmission, input.account_id.trim(), None)
+            .await
+            .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
+    }
     let snapshot = state
         .realm_bootstrap
-        .create_realm_admission(
-            &operator_id,
-            realm_id.trim(),
-            CreateRealmAdmissionInput {
-                account_id: payload.account_id,
-                sponsor_record_id: payload.sponsor_record_id,
-                source_fact_kind: payload.source_fact_kind,
-                source_fact_id: payload.source_fact_id,
-                source_snapshot_json: payload
-                    .source_snapshot_json
-                    .unwrap_or_else(|| Value::Object(Default::default())),
-                request_idempotency_key: payload.request_idempotency_key,
-            },
-        )
+        .create_realm_admission(&operator_id, realm_id.trim(), input)
         .await
         .map_err(map_realm_bootstrap_error)?;
     Ok(Json(realm_admission_response(snapshot)))

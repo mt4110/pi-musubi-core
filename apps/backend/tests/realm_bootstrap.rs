@@ -1096,6 +1096,86 @@ async fn realm_admission_replay_survives_operator_role_revocation() {
 }
 
 #[tokio::test]
+async fn realm_admission_replay_survives_launch_pause() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-admission-launch-replay-a",
+        "realm-admission-launch-replay-a",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-admission-launch-replay-b",
+        "realm-admission-launch-replay-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-admission-launch-replay",
+    )
+    .await;
+    let body = json!({
+        "account_id": member.account_id,
+        "source_fact_kind": "realm_admin_invite",
+        "source_fact_id": "realm-admission-launch-replay",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-admission-launch-replay"
+    });
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    let admission_id = first.body["realm_admission_id"]
+        .as_str()
+        .expect("admission id must exist")
+        .to_owned();
+
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
+        .await;
+
+    let replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::OK);
+    assert_eq!(replay.body["realm_admission_id"], admission_id);
+
+    let new_admission = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-admission-launch-paused-new",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-admission-launch-paused-new"
+        }),
+    )
+    .await;
+    assert_eq!(new_admission.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(new_admission.body["message_code"], "launch_paused");
+}
+
+#[tokio::test]
 async fn bootstrap_summary_authorizes_against_latest_admission_status() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
