@@ -8,7 +8,9 @@ Current local HTTP surface:
 - `POST /api/payment/callback`
 - `POST /api/proof/challenges`
 - `POST /api/proof/submissions`
+- `GET /api/launch/posture`; participant-safe launch posture without allowlist members or internal switch detail
 - `POST /api/internal/orchestration/drain` in debug builds, or in release only when `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true` and the request includes `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`
+- `GET /api/internal/launch/posture` under the internal/debug auth gate; returns redacted launch mode, kill switch state, and allowlist counts only
 - `GET /api/internal/ops/health` under the internal/debug auth gate, independent of orchestration drain enablement; reports DB connectivity only
 - `GET /api/internal/ops/readiness` under the internal/debug auth gate, independent of orchestration drain enablement; reports migration posture without mutating migration state or probing the migration advisory lock
 - `GET /api/internal/ops/observability/snapshot` under the internal/debug auth gate, independent of orchestration drain enablement; returns a redacted ops snapshot without raw evidence, operator notes, source identifiers, or participant data
@@ -110,6 +112,27 @@ If a valid callback arrives before provider submission mapping is visible, callb
 Callback signature verification is intentionally skipped for Issue #9 until a pinned Pi callback signature / auth contract exists; raw callback records keep `signature_valid = None` as the future slot.
 Those records are durable uniqueness boundaries; they are not a production Pi payment integration yet.
 
+Day 1 launch posture defaults closed unless configured:
+
+- `MUSUBI_LAUNCH_MODE=closed|pilot|paused`
+- `MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS`
+- `MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS`
+- `MUSUBI_LAUNCH_SUPPORT_CONTACT_URL`
+- `MUSUBI_LAUNCH_SUPPORT_CONTACT_LABEL`
+- `MUSUBI_KILL_SWITCH_AUTH`
+- `MUSUBI_KILL_SWITCH_PROMISE_CREATION`
+- `MUSUBI_KILL_SWITCH_PROOF_CHALLENGE`
+- `MUSUBI_KILL_SWITCH_PROOF_SUBMISSION`
+- `MUSUBI_KILL_SWITCH_REALM_REQUESTS`
+- `MUSUBI_KILL_SWITCH_REALM_ADMISSIONS`
+- `MUSUBI_KILL_SWITCH_APPEAL_CREATION`
+
+Invalid launch mode, unsupported `open_preview`, or invalid boolean kill switch
+values fail closed. Internal Realm admission is launch-gated by the target
+participant account and cannot bypass closed/pilot/paused posture. Launch
+posture is server policy, not observability truth, projection truth, or UI
+truth. See `docs/launch_posture_day1.md`.
+
 ### Run the orchestration contract tests
 
 ```bash
@@ -142,6 +165,7 @@ Design source: ISSUE-12-operator-review-appeal-evidence.md adds the operator rev
 Design source: ISSUE-13-room-progression.md adds the room progression surface baseline. Room progression facts are append-only writer facts in `dao`, user-facing room state is rebuilt into `projection`, sealed fallback can link to ISSUE-12 review cases without duplicating review/evidence truth, and state-changing progression decisions read writer truth instead of projection rows. See `docs/room_progression_surface.md`.
 Design source: ISSUE-15-realm-bootstrap-and-admission.md adds the first bounded realm bootstrap and admission baseline. Realm creation requests, sponsor records, bootstrap corridors, admissions, and review triggers live in writer-owned `dao` tables, while participant-safe and operator-safe realm summaries stay rebuildable in `projection`. Sponsor quota, revoked/rate-limited sponsor state, corridor expiry/caps, and restricted/suspended realm blocking are enforced on the writer path, not by client/UI state or projection rows. See `docs/realm_bootstrap_surface.md`.
 Design source: ISSUE-17-observability-slo-prompt-pack adds an internal-only, read-only ops observability surface. Health, readiness, projection lag, review queue, Realm review-trigger, and orchestration backlog signals are reported as redacted operational posture only. Unsupported SLIs return `unknown` instead of fake zero values, and projection lag remains display-only rather than writer truth. See `docs/ops_observability_slo.md`.
+Design source: ISSUE-18 launch posture / Day 1 pilot adds server-enforced launch modes, kill switches, and closed cohort posture. Launch posture is server policy, not observability truth, projection truth, or UI truth. See `docs/launch_posture_day1.md`.
 The backend also adds the first sandbox Pi provider adapter boundary for happy-route hold submission and callback intake.
 ISSUE-10 adds Day 1 safer venue proof primitives.
 The public HTTP surface supports the normal venue-code path only.
@@ -162,6 +186,7 @@ These proof records are input facts only; they are not settlement truth or final
 - `docs/room_progression_surface.md`: ISSUE-13 Intent / Coordination / Relationship / Sealed Room progression surface boundary
 - `docs/realm_bootstrap_surface.md`: ISSUE-15 bounded realm bootstrap, admission, sponsor, and corridor boundary
 - `docs/ops_observability_slo.md`: internal-only ISSUE-17 observability SLO skeleton and redaction boundary
+- `docs/launch_posture_day1.md`: ISSUE-18 launch posture, kill switch, and closed cohort boundary
 - `docs/guardrails.md`: executable architectural guardrails
 - `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path

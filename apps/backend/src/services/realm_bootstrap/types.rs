@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
+use crate::services::launch_posture::LaunchBlockKind;
+
 #[derive(Debug)]
 pub enum RealmBootstrapError {
     BadRequest(String),
@@ -11,6 +13,10 @@ pub enum RealmBootstrapError {
         code: Option<String>,
         constraint: Option<String>,
         retryable: bool,
+    },
+    LaunchBlocked {
+        kind: LaunchBlockKind,
+        message_code: &'static str,
     },
     Internal(String),
 }
@@ -23,6 +29,7 @@ impl RealmBootstrapError {
             | Self::NotFound(message)
             | Self::Database { message, .. }
             | Self::Internal(message) => message,
+            Self::LaunchBlocked { message_code, .. } => message_code,
         }
     }
 }

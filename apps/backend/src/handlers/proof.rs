@@ -4,9 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error, require_bearer_token},
+    handlers::{
+        ApiResult, bad_request, launch_blocked_from_service, map_happy_route_error,
+        require_bearer_token,
+    },
     services::{
         happy_route::authorize_account,
+        launch_posture::LaunchAction,
         proof::{
             ProofEnvelopeInput, ProofSubmissionOutcome, StartProofChallengeInput,
             start_proof_challenge as start_proof_challenge_service,
@@ -60,6 +64,15 @@ pub async fn start_proof_challenge(
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    state
+        .launch_posture
+        .check_participant_action(
+            LaunchAction::ProofChallenge,
+            &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
+        )
+        .await
+        .map_err(launch_blocked_from_service)?;
     if public_fallback_mode(&payload.fallback_mode)? != "none" {
         return Err(bad_request(
             "operator_pin fallback is not available from the public proof challenge endpoint",
@@ -101,6 +114,15 @@ pub async fn submit_proof_envelope(
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    state
+        .launch_posture
+        .check_participant_action(
+            LaunchAction::ProofSubmission,
+            &authenticated_account.account_id,
+            Some(&authenticated_account.pi_uid),
+        )
+        .await
+        .map_err(launch_blocked_from_service)?;
 
     let outcome = submit_proof_envelope_service(
         &state,

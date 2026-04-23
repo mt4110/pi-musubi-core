@@ -4,9 +4,13 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::services::happy_route::{HappyRouteError, ProviderErrorClass};
+use crate::services::{
+    happy_route::{HappyRouteError, ProviderErrorClass},
+    launch_posture::{LaunchBlock, LaunchBlockKind},
+};
 
 pub mod auth;
+pub mod launch_posture;
 pub mod operator_review;
 pub mod ops_observability;
 pub mod orchestration;
@@ -20,6 +24,8 @@ pub mod room_progression;
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_code: Option<String>,
 }
 
 pub type ApiError = (StatusCode, Json<ErrorResponse>);
@@ -30,6 +36,7 @@ pub fn bad_request(message: impl Into<String>) -> ApiError {
         StatusCode::BAD_REQUEST,
         Json(ErrorResponse {
             error: message.into(),
+            message_code: None,
         }),
     )
 }
@@ -39,6 +46,7 @@ pub fn unauthorized(message: impl Into<String>) -> ApiError {
         StatusCode::UNAUTHORIZED,
         Json(ErrorResponse {
             error: message.into(),
+            message_code: None,
         }),
     )
 }
@@ -48,6 +56,7 @@ pub fn not_found(message: impl Into<String>) -> ApiError {
         StatusCode::NOT_FOUND,
         Json(ErrorResponse {
             error: message.into(),
+            message_code: None,
         }),
     )
 }
@@ -57,6 +66,7 @@ pub fn internal_server_error(message: impl Into<String>) -> ApiError {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse {
             error: message.into(),
+            message_code: None,
         }),
     )
 }
@@ -66,8 +76,28 @@ pub fn service_unavailable(message: impl Into<String>) -> ApiError {
         StatusCode::SERVICE_UNAVAILABLE,
         Json(ErrorResponse {
             error: message.into(),
+            message_code: None,
         }),
     )
+}
+
+pub fn launch_blocked(status: StatusCode, message_code: impl Into<String>) -> ApiError {
+    let message_code = message_code.into();
+    (
+        status,
+        Json(ErrorResponse {
+            error: message_code.clone(),
+            message_code: Some(message_code),
+        }),
+    )
+}
+
+pub fn launch_blocked_from_service(block: LaunchBlock) -> ApiError {
+    let status = match block.kind {
+        LaunchBlockKind::Forbidden => StatusCode::FORBIDDEN,
+        LaunchBlockKind::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    launch_blocked(status, block.message_code)
 }
 
 pub fn require_bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {

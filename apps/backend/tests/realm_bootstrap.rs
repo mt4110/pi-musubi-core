@@ -6,7 +6,7 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use musubi_backend::{
     build_app, new_state_from_config, new_test_state,
-    services::realm_bootstrap::CreateRealmRequestInput,
+    services::{launch_posture::LaunchPostureConfig, realm_bootstrap::CreateRealmRequestInput},
 };
 use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
@@ -378,6 +378,12 @@ async fn concurrent_realm_request_replay_returns_existing_request() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-request-race", "realm-request-race").await;
     let client = test_db_client().await;
@@ -1087,6 +1093,86 @@ async fn realm_admission_replay_survives_operator_role_revocation() {
     )
     .await;
     assert_eq!(drifted_replay.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn realm_admission_replay_survives_launch_pause() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-admission-launch-replay-a",
+        "realm-admission-launch-replay-a",
+    )
+    .await;
+    let member = sign_in(
+        &app,
+        "pi-user-realm-admission-launch-replay-b",
+        "realm-admission-launch-replay-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-admission-launch-replay",
+    )
+    .await;
+    let body = json!({
+        "account_id": member.account_id,
+        "source_fact_kind": "realm_admin_invite",
+        "source_fact_id": "realm-admission-launch-replay",
+        "source_snapshot_json": {},
+        "request_idempotency_key": "realm-admission-launch-replay"
+    });
+    let first = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    let admission_id = first.body["realm_admission_id"]
+        .as_str()
+        .expect("admission id must exist")
+        .to_owned();
+
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
+        .await;
+
+    let replay = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        body,
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::OK);
+    assert_eq!(replay.body["realm_admission_id"], admission_id);
+
+    let new_admission = operator_post_json(
+        &app,
+        &format!("/api/internal/realms/{realm_id}/admissions"),
+        &approver_id,
+        json!({
+            "account_id": member.account_id,
+            "source_fact_kind": "realm_admin_invite",
+            "source_fact_id": "realm-admission-launch-paused-new",
+            "source_snapshot_json": {},
+            "request_idempotency_key": "realm-admission-launch-paused-new"
+        }),
+    )
+    .await;
+    assert_eq!(new_admission.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(new_admission.body["message_code"], "launch_paused");
 }
 
 #[tokio::test]
@@ -2470,6 +2556,12 @@ async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(
         &app,
@@ -3859,6 +3951,12 @@ async fn concurrent_sponsor_and_admission_replays_return_existing_rows() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    test_state
+        .replace_launch_config_for_state_for_test(
+            &second_state,
+            LaunchPostureConfig::open_preview_for_test(),
+        )
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-idem-race-a", "realm-idem-race-a").await;
     let sponsor = sign_in(&app, "pi-user-realm-idem-race-b", "realm-idem-race-b").await;
