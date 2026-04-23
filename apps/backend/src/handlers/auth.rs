@@ -6,7 +6,8 @@ use crate::{
     SharedState,
     handlers::{ApiResult, bad_request, launch_blocked, map_happy_route_error},
     services::happy_route::{
-        AuthenticationInput, authenticate_pi_account, find_account_id_by_pi_uid,
+        AuthenticationInput, authenticate_pi_account,
+        find_account_id_by_pi_uid_if_access_token_matches,
     },
 };
 
@@ -76,9 +77,10 @@ pub async fn authenticate_pi(
         if block.message_code != "launch_pilot_not_allowed" {
             return Err(launch_blocked(block.status_code, block.message_code));
         }
-        let existing_account_id = find_account_id_by_pi_uid(&state, &pi_uid)
-            .await
-            .map_err(map_happy_route_error)?;
+        let existing_account_id =
+            find_account_id_by_pi_uid_if_access_token_matches(&state, &pi_uid, &access_token)
+                .await
+                .map_err(map_happy_route_error)?;
         state
             .launch_posture
             .check_pi_auth(&pi_uid, existing_account_id.as_deref())

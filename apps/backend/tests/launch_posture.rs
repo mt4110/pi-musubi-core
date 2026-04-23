@@ -136,6 +136,25 @@ async fn launch_internal_posture_requires_internal_gate() {
 }
 
 #[tokio::test]
+async fn launch_internal_posture_rejects_arbitrary_bearer_tokens_in_debug_builds() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let response = get_json(
+        &app,
+        "/api/internal/launch/posture",
+        Some("not-an-internal-token"),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.body["error"],
+        "internal authorization bearer token is required"
+    );
+}
+
+#[tokio::test]
 async fn launch_internal_posture_reports_allowlist_counts_not_members() {
     let test_state = new_test_state().await.expect("test database state");
     let account_id = Uuid::new_v4().to_string();
@@ -240,6 +259,63 @@ async fn pilot_launch_allows_account_allowlisted_pi_auth_for_existing_account() 
     .await;
 
     assert_eq!(reauthenticated.account_id, existing.account_id);
+}
+
+#[tokio::test]
+async fn pilot_launch_account_allowlist_does_not_oracle_invalid_credentials() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let allowlisted = sign_in(
+        &app,
+        "pi-launch-pilot-account-oracle-allowed",
+        "launch-pilot-account-oracle-allowed",
+    )
+    .await;
+    sign_in(
+        &app,
+        "pi-launch-pilot-account-oracle-blocked",
+        "launch-pilot-account-oracle-blocked",
+    )
+    .await;
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
+            &[],
+            &[allowlisted.account_id.as_str()],
+        ))
+        .await;
+
+    let allowlisted_response = post_json(
+        &app,
+        "/api/auth/pi",
+        None,
+        json!({
+            "pi_uid": "pi-launch-pilot-account-oracle-allowed",
+            "username": "launch-pilot-account-oracle-allowed-retry",
+            "wallet_address": "wallet-pi-launch-pilot-account-oracle-allowed",
+            "access_token": "wrong-access-token-pi-launch-pilot-account-oracle-allowed"
+        }),
+    )
+    .await;
+    let blocked_response = post_json(
+        &app,
+        "/api/auth/pi",
+        None,
+        json!({
+            "pi_uid": "pi-launch-pilot-account-oracle-blocked",
+            "username": "launch-pilot-account-oracle-blocked-retry",
+            "wallet_address": "wallet-pi-launch-pilot-account-oracle-blocked",
+            "access_token": "wrong-access-token-pi-launch-pilot-account-oracle-blocked"
+        }),
+    )
+    .await;
+
+    assert_eq!(allowlisted_response.status, StatusCode::FORBIDDEN);
+    assert_eq!(allowlisted_response.status, blocked_response.status);
+    assert_eq!(allowlisted_response.body, blocked_response.body);
+    assert_eq!(
+        allowlisted_response.body["message_code"],
+        "launch_pilot_not_allowed"
+    );
 }
 
 #[tokio::test]

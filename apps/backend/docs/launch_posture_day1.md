@@ -80,6 +80,11 @@ Internal/debug-gated, side-effect-free:
 
 - `GET /api/internal/launch/posture`
 
+In debug builds, this route follows the existing internal route posture:
+requests may omit `Authorization`, but a supplied bearer token is treated as an
+internal credential and must not be a participant session token. In release,
+the internal bearer-token requirement applies.
+
 Public response:
 
 ```json

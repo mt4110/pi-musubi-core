@@ -11,7 +11,10 @@ mod repository;
 mod state;
 mod types;
 
-pub use auth::{authenticate_pi_account, authorize_account, find_account_id_by_pi_uid};
+pub use auth::{
+    authenticate_pi_account, authorize_account, find_account_id_by_pi_uid,
+    find_account_id_by_pi_uid_if_access_token_matches,
+};
 pub use callback::{accept_payment_callback, get_settlement_view};
 pub use orchestration::drain_outbox;
 pub use projection_read::{
