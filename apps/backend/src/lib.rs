@@ -23,6 +23,7 @@ pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
     pub happy_route: services::happy_route::HappyRouteStore,
+    pub launch_posture: services::launch_posture::LaunchPostureService,
     pub ops_observability: services::ops_observability::OpsObservabilityStore,
     pub operator_review: services::operator_review::OperatorReviewStore,
     pub realm_bootstrap: services::realm_bootstrap::RealmBootstrapStore,
@@ -45,6 +46,7 @@ pub async fn new_state() -> musubi_db_runtime::Result<SharedState> {
 pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Result<SharedState> {
     Ok(Arc::new(AppState {
         happy_route: services::happy_route::HappyRouteStore::connect(config).await?,
+        launch_posture: services::launch_posture::LaunchPostureService::from_env(),
         ops_observability: services::ops_observability::OpsObservabilityStore::connect(config)
             .await?,
         operator_review: services::operator_review::OperatorReviewStore::connect(config).await?,
@@ -92,6 +94,12 @@ pub async fn new_test_state() -> Result<TestState, String> {
         .await
         .map_err(|error| error.to_string())?;
     state
+        .launch_posture
+        .replace_config_for_test(
+            services::launch_posture::LaunchPostureConfig::open_preview_for_test(),
+        )
+        .await;
+    state
         .ops_observability
         .reset_for_test()
         .await
@@ -130,6 +138,10 @@ pub fn build_app(state: SharedState) -> Router {
 
     let app = Router::new()
         .route("/health", get(health))
+        .route(
+            "/api/launch/posture",
+            get(handlers::launch_posture::get_public_launch_posture),
+        )
         .route("/api/auth/pi", post(handlers::auth::authenticate_pi))
         .route(
             "/api/promise/intents",
@@ -204,6 +216,10 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/internal/ops/observability/slo",
             get(handlers::ops_observability::get_ops_slo),
+        )
+        .route(
+            "/api/internal/launch/posture",
+            get(handlers::launch_posture::get_internal_launch_posture),
         );
     let app = if unauthenticated_pi_callback_enabled() {
         app.route(

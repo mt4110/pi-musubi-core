@@ -11,12 +11,13 @@ use serde_json::Value;
 use crate::{
     SharedState,
     handlers::{
-        ApiError, ApiResult, bad_request, internal_server_error, map_happy_route_error, not_found,
-        require_bearer_token, require_internal_bearer_token, require_operator_id,
-        service_unavailable, unauthorized,
+        ApiError, ApiResult, bad_request, internal_server_error, launch_blocked,
+        map_happy_route_error, not_found, require_bearer_token, require_internal_bearer_token,
+        require_operator_id, service_unavailable, unauthorized,
     },
     services::{
         happy_route::authorize_account,
+        launch_posture::LaunchAction,
         realm_bootstrap::{
             CreateRealmAdmissionInput, CreateRealmRequestInput, CreateRealmSponsorRecordInput,
             ListRealmRequestsInput, RealmAdmissionSnapshot, RealmAdmissionViewSnapshot,
@@ -253,6 +254,11 @@ pub async fn create_realm_request(
     let account = authorize_account(&state, &token)
         .await
         .map_err(map_happy_route_error)?;
+    state
+        .launch_posture
+        .check_participant_action(LaunchAction::RealmRequest, &account.account_id)
+        .await
+        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let snapshot = state
         .realm_bootstrap
         .create_realm_request(
@@ -425,6 +431,11 @@ pub async fn create_realm_admission(
 ) -> ApiResult<RealmAdmissionResponse> {
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
+    state
+        .launch_posture
+        .check_participant_action(LaunchAction::RealmAdmission, payload.account_id.trim())
+        .await
+        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let snapshot = state
         .realm_bootstrap
         .create_realm_admission(

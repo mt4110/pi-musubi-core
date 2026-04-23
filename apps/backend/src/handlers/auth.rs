@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error},
+    handlers::{ApiResult, bad_request, launch_blocked, map_happy_route_error},
     services::happy_route::{AuthenticationInput, authenticate_pi_account},
 };
 
@@ -69,6 +69,12 @@ pub async fn authenticate_pi(
             payload.profile.is_some(),
         );
     }
+
+    state
+        .launch_posture
+        .check_pi_auth(&pi_uid)
+        .await
+        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
 
     let authenticated = authenticate_pi_account(
         &state,

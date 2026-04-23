@@ -6,7 +6,7 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use musubi_backend::{
     build_app, new_state_from_config, new_test_state,
-    services::realm_bootstrap::CreateRealmRequestInput,
+    services::{launch_posture::LaunchPostureConfig, realm_bootstrap::CreateRealmRequestInput},
 };
 use musubi_db_runtime::DbConfig;
 use serde_json::{Value, json};
@@ -378,6 +378,10 @@ async fn concurrent_realm_request_replay_returns_existing_request() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    second_state
+        .launch_posture
+        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-request-race", "realm-request-race").await;
     let client = test_db_client().await;
@@ -2470,6 +2474,10 @@ async fn concurrent_corridor_admissions_do_not_exceed_member_cap() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    second_state
+        .launch_posture
+        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(
         &app,
@@ -3859,6 +3867,10 @@ async fn concurrent_sponsor_and_admission_replays_return_existing_rows() {
     })
     .expect("db config");
     let second_state = new_state_from_config(&config).await.expect("second state");
+    second_state
+        .launch_posture
+        .replace_config_for_test(LaunchPostureConfig::open_preview_for_test())
+        .await;
     let second_app = build_app(second_state.clone());
     let requester = sign_in(&app, "pi-user-realm-idem-race-a", "realm-idem-race-a").await;
     let sponsor = sign_in(&app, "pi-user-realm-idem-race-b", "realm-idem-race-b").await;

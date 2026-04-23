@@ -3,10 +3,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error, require_bearer_token},
-    services::happy_route::{
-        PromiseIntentInput, authorize_account,
-        create_promise_intent as create_promise_intent_service,
+    handlers::{
+        ApiResult, bad_request, launch_blocked, map_happy_route_error, require_bearer_token,
+    },
+    services::{
+        happy_route::{
+            PromiseIntentInput, authorize_account,
+            create_promise_intent as create_promise_intent_service,
+        },
+        launch_posture::LaunchAction,
     },
 };
 
@@ -37,6 +42,14 @@ pub async fn create_promise_intent(
     let authenticated_account = authorize_account(&state, &bearer_token)
         .await
         .map_err(map_happy_route_error)?;
+    state
+        .launch_posture
+        .check_participant_action(
+            LaunchAction::PromiseCreation,
+            &authenticated_account.account_id,
+        )
+        .await
+        .map_err(|block| launch_blocked(block.status_code, block.message_code))?;
     let internal_idempotency_key = payload.internal_idempotency_key.trim().to_owned();
     if internal_idempotency_key.is_empty() {
         return Err(bad_request("internal_idempotency_key is required"));
