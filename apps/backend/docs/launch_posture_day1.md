@@ -65,7 +65,7 @@ return counts only.
 For token-authenticated participant writes, pilot allowlist checks accept either
 the account id or the linked Pi UID from the authorized session. Internal
 target-account gates that do not carry a participant session only evaluate the
-target account id.
+target account id after internal operator authorization succeeds.
 
 ## HTTP Surface
 

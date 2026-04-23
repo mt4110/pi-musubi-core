@@ -436,6 +436,11 @@ pub async fn create_realm_admission(
     require_internal_bearer_token(&headers)?;
     let operator_id = require_operator_id(&headers)?;
     state
+        .realm_bootstrap
+        .ensure_operator_write_role(&operator_id)
+        .await
+        .map_err(map_realm_bootstrap_error)?;
+    state
         .launch_posture
         .check_participant_action(
             LaunchAction::RealmAdmission,

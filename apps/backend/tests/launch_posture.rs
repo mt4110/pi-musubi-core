@@ -339,7 +339,8 @@ async fn realm_admission_kill_switch_blocks_new_admissions() {
         ))
         .await;
     let app = build_app(test_state.state.clone());
-    let operator_id = Uuid::new_v4().to_string();
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "approver").await;
 
     let response = request_json(
         &app,
@@ -370,13 +371,15 @@ async fn paused_launch_blocks_internal_realm_admission() {
         .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
         .await;
     let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "approver").await;
 
     let response = request_json(
         &app,
         "POST",
         &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
         Some("local_dev_internal_api_token"),
-        Some(Uuid::new_v4().to_string().as_str()),
+        Some(operator_id.as_str()),
         Some(realm_admission_body(&Uuid::new_v4().to_string(), "paused")),
     )
     .await;
@@ -392,13 +395,15 @@ async fn closed_launch_blocks_internal_realm_admission_for_non_allowlisted_accou
         .replace_launch_config_for_test(LaunchPostureConfig::closed_for_test())
         .await;
     let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "approver").await;
 
     let response = request_json(
         &app,
         "POST",
         &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
         Some("local_dev_internal_api_token"),
-        Some(Uuid::new_v4().to_string().as_str()),
+        Some(operator_id.as_str()),
         Some(realm_admission_body(&Uuid::new_v4().to_string(), "closed")),
     )
     .await;
@@ -414,13 +419,15 @@ async fn pilot_launch_blocks_internal_realm_admission_for_non_allowlisted_accoun
         .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(&[], &[]))
         .await;
     let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "approver").await;
 
     let response = request_json(
         &app,
         "POST",
         &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
         Some("local_dev_internal_api_token"),
-        Some(Uuid::new_v4().to_string().as_str()),
+        Some(operator_id.as_str()),
         Some(realm_admission_body(
             &Uuid::new_v4().to_string(),
             "pilot-blocked",
@@ -448,13 +455,15 @@ async fn pilot_launch_allows_allowlisted_internal_realm_admission_to_reach_realm
             &[member.account_id.as_str()],
         ))
         .await;
+    let client = test_db_client().await;
+    let operator_id = insert_operator_account(&client, "approver").await;
 
     let response = request_json(
         &app,
         "POST",
         &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
         Some("local_dev_internal_api_token"),
-        Some(Uuid::new_v4().to_string().as_str()),
+        Some(operator_id.as_str()),
         Some(realm_admission_body(
             &member.account_id,
             "pilot-allowed-next-layer",
@@ -462,12 +471,62 @@ async fn pilot_launch_allows_allowlisted_internal_realm_admission_to_reach_realm
     )
     .await;
 
-    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.body["error"], "realm was not found");
+    assert!(response.body.get("message_code").is_none());
+}
+
+#[tokio::test]
+async fn internal_realm_admission_authorizes_operator_before_pilot_allowlist_check() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let member = sign_in(
+        &app,
+        "pi-launch-realm-admission-oracle",
+        "launch-realm-admission-oracle",
+    )
+    .await;
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
+            &[],
+            &[member.account_id.as_str()],
+        ))
+        .await;
+    let non_operator_id = Uuid::new_v4().to_string();
+
+    let allowlisted_response = request_json(
+        &app,
+        "POST",
+        &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
+        Some("local_dev_internal_api_token"),
+        Some(non_operator_id.as_str()),
+        Some(realm_admission_body(
+            &member.account_id,
+            "operator-before-launch-allowlisted",
+        )),
+    )
+    .await;
+    let non_allowlisted_response = request_json(
+        &app,
+        "POST",
+        &format!("/api/internal/realms/{}/admissions", Uuid::new_v4()),
+        Some("local_dev_internal_api_token"),
+        Some(non_operator_id.as_str()),
+        Some(realm_admission_body(
+            &Uuid::new_v4().to_string(),
+            "operator-before-launch-blocked",
+        )),
+    )
+    .await;
+
+    assert_eq!(allowlisted_response.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(non_allowlisted_response.status, StatusCode::UNAUTHORIZED);
     assert_eq!(
-        response.body["error"],
+        allowlisted_response.body["error"],
         "operator role is not allowed for realm bootstrap actions"
     );
-    assert!(response.body.get("message_code").is_none());
+    assert_eq!(allowlisted_response.body, non_allowlisted_response.body);
+    assert!(allowlisted_response.body.get("message_code").is_none());
 }
 
 #[tokio::test]
@@ -580,6 +639,51 @@ async fn post_json(
 
 async fn get_json(app: &Router, path: &str, bearer_token: Option<&str>) -> JsonResponse {
     request_json(app, "GET", path, bearer_token, None, None).await
+}
+
+async fn insert_operator_account(client: &tokio_postgres::Client, role: &str) -> String {
+    let account_id = Uuid::new_v4();
+    client
+        .execute(
+            "
+            INSERT INTO core.accounts (account_id, account_class, account_state)
+            VALUES ($1, 'Controlled Exceptional Account', 'active')
+            ",
+            &[&account_id],
+        )
+        .await
+        .expect("operator account must insert");
+    client
+        .execute(
+            "
+            INSERT INTO core.operator_role_assignments (
+                operator_role_assignment_id,
+                operator_account_id,
+                operator_role,
+                grant_reason
+            )
+            VALUES ($1, $2, $3, 'launch posture test role')
+            ",
+            &[&Uuid::new_v4(), &account_id, &role],
+        )
+        .await
+        .expect("operator role assignment must insert");
+    account_id.to_string()
+}
+
+async fn test_db_client() -> tokio_postgres::Client {
+    let database_url = std::env::var("MUSUBI_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("test database url must be present");
+    let (client, connection) = tokio_postgres::connect(&database_url, tokio_postgres::NoTls)
+        .await
+        .expect("test database must be reachable");
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            eprintln!("test database connection error: {error}");
+        }
+    });
+    client
 }
 
 async fn request_json(

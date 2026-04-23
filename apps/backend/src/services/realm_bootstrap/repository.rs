@@ -89,6 +89,15 @@ impl RealmBootstrapStore {
         Ok(())
     }
 
+    pub async fn ensure_operator_write_role(
+        &self,
+        operator_id: &str,
+    ) -> Result<(), RealmBootstrapError> {
+        let operator_id = parse_uuid(operator_id, "operator id")?;
+        let client = self.client.lock().await;
+        ensure_operator_role_tx(&*client, &operator_id, OPERATOR_WRITE_ROLES).await
+    }
+
     pub async fn create_realm_request(
         &self,
         requester_account_id: &str,
