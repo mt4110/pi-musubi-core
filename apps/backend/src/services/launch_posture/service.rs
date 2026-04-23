@@ -3,6 +3,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 const MODE_KEY: &str = "MUSUBI_LAUNCH_MODE";
 const ALLOWLIST_PI_UIDS_KEY: &str = "MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS";
@@ -204,7 +205,10 @@ impl LaunchPostureConfig {
         Self {
             mode,
             allowlist_pi_uids: parse_allowlist(lookup(ALLOWLIST_PI_UIDS_KEY)),
-            allowlist_account_ids: parse_allowlist(lookup(ALLOWLIST_ACCOUNT_IDS_KEY)),
+            allowlist_account_ids: parse_account_id_allowlist(
+                lookup(ALLOWLIST_ACCOUNT_IDS_KEY),
+                &mut config_warnings,
+            ),
             support_contact,
             kill_switches,
             config_warnings,
@@ -461,6 +465,25 @@ fn parse_allowlist(value: Option<String>) -> BTreeSet<String> {
         .collect()
 }
 
+fn parse_account_id_allowlist(
+    value: Option<String>,
+    warnings: &mut Vec<String>,
+) -> BTreeSet<String> {
+    let mut account_ids = BTreeSet::new();
+    for entry in value.unwrap_or_default().split(',').map(str::trim) {
+        if entry.is_empty() {
+            continue;
+        }
+        match Uuid::parse_str(entry) {
+            Ok(account_id) => {
+                account_ids.insert(account_id.to_string());
+            }
+            Err(_) => warnings.push("invalid_account_id_allowlist_entry".to_owned()),
+        }
+    }
+    account_ids
+}
+
 fn parse_support_contact(
     label: Option<String>,
     url: Option<String>,
@@ -489,7 +512,9 @@ fn block_service_unavailable(message_code: &'static str) -> LaunchBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::{LaunchMode, LaunchPostureConfig};
+    use uuid::Uuid;
+
+    use super::{LaunchAction, LaunchMode, LaunchPostureConfig};
 
     #[test]
     fn missing_launch_mode_defaults_closed() {
@@ -504,5 +529,39 @@ mod tests {
         });
         assert_eq!(config.mode, LaunchMode::Closed);
         assert_eq!(config.config_warnings, vec!["invalid_launch_mode"]);
+    }
+
+    #[test]
+    fn account_id_allowlist_normalizes_uuid_entries_and_warns_invalid() {
+        let account_id = Uuid::new_v4();
+        let config = LaunchPostureConfig::from_lookup(|name| match name {
+            "MUSUBI_LAUNCH_MODE" => Some("pilot".to_owned()),
+            "MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS" => Some(format!(
+                "{},not-a-uuid",
+                account_id.to_string().to_uppercase()
+            )),
+            _ => None,
+        });
+
+        assert_eq!(config.allowlist_account_ids.len(), 1);
+        assert!(
+            config
+                .allowlist_account_ids
+                .contains(&account_id.to_string())
+        );
+        assert!(
+            config
+                .config_warnings
+                .contains(&"invalid_account_id_allowlist_entry".to_owned())
+        );
+        assert!(
+            config
+                .check_participant_action(
+                    LaunchAction::RealmRequest,
+                    &account_id.to_string(),
+                    None,
+                )
+                .is_ok()
+        );
     }
 }

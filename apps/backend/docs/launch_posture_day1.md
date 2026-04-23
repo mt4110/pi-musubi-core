@@ -45,7 +45,7 @@ All keys are optional unless noted.
 | --- | --- | --- |
 | `MUSUBI_LAUNCH_MODE` | `closed` | fail closed |
 | `MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS` | empty | empty members ignored |
-| `MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS` | empty | empty members ignored |
+| `MUSUBI_LAUNCH_ALLOWLIST_ACCOUNT_IDS` | empty | empty members ignored; invalid UUIDs ignored with an internal warning |
 | `MUSUBI_LAUNCH_SUPPORT_CONTACT_URL` | unset | support contact omitted |
 | `MUSUBI_LAUNCH_SUPPORT_CONTACT_LABEL` | unset | support contact omitted |
 | `MUSUBI_KILL_SWITCH_AUTH` | `false` | fail closed for auth |
