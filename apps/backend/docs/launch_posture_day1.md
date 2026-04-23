@@ -66,6 +66,8 @@ For token-authenticated participant writes, pilot allowlist checks accept either
 the account id or the linked Pi UID from the authorized session. Internal
 target-account gates that do not carry a participant session only evaluate the
 target account id after internal operator authorization succeeds.
+Pi auth checks accept a configured Pi UID allowlist entry, or an account id
+allowlist entry when the submitted Pi UID is already linked to that account.
 
 ## HTTP Surface
 
@@ -128,9 +130,10 @@ Server-side launch gates protect:
 - `POST /api/realms/requests`
 - `POST /api/internal/realms/{realm_id}/admissions`
 
-The auth gate uses `pi_uid` before an account exists. Post-auth participant
-gates use the authenticated `account_id`. Client-provided launch mode,
-allowlist state, or UI state is ignored.
+The auth gate uses `pi_uid` before an account exists, and may use an existing
+linked `account_id` for returning pilot members. Post-auth participant gates
+use the authenticated `account_id`. Client-provided launch mode, allowlist
+state, or UI state is ignored.
 Internal Realm admission is a new admission write, so it is launch-gated using
 the target participant account from the request payload. It cannot bypass
 `closed`, `pilot`, `paused`, or the Realm admission kill switch.

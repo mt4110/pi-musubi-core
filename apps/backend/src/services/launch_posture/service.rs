@@ -124,11 +124,15 @@ impl LaunchPostureService {
         self.config.read().await.internal_snapshot()
     }
 
-    pub async fn check_pi_auth(&self, pi_uid: &str) -> Result<(), LaunchBlock> {
+    pub async fn check_pi_auth(
+        &self,
+        pi_uid: &str,
+        account_id: Option<&str>,
+    ) -> Result<(), LaunchBlock> {
         self.config
             .read()
             .await
-            .check_pi_uid_action(LaunchAction::Auth, pi_uid)
+            .check_pi_identity_action(LaunchAction::Auth, pi_uid, account_id)
     }
 
     pub async fn check_participant_action(
@@ -290,7 +294,12 @@ impl LaunchPostureConfig {
         }
     }
 
-    fn check_pi_uid_action(&self, action: LaunchAction, pi_uid: &str) -> Result<(), LaunchBlock> {
+    fn check_pi_identity_action(
+        &self,
+        action: LaunchAction,
+        pi_uid: &str,
+        account_id: Option<&str>,
+    ) -> Result<(), LaunchBlock> {
         if let Some(block) = self.kill_switch_block(action) {
             return Err(block);
         }
@@ -299,7 +308,10 @@ impl LaunchPostureConfig {
             LaunchMode::Paused => Err(block_service_unavailable("launch_paused")),
             LaunchMode::Closed => Err(block_forbidden("launch_closed")),
             LaunchMode::Pilot => {
-                if self.allowlist_pi_uids.contains(pi_uid) {
+                if self.allowlist_pi_uids.contains(pi_uid)
+                    || account_id
+                        .is_some_and(|account_id| self.allowlist_account_ids.contains(account_id))
+                {
                     Ok(())
                 } else {
                     Err(block_forbidden("launch_pilot_not_allowed"))

@@ -226,6 +226,28 @@ impl HappyRouteStore {
         })
     }
 
+    pub(super) async fn find_account_id_by_pi_uid(
+        &self,
+        pi_uid: &str,
+    ) -> Result<Option<String>, HappyRouteError> {
+        let client = self.client.lock().await;
+        let row = client
+            .query_opt(
+                "
+                SELECT account_id
+                FROM core.pi_account_links
+                WHERE pi_uid = $1
+                ",
+                &[&pi_uid],
+            )
+            .await
+            .map_err(db_error)?;
+        Ok(row.map(|row| {
+            let account_id: Uuid = row.get("account_id");
+            account_id.to_string()
+        }))
+    }
+
     pub(super) async fn authorize_account(
         &self,
         token: &str,

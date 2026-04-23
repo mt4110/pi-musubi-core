@@ -216,6 +216,33 @@ async fn pilot_launch_allows_allowlisted_pi_auth() {
 }
 
 #[tokio::test]
+async fn pilot_launch_allows_account_allowlisted_pi_auth_for_existing_account() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let existing = sign_in(
+        &app,
+        "pi-launch-pilot-account-allowed",
+        "launch-pilot-account-allowed",
+    )
+    .await;
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::pilot_for_test(
+            &[],
+            &[existing.account_id.as_str()],
+        ))
+        .await;
+
+    let reauthenticated = sign_in(
+        &app,
+        "pi-launch-pilot-account-allowed",
+        "launch-pilot-account-allowed-returning",
+    )
+    .await;
+
+    assert_eq!(reauthenticated.account_id, existing.account_id);
+}
+
+#[tokio::test]
 async fn pilot_launch_pi_allowlisted_account_can_use_participant_write_after_auth() {
     let test_state = new_test_state().await.expect("test database state");
     test_state
