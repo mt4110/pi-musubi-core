@@ -143,6 +143,16 @@ pub struct DrainOutboxOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct OrchestrationRepairOutcome {
+    pub recovery_run_id: String,
+    pub stale_outbox_reclaimed_count: i32,
+    pub stale_inbox_reclaimed_count: i32,
+    pub producer_cleanup_repaired_count: i32,
+    pub callback_ingest_enqueued_count: i32,
+    pub verified_receipt_repaired_count: i32,
+}
+
+#[derive(Clone, Debug)]
 pub struct ProcessedOutboxMessage {
     pub event_id: String,
     pub event_type: String,

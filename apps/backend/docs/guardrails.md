@@ -102,6 +102,10 @@ Provider errors now keep a retry class at the app boundary: transient provider f
 Payment callbacks now persist exact raw body bytes and redacted headers before mapping, amount, payer, normalization, or receipt verification logic runs.
 The HTTP callback endpoint does not advance settlement state, append ledger rows, or refresh projections; it schedules `INGEST_PROVIDER_CALLBACK` for outbox-driven orchestration.
 
+Issue #16 adds a writer-owned orchestration repair pass for recovery, PITR asymmetry, and stale claim cleanup.
+The repair path is internal-only, records bounded `outbox.recovery_runs`, reads writer truth only, and treats projection or observability rows as non-authoritative.
+It repairs forward by resetting expired coordination claims, closing completed-consumer/unfinished-producer gaps, re-enqueuing lost callback-ingest coordination from raw evidence, and applying verified receipt side effects once.
+
 ISSUE-10 adds safer venue proof input primitives.
 Proof challenges are short-lived, near single-use, account-bound, realm/venue-bound, and verified against the challenge-issued, server-secret-backed, key-version-aware rotating code or a rate-limited operator fallback.
 The subject-facing proof challenge route only supports the normal venue-code flow; `operator_pin` is rejected before service-layer issuance so subject callers cannot self-assert operator identity, create operator audit rows, or burn operator fallback rate-limit budget.

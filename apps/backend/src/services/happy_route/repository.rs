@@ -72,6 +72,7 @@ impl HappyRouteStore {
                     dao.settlement_submissions,
                     dao.settlement_intents,
                     outbox.command_inbox,
+                    outbox.recovery_runs,
                     outbox.events,
                     core.raw_provider_callbacks,
                     core.raw_provider_callback_dedupe,
@@ -899,6 +900,235 @@ impl HappyRouteStore {
             .await
             .map_err(db_error)?;
         Ok(())
+    }
+
+    pub(super) async fn repair_orchestration_recovery(
+        &self,
+    ) -> Result<super::types::OrchestrationRepairOutcome, HappyRouteError> {
+        let recovery_run_id = Uuid::new_v4();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        let recovery_notes = json!({
+            "source": "writer_db",
+            "projection_authority": false,
+            "observability_authority": false,
+            "repair_semantics": "forward_only"
+        });
+
+        tx.execute(
+            "
+            DELETE FROM outbox.recovery_runs
+            WHERE retain_until < CURRENT_TIMESTAMP
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.execute(
+            "
+            INSERT INTO outbox.recovery_runs (
+                recovery_run_id,
+                recovery_kind,
+                triggered_by,
+                notes
+            )
+            VALUES ($1, 'orchestration_repair', 'internal_orchestration_repair', $2)
+            ",
+            &[&recovery_run_id, &recovery_notes],
+        )
+        .await
+        .map_err(db_error)?;
+
+        let producer_cleanup_repaired_count = tx
+            .execute(
+                "
+                UPDATE outbox.events events
+                SET delivery_status = $1,
+                    claimed_by = NULL,
+                    claimed_until = NULL,
+                    published_at = COALESCE(events.published_at, inbox.completed_at, CURRENT_TIMESTAMP),
+                    retain_until = COALESCE(
+                        events.retain_until,
+                        CURRENT_TIMESTAMP + ($4::bigint * interval '1 minute')
+                    ),
+                    last_error_class = NULL,
+                    last_error_detail = NULL
+                FROM outbox.command_inbox inbox
+                WHERE inbox.command_id = events.event_id
+                  AND inbox.status = 'completed'
+                  AND (
+                        (events.event_type = $5 AND inbox.consumer_name = $6)
+                        OR (events.event_type = $7 AND inbox.consumer_name = $8)
+                        OR (events.event_type IN ($9, $10) AND inbox.consumer_name = $11)
+                      )
+                  AND events.delivery_status IN ($2, $3)
+                ",
+                &[
+                    &OUTBOX_PUBLISHED,
+                    &OUTBOX_PENDING,
+                    &OUTBOX_PROCESSING,
+                    &COMMAND_INBOX_RETENTION_MINUTES,
+                    &EVENT_OPEN_HOLD_INTENT,
+                    &SETTLEMENT_ORCHESTRATOR,
+                    &EVENT_INGEST_PROVIDER_CALLBACK,
+                    &PROVIDER_CALLBACK_CONSUMER,
+                    &EVENT_REFRESH_PROMISE_VIEW,
+                    &EVENT_REFRESH_SETTLEMENT_VIEW,
+                    &PROJECTION_BUILDER,
+                ],
+            )
+            .await
+            .map_err(db_error)?;
+
+        let stale_outbox_reclaimed_count = tx
+            .execute(
+                "
+                UPDATE outbox.events
+                SET delivery_status = $2,
+                    claimed_by = NULL,
+                    claimed_until = NULL,
+                    available_at = CURRENT_TIMESTAMP,
+                    last_error_class = 'transient',
+                    last_error_detail = 'recovery: stale outbox processing claim reset after lease expiry'
+                WHERE delivery_status = $1
+                  AND COALESCE(
+                        claimed_until,
+                        last_attempt_at + interval '5 minutes'
+                      ) < CURRENT_TIMESTAMP
+                ",
+                &[&OUTBOX_PROCESSING, &OUTBOX_PENDING],
+            )
+            .await
+            .map_err(db_error)?;
+
+        let stale_inbox_reclaimed_count = tx
+            .execute(
+                "
+                UPDATE outbox.command_inbox
+                SET status = 'pending',
+                    claimed_by = NULL,
+                    claimed_until = NULL,
+                    available_at = CURRENT_TIMESTAMP,
+                    last_error_class = 'transient',
+                    last_error_detail = 'recovery: stale command inbox processing claim reset after lease expiry'
+                WHERE status = 'processing'
+                  AND completed_at IS NULL
+                  AND COALESCE(
+                        claimed_until,
+                        received_at + interval '5 minutes'
+                      ) < CURRENT_TIMESTAMP
+                ",
+                &[],
+            )
+            .await
+            .map_err(db_error)?;
+
+        let callback_rows = tx
+            .query(
+                "
+                SELECT raw.raw_callback_id
+                FROM core.raw_provider_callbacks raw
+                WHERE (
+                        raw.provider_submission_id IS NULL
+                        OR NOT EXISTS (
+                            SELECT 1
+                            FROM core.payment_receipts receipt
+                            WHERE receipt.provider_key = raw.provider_name
+                              AND receipt.external_payment_id = raw.provider_submission_id
+                        )
+                    )
+                  AND NOT EXISTS (
+                        SELECT 1
+                        FROM outbox.events events
+                        WHERE events.aggregate_id = raw.raw_callback_id
+                          AND events.event_type = $1
+                    )
+                ORDER BY raw.received_at, raw.raw_callback_id
+                ",
+                &[&EVENT_INGEST_PROVIDER_CALLBACK],
+            )
+            .await
+            .map_err(db_error)?;
+        let mut callback_ingest_enqueued_count = 0_i32;
+        for row in callback_rows {
+            let raw_callback_id: Uuid = row.get("raw_callback_id");
+            insert_outbox_message_tx(
+                &tx,
+                "provider_callback",
+                raw_callback_id,
+                EVENT_INGEST_PROVIDER_CALLBACK,
+                &OutboxCommand::IngestProviderCallback {
+                    raw_callback_id: raw_callback_id.to_string(),
+                },
+            )
+            .await?;
+            callback_ingest_enqueued_count += 1;
+        }
+
+        let receipt_rows = tx
+            .query(
+                "
+                SELECT DISTINCT receipt.settlement_case_id
+                FROM core.payment_receipts receipt
+                JOIN dao.settlement_cases settlement
+                    ON settlement.settlement_case_id = receipt.settlement_case_id
+                WHERE receipt.receipt_status = $1
+                  AND settlement.case_status <> $2
+                ORDER BY receipt.settlement_case_id
+                ",
+                &[&RECEIPT_STATUS_VERIFIED, &SETTLEMENT_CASE_FUNDED],
+            )
+            .await
+            .map_err(db_error)?;
+        let mut verified_receipt_repaired_count = 0_i32;
+        for row in receipt_rows {
+            let settlement_case_id: Uuid = row.get("settlement_case_id");
+            let (journal_entry_id, _) =
+                apply_verified_receipt_side_effects_tx(&tx, &settlement_case_id).await?;
+            if journal_entry_id.is_some() {
+                verified_receipt_repaired_count += 1;
+            }
+        }
+        let stale_outbox_reclaimed_count =
+            rows_affected_to_i32(stale_outbox_reclaimed_count, "stale outbox claims")?;
+        let stale_inbox_reclaimed_count =
+            rows_affected_to_i32(stale_inbox_reclaimed_count, "stale inbox claims")?;
+        let producer_cleanup_repaired_count =
+            rows_affected_to_i32(producer_cleanup_repaired_count, "producer cleanup repairs")?;
+
+        tx.execute(
+            "
+            UPDATE outbox.recovery_runs
+            SET completed_at = CURRENT_TIMESTAMP,
+                stale_outbox_reclaimed_count = $2,
+                stale_inbox_reclaimed_count = $3,
+                producer_cleanup_repaired_count = $4,
+                callback_ingest_enqueued_count = $5,
+                verified_receipt_repaired_count = $6
+            WHERE recovery_run_id = $1
+            ",
+            &[
+                &recovery_run_id,
+                &stale_outbox_reclaimed_count,
+                &stale_inbox_reclaimed_count,
+                &producer_cleanup_repaired_count,
+                &callback_ingest_enqueued_count,
+                &verified_receipt_repaired_count,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+
+        Ok(super::types::OrchestrationRepairOutcome {
+            recovery_run_id: recovery_run_id.to_string(),
+            stale_outbox_reclaimed_count,
+            stale_inbox_reclaimed_count,
+            producer_cleanup_repaired_count,
+            callback_ingest_enqueued_count,
+            verified_receipt_repaired_count,
+        })
     }
 
     pub(super) async fn prepare_open_hold_intent(
@@ -3293,6 +3523,11 @@ fn db_error(error: tokio_postgres::Error) -> HappyRouteError {
         constraint: None,
         retryable: true,
     }
+}
+
+fn rows_affected_to_i32(rows: u64, label: &str) -> Result<i32, HappyRouteError> {
+    i32::try_from(rows)
+        .map_err(|_| HappyRouteError::Internal(format!("{label} count exceeded i32 range")))
 }
 
 async fn update_submission_status_tx(

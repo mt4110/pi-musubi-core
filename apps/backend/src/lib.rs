@@ -253,6 +253,10 @@ pub fn build_app(state: SharedState) -> Router {
             post(handlers::orchestration::drain_outbox),
         )
         .route(
+            "/api/internal/orchestration/repair",
+            post(handlers::orchestration::repair_orchestration),
+        )
+        .route(
             "/api/internal/projection/rebuild",
             post(handlers::projection::rebuild_projection_read_models),
         )

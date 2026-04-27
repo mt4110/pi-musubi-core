@@ -90,6 +90,27 @@ Because of that, the orchestration store only exposes state-changing reads throu
 
 That keeps the invariant explicit now instead of relying on code review memory later.
 
+## Recovery and reconciliation baseline
+
+Issue #16 adds an internal repair pass at `POST /api/internal/orchestration/repair`.
+It is mounted behind the same internal/debug gate as drain.
+In release builds it requires `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`.
+
+The repair pass uses the writer database as the only authority.
+It records each run in `outbox.recovery_runs` and does only forward repair:
+- reset expired `processing` outbox leases back to `pending`
+- reset expired `processing` command-inbox leases back to `pending`
+- mark an event `published` when the matching expected consumer command is already `completed` but producer cleanup did not finish
+- re-enqueue `INGEST_PROVIDER_CALLBACK` for raw callback evidence whose coordination row was lost before a receipt was derived
+- apply verified receipt side effects when a verified writer-owned receipt exists but the settlement case and ledger side effects were not completed
+
+Recovery-run audit rows carry `retain_until`, and each repair pass prunes expired rows before recording the next run.
+They are operational evidence with bounded retention, not eternal truth.
+
+Projection rows and observability snapshots are not repair authority.
+They may show stale or misleading state after failover or PITR restore, but recovery decides from writer-owned `dao`, `core`, `ledger`, and `outbox` records.
+Repair never destructively rewrites authoritative history; duplicate repair runs must converge through database idempotency and existing writer truth.
+
 ## Intentionally deferred
 
 Issue #5 does not implement:
