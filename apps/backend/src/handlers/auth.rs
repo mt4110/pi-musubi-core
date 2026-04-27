@@ -4,8 +4,11 @@ use serde_json::Value;
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error},
-    services::happy_route::{AuthenticationInput, authenticate_pi_account},
+    handlers::{ApiResult, bad_request, launch_blocked_from_service, map_happy_route_error},
+    services::happy_route::{
+        AuthenticationInput, authenticate_pi_account,
+        find_account_id_by_pi_uid_if_access_token_matches,
+    },
 };
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +71,21 @@ pub async fn authenticate_pi(
             has_access_token,
             payload.profile.is_some(),
         );
+    }
+
+    if let Err(block) = state.launch_posture.check_pi_auth(&pi_uid, None).await {
+        if block.message_code != "launch_pilot_not_allowed" {
+            return Err(launch_blocked_from_service(block));
+        }
+        let existing_account_id =
+            find_account_id_by_pi_uid_if_access_token_matches(&state, &pi_uid, &access_token)
+                .await
+                .map_err(map_happy_route_error)?;
+        state
+            .launch_posture
+            .check_pi_auth(&pi_uid, existing_account_id.as_deref())
+            .await
+            .map_err(launch_blocked_from_service)?;
     }
 
     let authenticated = authenticate_pi_account(

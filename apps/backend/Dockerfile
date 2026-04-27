@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/musubi_backend .
+COPY --from=builder /app/migrations ./migrations
 ENV APP_PORT=8088
 EXPOSE 8088
 CMD ["./musubi_backend"]

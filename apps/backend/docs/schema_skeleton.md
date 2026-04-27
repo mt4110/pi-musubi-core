@@ -6,7 +6,7 @@ The migration strategy is intentionally small:
 - plain PostgreSQL DDL files under `apps/backend/migrations/`
 - ordered, deterministic filenames
 - no ORM layer
-- no runtime migration runner yet
+- a runtime migration runner now records checksums in `public.musubi_schema_migrations`
 
 The purpose is to make MUSUBI's physical truth boundaries explicit before Issue #4 and Issue #5 add domain and orchestration behavior.
 
@@ -29,6 +29,9 @@ Owns:
 - Promise coordination facts
 - settlement coordination facts
 - realm-scoped, pseudonymous references used to coordinate state progression
+- operator review cases, evidence bundles, appeal cases, and append-only operator decision facts that reference writer-owned source facts without overwriting them
+- room progression tracks and append-only room progression facts for Intent, Coordination, Relationship, and Sealed Room surface state
+- realm creation requests, sponsor-backed bootstrap records, bootstrap corridors, realm admissions, and internal review triggers for bounded Day 1 realm growth
 
 Must not own:
 - immutable financial postings
@@ -65,16 +68,25 @@ Must not own:
 Owns:
 - rebuildable Promise read models
 - rebuildable settlement read models
+- rebuildable bounded trust read models
+- rebuildable user-facing review status models derived from operator review and appeal facts
+- rebuildable user-facing room progression models derived from room progression facts and safe ISSUE-12 review posture
+- rebuildable participant-safe realm bootstrap and admission views
+- rebuildable operator-safe realm bootstrap health summaries
+- freshness, lag, watermark, and rebuild metadata for projections
 
 Must not own:
 - authoritative write decisions
 - raw PII
 - append-only ledger truth
+- raw callback payloads
+- raw evidence locators or internal operator notes
+- ranking, leaderboard, popularity, or recommendation truth
 
 ## Foundation alignment
 
 This skeleton matches the pinned foundation law in three important ways:
-- PostgreSQL remains the business truth boundary, even before runtime wiring exists.
+- PostgreSQL remains the business truth boundary; Issue #8 now adds runtime checks around this schema.
 - mutable PII-bearing records are physically separated from immutable ledger truth.
 - outbox and projection data are explicitly non-authoritative.
 
@@ -93,9 +105,8 @@ Money safety is also explicit:
 
 ## Intentionally incomplete
 
-This issue does not implement:
-- PostgreSQL runtime wiring in the Axum app
-- a migration runner or ORM
+Issue #3 did not implement:
+- an ORM
 - `SettlementBackend` trait work from Issue #4
 - provider adapters or callbacks beyond the current PoC app glue
 - outbox/inbox workers, pruning jobs, or retry executors
@@ -103,3 +114,71 @@ This issue does not implement:
 
 That incompleteness is deliberate.
 Issue #3 only establishes the physical ownership boundaries so later issues can build without collapsing core, dao, ledger, outbox, and projection into convenience tables.
+
+## ISSUE-12 operator review additions
+
+Design source: ISSUE-12-operator-review-appeal-evidence.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0014_operator_review_appeal_evidence.sql` adds the baseline operator review workflow:
+- `core.operator_role_assignments`
+- `dao.review_cases`
+- `dao.evidence_bundles`
+- `dao.evidence_access_grants`
+- `dao.operator_decision_facts`
+- `dao.appeal_cases`
+- `projection.review_status_views`
+
+Migration `0015_operator_review_hardening.sql` adds payload hash columns for review case, operator decision, and appeal idempotency replay checks. The hashes keep mismatch detection durable while avoiding unnecessary reads of internal notes, raw-adjacent summaries, or source snapshots during replay rejection, while legacy rows can self-heal by backfilling the missing hash on first replay.
+
+The architectural boundary is strict: operator decisions are append-only facts and do not rewrite the original Promise, settlement, proof, or source writer truth. User-facing review status is projected from review, decision, evidence, and appeal facts using bounded status and reason codes.
+
+ISSUE-13 room progression and ISSUE-14 Promise UI are future consumers of this boundary. They are not implemented by this schema addition.
+
+## ISSUE-13 room progression additions
+
+Design source: ISSUE-13-room-progression.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0016_room_progression_surface.sql` adds the baseline room progression surface:
+- `dao.room_progression_tracks`
+- `dao.room_progression_facts`
+- `projection.room_progression_views`
+
+Migration `0017_room_progression_actor_consistency.sql` adds the actor-consistency constraint that
+governs room progression write validity, so both migrations are part of the schema surface
+operators and developers must apply for ISSUE-13 writes.
+
+Room progression tracks preserve the stable realm-scoped participant envelope. Room progression facts are append-only writer facts for transitions between Intent Room, Coordination Room, Relationship Room, and Sealed Room fallback. These facts may reference ISSUE-12 review cases, but they do not duplicate review/evidence/appeal storage and they do not overwrite Promise or settlement writer truth.
+
+`projection.room_progression_views` is a bounded user-facing read model. It is rebuilt from writer-owned room progression facts and may include safe review posture derived from ISSUE-12 projection for display only. State-changing room progression decisions must read writer-owned `dao` facts, not projection rows.
+
+ISSUE-14 Promise UI is a future consumer of this room progression surface. It is not implemented by this schema addition.
+
+## ISSUE-15 realm bootstrap and admission additions
+
+Design source: ISSUE-15-realm-bootstrap-and-admission.md
+
+The GitHub issue number is intentionally not hardcoded.
+
+Migration `0018_realm_bootstrap_admission.sql` adds the bounded realm bootstrap baseline:
+- `dao.realm_requests`
+- `dao.realms`
+- `dao.realm_sponsor_records`
+- `dao.bootstrap_corridors`
+- `dao.realm_admissions`
+- `dao.realm_review_triggers`
+- `projection.realm_bootstrap_views`
+- `projection.realm_admission_views`
+- `projection.realm_review_summaries`
+
+The architectural boundary is strict:
+- realm creation requests do not become public self-serve realm issuance
+- sponsor authority is explicit, quota-bounded, auditable, and revocable
+- corridor expiry, corridor caps, sponsor quota, and restricted/suspended realm blocking are enforced server-side on writer truth
+- participant-safe projections are rebuildable convenience views and do not expose operator IDs, raw review triggers, source fact IDs/counts, or moderation internals
+- operator/steward summaries are redacted, rebuildable, and still non-authoritative
+
+ISSUE-12 operator review remains the review/evidence system of record, ISSUE-13 room progression remains the room surface baseline, and ISSUE-14 Promise UI remains out of scope for this schema addition.

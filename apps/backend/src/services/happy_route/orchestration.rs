@@ -1,26 +1,19 @@
 use crate::SharedState;
 
 use super::{
-    inbox::prune_processed_command_inbox,
+    callback::process_provider_callback,
     open_hold::process_open_hold_intent,
-    outbox::{claim_pending_outbox_message, mark_outbox_pending},
-    projection::{process_refresh_promise_view, process_refresh_settlement_view},
     state::OutboxCommand,
     types::{DrainOutboxOutcome, HappyRouteError},
 };
 
 pub async fn drain_outbox(state: &SharedState) -> Result<DrainOutboxOutcome, HappyRouteError> {
     let mut processed_messages = Vec::new();
-    {
-        let mut store = state.happy_route.write().await;
-        prune_processed_command_inbox(&mut store);
-    }
+    state.happy_route.prune_terminal_outbox_events().await?;
+    state.happy_route.prune_processed_command_inbox().await?;
 
     loop {
-        let next_message = {
-            let mut store = state.happy_route.write().await;
-            claim_pending_outbox_message(&mut store)
-        };
+        let next_message = state.happy_route.claim_pending_outbox_message().await?;
 
         let Some(message) = next_message else {
             break;
@@ -30,18 +23,29 @@ pub async fn drain_outbox(state: &SharedState) -> Result<DrainOutboxOutcome, Hap
             OutboxCommand::OpenHoldIntent { settlement_case_id } => {
                 process_open_hold_intent(state, message.clone(), settlement_case_id).await
             }
+            OutboxCommand::IngestProviderCallback { raw_callback_id } => {
+                process_provider_callback(state, message.clone(), raw_callback_id).await
+            }
             OutboxCommand::RefreshPromiseView { promise_intent_id } => {
-                process_refresh_promise_view(state, message.clone(), promise_intent_id).await
+                state
+                    .happy_route
+                    .process_refresh_promise_view(&message, &promise_intent_id)
+                    .await
             }
             OutboxCommand::RefreshSettlementView { settlement_case_id } => {
-                process_refresh_settlement_view(state, message.clone(), settlement_case_id).await
+                state
+                    .happy_route
+                    .process_refresh_settlement_view(&message, &settlement_case_id)
+                    .await
             }
         };
         let processed = match processed {
             Ok(processed) => processed,
             Err(error) => {
-                let mut store = state.happy_route.write().await;
-                mark_outbox_pending(&mut store, &message.event_id);
+                state
+                    .happy_route
+                    .record_outbox_failure(&message, &error)
+                    .await?;
                 return Err(error);
             }
         };

@@ -87,7 +87,7 @@ that would still be a bug even if these tests stay green.
 The backend is still on a small Day 1 skeleton:
 - no custom lint crate
 - no MIR/static analysis pass
-- no provider adapters yet
+- only a sandbox provider adapter, with production Pi networking still deferred
 
 Because of that, the most honest posture is:
 - encode the invariant at the runtime seam with executable sequencing tests
@@ -95,6 +95,22 @@ Because of that, the most honest posture is:
 - encode writer-first via interface and tests
 - encode idempotency via durable uniqueness and duplicate-delivery tests
 - explicitly document the places where review is still required
+
+Issue #17 adds the first sandbox Pi provider adapter in the happy-route service.
+It follows the same no-transaction-across-provider-await shape by preparing authoritative state, releasing the store lock, calling the adapter, and persisting the result in a later write.
+Provider errors now keep a retry class at the app boundary: transient provider failures can retry, valid out-of-order callbacks defer while provider submission mapping catches up, terminal failures are quarantined, and ambiguous provider behavior is held for manual review instead of being returned to the pending queue.
+Payment callbacks now persist exact raw body bytes and redacted headers before mapping, amount, payer, normalization, or receipt verification logic runs.
+The HTTP callback endpoint does not advance settlement state, append ledger rows, or refresh projections; it schedules `INGEST_PROVIDER_CALLBACK` for outbox-driven orchestration.
+
+ISSUE-10 adds safer venue proof input primitives.
+Proof challenges are short-lived, near single-use, account-bound, realm/venue-bound, and verified against the challenge-issued, server-secret-backed, key-version-aware rotating code or a rate-limited operator fallback.
+The subject-facing proof challenge route only supports the normal venue-code flow; `operator_pin` is rejected before service-layer issuance so subject callers cannot self-assert operator identity, create operator audit rows, or burn operator fallback rate-limit budget.
+The proof service records only bounded proof-input evidence: sanitized coarse location hints, hashed device-session hints, server-keyed display-code hashes, canonical fallback modes, server-keyed replay keys, and redacted payload shape.
+Failed-attempt budget is charged only for bound secret-check failures after challenge, account, venue, nonce, and live-status binding.
+It does not write raw GPS, exact addresses, oversized location strings, arbitrary fallback-mode strings, clear display codes, clear operator PINs, or excessive device fingerprint material into the current in-memory truth stand-in.
+Venue display codes and operator PIN hashes are not derived from public identifiers alone.
+Verified proof remains an input fact, not authoritative business truth.
+Product and later domain flows must not describe this as complete anti-spoofing.
 
 ## Expected next improvements
 

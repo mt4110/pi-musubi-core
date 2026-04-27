@@ -4,6 +4,8 @@ import 'package:musubi_mobile/core/riverpod_compat.dart';
 import '../features/auth/presentation/pi_sign_in_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/home/presentation/match_detail_screen.dart';
+import '../features/promise/presentation/promise_status_screen.dart';
+import '../features/realm_bootstrap/presentation/realm_bootstrap_screen.dart';
 import '../repositories/auth/auth_session_controller.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -15,7 +17,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     redirect: (_, state) {
       final path = state.uri.path;
       final isSignInRoute = path == '/sign-in';
-      final isHomeFlow = path == '/home' || path.startsWith('/detail/');
+      final isHomeFlow = path == '/home' ||
+          path == '/realms/bootstrap' ||
+          path.startsWith('/detail/') ||
+          path.startsWith('/promises/');
 
       if (authAsync.isLoading) {
         return isSignInRoute ? null : '/sign-in';
@@ -42,10 +47,30 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
       GoRoute(
+        path: '/realms/bootstrap',
+        builder: (context, state) => const RealmBootstrapScreen(),
+      ),
+      GoRoute(
         path: '/detail/:profileId',
         builder: (context, state) => MatchDetailScreen(
           profileId: state.pathParameters['profileId'] ?? '',
         ),
+      ),
+      GoRoute(
+        path: '/promises/:promiseIntentId',
+        builder: (context, state) {
+          final navigationState = state.extra;
+          final created = navigationState is Map<Object?, Object?> &&
+              navigationState['created'] == true;
+          final replayed = navigationState is Map<Object?, Object?> &&
+              navigationState['replayed'] == true;
+          return PromiseStatusScreen(
+            promiseIntentId: state.pathParameters['promiseIntentId'] ?? '',
+            settlementCaseId: state.uri.queryParameters['settlementCaseId'],
+            creationConfirmed: created,
+            replayedIntent: replayed,
+          );
+        },
       ),
     ],
   );

@@ -1,29 +1,32 @@
 mod auth;
-mod authoritative;
 mod backend;
 mod callback;
-mod callback_store;
 mod common;
 mod constants;
-mod inbox;
 mod open_hold;
-mod open_hold_store;
 mod orchestration;
-mod outbox;
-mod payment_receipt;
-mod projection;
+mod projection_read;
 mod promise;
 mod repository;
 mod state;
 mod types;
 
-pub use auth::{authenticate_pi_account, authorize_account};
-pub use callback::{get_settlement_view, ingest_payment_callback};
+pub use auth::{
+    authenticate_pi_account, authorize_account, find_account_id_by_pi_uid,
+    find_account_id_by_pi_uid_if_access_token_matches,
+};
+pub use callback::{accept_payment_callback, get_settlement_view};
 pub use orchestration::drain_outbox;
+pub use projection_read::{
+    get_expanded_settlement_view, get_promise_projection, get_realm_trust_snapshot,
+    get_trust_snapshot, rebuild_projection_read_models,
+};
 pub use promise::create_promise_intent;
-pub use state::HappyRouteState;
+pub use repository::HappyRouteStore;
 pub use types::{
-    AuthenticatedAccount, AuthenticationInput, DrainOutboxOutcome, HappyRouteError,
-    PaymentCallbackInput, PaymentCallbackOutcome, ProcessedOutboxMessage, PromiseIntentInput,
-    PromiseIntentOutcome, SettlementViewSnapshot,
+    AuthenticatedAccount, AuthenticationInput, DrainOutboxOutcome, ExpandedSettlementViewSnapshot,
+    HappyRouteError, PaymentCallbackAccepted, PaymentCallbackInput, PaymentCallbackOutcome,
+    ProcessedOutboxMessage, ProjectionProvenance, ProjectionRebuildItem, ProjectionRebuildOutcome,
+    PromiseIntentInput, PromiseIntentOutcome, PromiseProjectionSnapshot, ProviderErrorClass,
+    SettlementViewSnapshot, TrustSnapshot,
 };

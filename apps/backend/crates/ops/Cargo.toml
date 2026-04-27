@@ -1,0 +1,9 @@
+[package]
+name = "musubi-ops"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dotenvy = "0.15"
+musubi_db_runtime = { path = "../db-runtime" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

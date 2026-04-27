@@ -33,7 +33,30 @@ class HomeScreen extends ConsumerWidget {
         children: [
           _HomeHero(sessionName: session?.displayName ?? '@pi_guest'),
           const SizedBox(height: 24),
-          Text('今すぐ会話を始められる相手', style: Theme.of(context).textTheme.titleLarge),
+          MusubiSurfaceCard(
+            color: const Color(0xFF101821),
+            child: Row(
+              children: [
+                const Icon(Icons.public_rounded, color: Color(0xFFE2B76A)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Realmの立ち上げ申請を見る',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                MusubiGhostButton(
+                  label: '開く',
+                  onPressed: () => context.push('/realms/bootstrap'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '今すぐ会話を始められる相手',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 8),
           Text(
             'Bot と冷やかしを減らすため、アプローチ時に 10 Pi のデポジットを入れる前提です。',
@@ -181,7 +204,9 @@ class _DiscoveryCard extends StatelessWidget {
                         children: [
                           Text(
                             '${profile.name}, ${profile.age}',
-                            style: Theme.of(context).textTheme.titleLarge
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 6),
