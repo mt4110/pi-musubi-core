@@ -4,13 +4,16 @@ use super::{
     callback::process_provider_callback,
     open_hold::process_open_hold_intent,
     state::OutboxCommand,
-    types::{DrainOutboxOutcome, HappyRouteError, OrchestrationRepairOutcome},
+    types::{
+        DrainOutboxOutcome, HappyRouteError, OrchestrationRepairInput, OrchestrationRepairOutcome,
+    },
 };
 
 pub async fn repair_orchestration(
     state: &SharedState,
+    input: OrchestrationRepairInput,
 ) -> Result<OrchestrationRepairOutcome, HappyRouteError> {
-    state.happy_route.repair_orchestration_recovery().await
+    state.happy_route.repair_orchestration_recovery(input).await
 }
 
 pub async fn drain_outbox(state: &SharedState) -> Result<DrainOutboxOutcome, HappyRouteError> {

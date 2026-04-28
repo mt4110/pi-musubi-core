@@ -103,8 +103,9 @@ Payment callbacks now persist exact raw body bytes and redacted headers before m
 The HTTP callback endpoint does not advance settlement state, append ledger rows, or refresh projections; it schedules `INGEST_PROVIDER_CALLBACK` for outbox-driven orchestration.
 
 Issue #16 adds a writer-owned orchestration repair pass for recovery, PITR asymmetry, and stale claim cleanup.
-The repair path is internal-only, records bounded `outbox.recovery_runs`, reads writer truth only, and treats projection or observability rows as non-authoritative.
-It repairs forward by resetting expired coordination claims, closing completed-consumer/unfinished-producer gaps, re-enqueuing lost callback-ingest coordination from raw evidence, and applying verified receipt side effects once.
+The repair path is internal-only, separated from the drain gate, records bounded `outbox.recovery_runs`, reads writer truth only, and treats projection or observability rows as non-authoritative.
+It requires an explicit dry-run/scope/reason body, takes a transaction-scoped advisory lock, and caps each repair category with deterministic ordering.
+It repairs forward by resetting expired coordination claims for known orchestration types, closing completed-consumer/unfinished-producer gaps only when command identity and checksum match, re-enqueuing lost callback-ingest coordination from raw evidence with a provider submission id, and applying verified receipt side effects without duplicating receipt-recognition journals.
 
 ISSUE-10 adds safer venue proof input primitives.
 Proof challenges are short-lived, near single-use, account-bound, realm/venue-bound, and verified against the challenge-issued, server-secret-backed, key-version-aware rotating code or a rate-limited operator fallback.

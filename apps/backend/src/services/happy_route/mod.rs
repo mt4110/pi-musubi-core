@@ -25,8 +25,8 @@ pub use promise::create_promise_intent;
 pub use repository::HappyRouteStore;
 pub use types::{
     AuthenticatedAccount, AuthenticationInput, DrainOutboxOutcome, ExpandedSettlementViewSnapshot,
-    HappyRouteError, OrchestrationRepairOutcome, PaymentCallbackAccepted, PaymentCallbackInput,
-    PaymentCallbackOutcome, ProcessedOutboxMessage, ProjectionProvenance, ProjectionRebuildItem,
-    ProjectionRebuildOutcome, PromiseIntentInput, PromiseIntentOutcome, PromiseProjectionSnapshot,
-    ProviderErrorClass, SettlementViewSnapshot, TrustSnapshot,
+    HappyRouteError, OrchestrationRepairInput, OrchestrationRepairOutcome, PaymentCallbackAccepted,
+    PaymentCallbackInput, PaymentCallbackOutcome, ProcessedOutboxMessage, ProjectionProvenance,
+    ProjectionRebuildItem, ProjectionRebuildOutcome, PromiseIntentInput, PromiseIntentOutcome,
+    PromiseProjectionSnapshot, ProviderErrorClass, SettlementViewSnapshot, TrustSnapshot,
 };

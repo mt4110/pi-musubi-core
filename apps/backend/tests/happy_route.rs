@@ -1153,7 +1153,13 @@ async fn orchestration_repair_resets_stale_outbox_and_inbox_claims() {
         .await
         .expect("stale inbox fixture must insert");
 
-    let repair = post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(repair.status, StatusCode::OK);
     assert!(repair.body["recovery_run_id"].as_str().is_some());
     assert_eq!(repair.body["stale_outbox_reclaimed_count"], 1);
@@ -1310,7 +1316,13 @@ async fn orchestration_repair_marks_event_published_after_completed_command() {
         .await
         .expect("completed inbox fixture must insert");
 
-    let repair = post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(repair.status, StatusCode::OK);
     assert_eq!(repair.body["producer_cleanup_repaired_count"], 1);
     assert_eq!(repair.body["stale_outbox_reclaimed_count"], 0);
@@ -1338,8 +1350,13 @@ async fn orchestration_repair_marks_event_published_after_completed_command() {
             .is_some()
     );
 
-    let second_repair =
-        post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let second_repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(second_repair.status, StatusCode::OK);
     assert_eq!(second_repair.body["producer_cleanup_repaired_count"], 0);
 }
@@ -1384,7 +1401,13 @@ async fn orchestration_repair_reenqueues_raw_callback_evidence_after_pitr_gap() 
         .expect("callback outbox event must be deletable for PITR fixture");
     assert_eq!(deleted, 1);
 
-    let repair = post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(repair.status, StatusCode::OK);
     assert_eq!(repair.body["callback_ingest_enqueued_count"], 1);
 
@@ -1418,8 +1441,13 @@ async fn orchestration_repair_reenqueues_raw_callback_evidence_after_pitr_gap() 
     assert_eq!(repaired.get::<_, i64>("receipt_count"), 1);
     assert_eq!(repaired.get::<_, i64>("journal_count"), 1);
 
-    let second_repair =
-        post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let second_repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(second_repair.status, StatusCode::OK);
     assert_eq!(second_repair.body["callback_ingest_enqueued_count"], 0);
     assert_eq!(second_repair.body["verified_receipt_repaired_count"], 0);
@@ -1447,7 +1475,13 @@ async fn orchestration_repair_ignores_projection_without_writer_receipt() {
         .await
         .expect("projection corruption fixture must update");
 
-    let repair = post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(repair.status, StatusCode::OK);
     assert_eq!(repair.body["verified_receipt_repaired_count"], 0);
     assert_eq!(repair.body["callback_ingest_enqueued_count"], 0);
@@ -1570,7 +1604,13 @@ async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once
         .await
         .expect("verified receipt fixture must insert");
 
-    let repair = post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(repair.status, StatusCode::OK);
     assert_eq!(repair.body["verified_receipt_repaired_count"], 1);
     assert_eq!(repair.body["callback_ingest_enqueued_count"], 0);
@@ -1595,8 +1635,13 @@ async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once
     assert_eq!(writer.get::<_, i64>("journal_count"), 1);
     assert_eq!(writer.get::<_, i64>("posting_count"), 2);
 
-    let second_repair =
-        post_json(&app, "/api/internal/orchestration/repair", None, json!({})).await;
+    let second_repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
     assert_eq!(second_repair.status, StatusCode::OK);
     assert_eq!(second_repair.body["verified_receipt_repaired_count"], 0);
 
@@ -1613,6 +1658,690 @@ async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once
         .expect("journal count after replay must be queryable")
         .get("count");
     assert_eq!(journal_count, 1);
+}
+
+#[tokio::test]
+async fn orchestration_repair_rejects_empty_body() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/internal/orchestration/repair")
+        .header("content-type", "application/json")
+        .body(Body::empty())
+        .expect("request must build");
+
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("app should respond");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn orchestration_repair_requires_non_empty_reason() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let mut body = repair_request(false);
+    body["reason"] = json!("   ");
+
+    let repair = post_json(&app, "/api/internal/orchestration/repair", None, body).await;
+
+    assert_eq!(repair.status, StatusCode::BAD_REQUEST);
+    assert_eq!(repair.body["error"], "reason is required");
+}
+
+#[tokio::test]
+async fn orchestration_repair_rejects_empty_scope() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, false, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        repair.body["error"],
+        "at least one repair category must be included"
+    );
+}
+
+#[tokio::test]
+async fn orchestration_repair_dry_run_does_not_mutate_domain_rows() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let fixture = create_undrained_open_hold(&app, "repair-dry-run").await;
+    let client = test_db_client().await;
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'processing',
+                claimed_by = 'dead-worker',
+                claimed_until = CURRENT_TIMESTAMP - interval '1 minute',
+                last_attempt_at = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE event_id = $1
+            ",
+            &[&fixture.event_id],
+        )
+        .await
+        .expect("stale outbox fixture must update");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(true, 100, true, false, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["dry_run"], true);
+    assert_eq!(repair.body["stale_outbox_reclaimed_count"], 1);
+    let stored = client
+        .query_one(
+            "
+            SELECT delivery_status, claimed_by
+            FROM outbox.events
+            WHERE event_id = $1
+            ",
+            &[&fixture.event_id],
+        )
+        .await
+        .expect("dry-run event row must remain queryable");
+    assert_eq!(stored.get::<_, String>("delivery_status"), "processing");
+    assert_eq!(
+        stored.get::<_, Option<String>>("claimed_by"),
+        Some("dead-worker".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn orchestration_repair_respects_max_rows_per_category() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let first = create_undrained_open_hold(&app, "repair-limit-a").await;
+    let second = create_undrained_open_hold(&app, "repair-limit-b").await;
+    let event_ids = vec![first.event_id, second.event_id];
+    let client = test_db_client().await;
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'processing',
+                claimed_by = 'dead-worker',
+                claimed_until = CURRENT_TIMESTAMP - interval '1 minute',
+                last_attempt_at = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE event_id = ANY($1::uuid[])
+            ",
+            &[&event_ids],
+        )
+        .await
+        .expect("stale outbox fixtures must update");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 1, true, false, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["stale_outbox_reclaimed_count"], 1);
+    assert_eq!(repair.body["limited"], true);
+    let stored = client
+        .query_one(
+            "
+            SELECT
+                count(*) FILTER (WHERE delivery_status = 'pending') AS pending_count,
+                count(*) FILTER (WHERE delivery_status = 'processing') AS processing_count
+            FROM outbox.events
+            WHERE event_id = ANY($1::uuid[])
+            ",
+            &[&event_ids],
+        )
+        .await
+        .expect("limited repair rows must remain queryable");
+    assert_eq!(stored.get::<_, i64>("pending_count"), 1);
+    assert_eq!(stored.get::<_, i64>("processing_count"), 1);
+}
+
+#[tokio::test]
+async fn orchestration_repair_does_not_reset_unknown_outbox_event_type() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let event_id = Uuid::new_v4();
+    let aggregate_id = Uuid::new_v4();
+    let payload = json!({ "unknown": "repair-event" });
+    let payload_hash = sha256_hex_test(payload.to_string().as_bytes());
+    client
+        .execute(
+            "
+            INSERT INTO outbox.events (
+                event_id,
+                idempotency_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                stream_key,
+                delivery_status,
+                claimed_by,
+                claimed_until,
+                last_attempt_at
+            )
+            VALUES (
+                $1,
+                $2,
+                'unknown_repair',
+                $3,
+                'UNKNOWN_REPAIR_EVENT',
+                1,
+                $4,
+                $5,
+                $6,
+                'processing',
+                'dead-worker',
+                CURRENT_TIMESTAMP - interval '1 minute',
+                CURRENT_TIMESTAMP - interval '1 minute'
+            )
+            ",
+            &[
+                &event_id,
+                &Uuid::new_v4(),
+                &aggregate_id,
+                &payload,
+                &payload_hash,
+                &format!("unknown_repair:{aggregate_id}"),
+            ],
+        )
+        .await
+        .expect("unknown outbox event fixture must insert");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, true, false, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["stale_outbox_reclaimed_count"], 0);
+    let status: String = client
+        .query_one(
+            "SELECT delivery_status FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("unknown event status must be queryable")
+        .get("delivery_status");
+    assert_eq!(status, "processing");
+}
+
+#[tokio::test]
+async fn orchestration_repair_does_not_reset_unknown_command_consumer() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let fixture = create_undrained_open_hold(&app, "repair-unknown-consumer").await;
+    let client = test_db_client().await;
+    let inbox_entry_id = Uuid::new_v4();
+    client
+        .execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                source_event_id,
+                command_id,
+                payload_checksum,
+                status,
+                command_type,
+                schema_version,
+                received_at,
+                available_at,
+                attempt_count,
+                claimed_by,
+                claimed_until
+            )
+            VALUES (
+                $1,
+                'unknown-consumer',
+                $2,
+                $2,
+                $3,
+                'processing',
+                $4,
+                $5,
+                CURRENT_TIMESTAMP - interval '10 minutes',
+                CURRENT_TIMESTAMP,
+                1,
+                'dead-worker',
+                CURRENT_TIMESTAMP - interval '1 minute'
+            )
+            ",
+            &[
+                &inbox_entry_id,
+                &fixture.event_id,
+                &fixture.payload_hash,
+                &fixture.event_type,
+                &fixture.schema_version,
+            ],
+        )
+        .await
+        .expect("unknown consumer inbox fixture must insert");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, true, false, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["stale_inbox_reclaimed_count"], 0);
+    let status: String = client
+        .query_one(
+            "SELECT status FROM outbox.command_inbox WHERE inbox_entry_id = $1",
+            &[&inbox_entry_id],
+        )
+        .await
+        .expect("unknown consumer inbox status must be queryable")
+        .get("status");
+    assert_eq!(status, "processing");
+}
+
+#[tokio::test]
+async fn orchestration_repair_does_not_publish_completed_command_with_checksum_mismatch() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let fixture = create_undrained_open_hold(&app, "repair-producer-mismatch").await;
+    let client = test_db_client().await;
+    client
+        .execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'processing',
+                claimed_by = 'writer-before-crash',
+                claimed_until = CURRENT_TIMESTAMP + interval '1 minute',
+                last_attempt_at = CURRENT_TIMESTAMP
+            WHERE event_id = $1
+            ",
+            &[&fixture.event_id],
+        )
+        .await
+        .expect("producer cleanup fixture must update");
+    client
+        .execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                source_event_id,
+                command_id,
+                payload_checksum,
+                status,
+                command_type,
+                schema_version,
+                received_at,
+                available_at,
+                processed_at,
+                completed_at
+            )
+            VALUES (
+                $1,
+                'settlement-orchestrator',
+                $2,
+                $2,
+                'bogus-checksum',
+                'completed',
+                $3,
+                $4,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+            ",
+            &[
+                &Uuid::new_v4(),
+                &fixture.event_id,
+                &fixture.event_type,
+                &fixture.schema_version,
+            ],
+        )
+        .await
+        .expect("checksum mismatch command fixture must insert");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, true, false, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["producer_cleanup_repaired_count"], 0);
+    let status: String = client
+        .query_one(
+            "SELECT delivery_status FROM outbox.events WHERE event_id = $1",
+            &[&fixture.event_id],
+        )
+        .await
+        .expect("producer mismatch event must be queryable")
+        .get("delivery_status");
+    assert_eq!(status, "processing");
+}
+
+#[tokio::test]
+async fn orchestration_repair_ignores_raw_callback_without_provider_submission_id() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let raw_callback_id = Uuid::new_v4();
+    let raw_body = json!({ "callback": "missing-provider-submission" }).to_string();
+    let raw_body_bytes = raw_body.as_bytes().to_vec();
+    client
+        .execute(
+            "
+            INSERT INTO core.raw_provider_callbacks (
+                raw_callback_id,
+                provider_name,
+                dedupe_key,
+                replay_of_raw_callback_id,
+                raw_body_bytes,
+                raw_body,
+                redacted_headers,
+                signature_valid,
+                provider_submission_id,
+                received_at
+            )
+            VALUES ($1, 'pi', $2, NULL, $3, $4, '{}'::jsonb, NULL, NULL, CURRENT_TIMESTAMP)
+            ",
+            &[
+                &raw_callback_id,
+                &format!("missing-provider-submission-{raw_callback_id}"),
+                &raw_body_bytes,
+                &raw_body,
+            ],
+        )
+        .await
+        .expect("raw callback without provider submission must insert");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["callback_ingest_enqueued_count"], 0);
+    let event_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM outbox.events
+            WHERE aggregate_id = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback repair event count must be queryable")
+        .get("count");
+    assert_eq!(event_count, 0);
+}
+
+#[tokio::test]
+async fn orchestration_repair_does_not_duplicate_callback_reenqueue() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+
+    let callback = post_json(
+        &app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": 10000,
+            "currency_code": "PI",
+            "txid": "pi-tx-repair-duplicate-callback",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+    let raw_callback_id = callback.body["raw_callback_id"]
+        .as_str()
+        .expect("raw_callback_id must exist")
+        .to_owned();
+    let client = test_db_client().await;
+    client
+        .execute(
+            "
+            DELETE FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback outbox event must be deletable for duplicate repair fixture");
+
+    let first_repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+    let second_repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+
+    assert_eq!(first_repair.status, StatusCode::OK);
+    assert_eq!(second_repair.status, StatusCode::OK);
+    assert_eq!(first_repair.body["callback_ingest_enqueued_count"], 1);
+    assert_eq!(second_repair.body["callback_ingest_enqueued_count"], 0);
+    let event_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback repair event count must be queryable")
+        .get("count");
+    assert_eq!(event_count, 1);
+}
+
+#[tokio::test]
+async fn orchestration_repair_does_not_duplicate_existing_receipt_journal() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+    insert_verified_receipt_fixture(&client, &prepared, "pi-tx-existing-journal").await;
+    client
+        .execute(
+            "
+            INSERT INTO ledger.journal_entries (
+                journal_entry_id,
+                settlement_case_id,
+                promise_intent_id,
+                realm_id,
+                entry_kind,
+                effective_at
+            )
+            VALUES ($1, $2, $3, $4, 'receipt_recognized', CURRENT_TIMESTAMP)
+            ",
+            &[
+                &Uuid::new_v4(),
+                &Uuid::parse_str(&prepared.settlement_case_id)
+                    .expect("settlement_case_id must be uuid"),
+                &Uuid::parse_str(&prepared.promise_intent_id)
+                    .expect("promise_intent_id must be uuid"),
+                &prepared.realm_id,
+            ],
+        )
+        .await
+        .expect("existing receipt journal fixture must insert");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request_with_scope(false, 100, false, false, false, true),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["verified_receipt_repaired_count"], 1);
+    let writer = client
+        .query_one(
+            "
+            SELECT
+                (SELECT case_status FROM dao.settlement_cases WHERE settlement_case_id::text = $1) AS case_status,
+                (SELECT count(*) FROM ledger.journal_entries WHERE settlement_case_id::text = $1) AS journal_count,
+                (SELECT count(*)
+                   FROM ledger.account_postings posting
+                   JOIN ledger.journal_entries journal
+                     ON journal.journal_entry_id = posting.journal_entry_id
+                  WHERE journal.settlement_case_id::text = $1) AS posting_count
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("existing receipt journal repair result must be queryable");
+    assert_eq!(writer.get::<_, String>("case_status"), "funded");
+    assert_eq!(writer.get::<_, i64>("journal_count"), 1);
+    assert_eq!(writer.get::<_, i64>("posting_count"), 0);
+}
+
+#[tokio::test]
+async fn orchestration_repair_audit_records_reason_scope_and_operator() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let body = json!({
+        "dry_run": true,
+        "reason": "operator requested scoped repair audit",
+        "max_rows_per_category": 7,
+        "include_stale_claims": true,
+        "include_producer_cleanup": false,
+        "include_callback_ingest": false,
+        "include_verified_receipt_side_effects": false
+    });
+
+    let repair = post_json_with_headers(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        body,
+        &[("x-musubi-operator-id", "operator-issue-16")],
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    let recovery_run_id = repair.body["recovery_run_id"]
+        .as_str()
+        .expect("recovery_run_id must exist");
+    let client = test_db_client().await;
+    let audit = client
+        .query_one(
+            "
+            SELECT
+                dry_run,
+                request_reason,
+                requested_by,
+                max_rows_per_category,
+                include_stale_claims,
+                include_producer_cleanup,
+                include_callback_ingest,
+                include_verified_receipt_side_effects,
+                limited
+            FROM outbox.recovery_runs
+            WHERE recovery_run_id::text = $1
+            ",
+            &[&recovery_run_id],
+        )
+        .await
+        .expect("recovery audit row must exist");
+    assert_eq!(audit.get::<_, bool>("dry_run"), true);
+    assert_eq!(
+        audit.get::<_, String>("request_reason"),
+        "operator requested scoped repair audit"
+    );
+    assert_eq!(audit.get::<_, String>("requested_by"), "operator-issue-16");
+    assert_eq!(audit.get::<_, i32>("max_rows_per_category"), 7);
+    assert_eq!(audit.get::<_, bool>("include_stale_claims"), true);
+    assert_eq!(audit.get::<_, bool>("include_producer_cleanup"), false);
+    assert_eq!(audit.get::<_, bool>("include_callback_ingest"), false);
+    assert_eq!(
+        audit.get::<_, bool>("include_verified_receipt_side_effects"),
+        false
+    );
+    assert_eq!(audit.get::<_, bool>("limited"), false);
+}
+
+#[tokio::test]
+async fn orchestration_repair_conflicts_when_lock_is_held() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let mut lock_client = test_db_client().await;
+    let lock_tx = lock_client
+        .transaction()
+        .await
+        .expect("lock transaction must start");
+    lock_tx
+        .execute(
+            "SELECT pg_advisory_xact_lock($1, $2)",
+            &[&2_026_041_i32, &16_i32],
+        )
+        .await
+        .expect("repair advisory lock must be held");
+
+    let repair = post_json(
+        &app,
+        "/api/internal/orchestration/repair",
+        None,
+        repair_request(false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::CONFLICT);
+    assert_eq!(
+        repair.body["error"],
+        "orchestration repair is already running"
+    );
+    lock_tx
+        .rollback()
+        .await
+        .expect("lock transaction must roll back");
 }
 
 #[tokio::test]
@@ -3267,6 +3996,62 @@ struct PreparedCase {
     counterparty_token: String,
 }
 
+struct OpenHoldFixture {
+    event_id: Uuid,
+    event_type: String,
+    schema_version: i32,
+    payload_hash: String,
+}
+
+async fn create_undrained_open_hold(app: &Router, suffix: &str) -> OpenHoldFixture {
+    let initiator_pi_uid = format!("pi-user-{suffix}-a");
+    let initiator_username = format!("{suffix}-a");
+    let counterparty_pi_uid = format!("pi-user-{suffix}-b");
+    let counterparty_username = format!("{suffix}-b");
+    let initiator = sign_in(app, &initiator_pi_uid, &initiator_username).await;
+    let counterparty = sign_in(app, &counterparty_pi_uid, &counterparty_username).await;
+
+    let create_promise = post_json(
+        app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": format!("promise-intent-{suffix}"),
+            "realm_id": format!("realm-{suffix}"),
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let client = test_db_client().await;
+    let event_row = client
+        .query_one(
+            "
+            SELECT event_id, event_type, schema_version, payload_hash
+            FROM outbox.events
+            WHERE aggregate_id::text = $1
+              AND event_type = 'OPEN_HOLD_INTENT'
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("open hold event must exist");
+
+    OpenHoldFixture {
+        event_id: event_row.get("event_id"),
+        event_type: event_row.get("event_type"),
+        schema_version: event_row.get("schema_version"),
+        payload_hash: event_row.get("payload_hash"),
+    }
+}
+
 async fn prepare_pending_case(app: &Router) -> PreparedCase {
     let initiator = sign_in(app, "pi-user-prepare-a", "prepare-a").await;
     let counterparty = sign_in(app, "pi-user-prepare-b", "prepare-b").await;
@@ -3318,6 +4103,108 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
         counterparty_account_id: counterparty.account_id,
         counterparty_token: counterparty.token,
     }
+}
+
+async fn insert_verified_receipt_fixture(
+    client: &tokio_postgres::Client,
+    prepared: &PreparedCase,
+    txid: &str,
+) -> Uuid {
+    let raw_callback_id = Uuid::new_v4();
+    let raw_body = json!({
+        "payment_id": prepared.payment_id,
+        "payer_pi_uid": prepared.initiator_pi_uid,
+        "amount_minor_units": 10000,
+        "currency_code": "PI",
+        "txid": txid,
+        "status": "completed"
+    })
+    .to_string();
+    let raw_body_bytes = raw_body.as_bytes().to_vec();
+    client
+        .execute(
+            "
+            INSERT INTO core.raw_provider_callbacks (
+                raw_callback_id,
+                provider_name,
+                dedupe_key,
+                replay_of_raw_callback_id,
+                raw_body_bytes,
+                raw_body,
+                redacted_headers,
+                signature_valid,
+                provider_submission_id,
+                provider_ref,
+                payer_pi_uid,
+                amount_minor_units,
+                currency_code,
+                amount_scale,
+                txid,
+                callback_status,
+                received_at
+            )
+            VALUES (
+                $1,
+                'pi',
+                $2,
+                NULL,
+                $3,
+                $4,
+                '{}'::jsonb,
+                NULL,
+                $5,
+                NULL,
+                $6,
+                10000,
+                'PI',
+                3,
+                $7,
+                'completed',
+                CURRENT_TIMESTAMP
+            )
+            ",
+            &[
+                &raw_callback_id,
+                &format!("verified-receipt-{raw_callback_id}"),
+                &raw_body_bytes,
+                &raw_body,
+                &prepared.payment_id,
+                &prepared.initiator_pi_uid,
+                &txid,
+            ],
+        )
+        .await
+        .expect("raw callback fixture must insert");
+    client
+        .execute(
+            "
+            INSERT INTO core.payment_receipts (
+                payment_receipt_id,
+                provider_key,
+                external_payment_id,
+                settlement_case_id,
+                promise_intent_id,
+                amount_minor_units,
+                currency_code,
+                amount_scale,
+                receipt_status,
+                raw_callback_id
+            )
+            VALUES ($1, 'pi', $2, $3, $4, 10000, 'PI', 3, 'verified', $5)
+            ",
+            &[
+                &Uuid::new_v4(),
+                &prepared.payment_id,
+                &Uuid::parse_str(&prepared.settlement_case_id)
+                    .expect("settlement_case_id must be uuid"),
+                &Uuid::parse_str(&prepared.promise_intent_id)
+                    .expect("promise_intent_id must be uuid"),
+                &raw_callback_id,
+            ],
+        )
+        .await
+        .expect("verified receipt fixture must insert");
+    raw_callback_id
 }
 
 async fn prepare_funded_case(app: &Router) -> PreparedCase {
@@ -3453,6 +4340,29 @@ fn promise_request_hash_test(
     sha256_hex_test(material.as_bytes())
 }
 
+fn repair_request(dry_run: bool) -> Value {
+    repair_request_with_scope(dry_run, 100, true, true, true, true)
+}
+
+fn repair_request_with_scope(
+    dry_run: bool,
+    max_rows_per_category: i64,
+    include_stale_claims: bool,
+    include_producer_cleanup: bool,
+    include_callback_ingest: bool,
+    include_verified_receipt_side_effects: bool,
+) -> Value {
+    json!({
+        "dry_run": dry_run,
+        "reason": "test repair",
+        "max_rows_per_category": max_rows_per_category,
+        "include_stale_claims": include_stale_claims,
+        "include_producer_cleanup": include_producer_cleanup,
+        "include_callback_ingest": include_callback_ingest,
+        "include_verified_receipt_side_effects": include_verified_receipt_side_effects
+    })
+}
+
 fn assert_stale_provenance(provenance: &Value) {
     let source_watermark = parse_datetime_field(provenance, "source_watermark_at");
     let freshness_checked = parse_datetime_field(provenance, "freshness_checked_at");
@@ -3544,6 +4454,16 @@ async fn post_json(
     request_json(app, "POST", path, bearer_token, Some(body)).await
 }
 
+async fn post_json_with_headers(
+    app: &Router,
+    path: &str,
+    bearer_token: Option<&str>,
+    body: Value,
+    headers: &[(&str, &str)],
+) -> JsonResponse {
+    request_json_with_headers(app, "POST", path, bearer_token, Some(body), headers).await
+}
+
 async fn get_json(app: &Router, path: &str, bearer_token: Option<&str>) -> JsonResponse {
     request_json(app, "GET", path, bearer_token, None).await
 }
@@ -3555,9 +4475,23 @@ async fn request_json(
     bearer_token: Option<&str>,
     body: Option<Value>,
 ) -> JsonResponse {
+    request_json_with_headers(app, method, path, bearer_token, body, &[]).await
+}
+
+async fn request_json_with_headers(
+    app: &Router,
+    method: &str,
+    path: &str,
+    bearer_token: Option<&str>,
+    body: Option<Value>,
+    headers: &[(&str, &str)],
+) -> JsonResponse {
     let mut builder = Request::builder().method(method).uri(path);
     if let Some(token) = bearer_token {
         builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
 
     let request = builder
