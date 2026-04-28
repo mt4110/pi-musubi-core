@@ -2887,7 +2887,41 @@ async fn insert_provider_callback_repair_outbox_tx(
                 stream_key,
                 delivery_status
             )
-            VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9)
+            SELECT
+                $1,
+                $2,
+                $3,
+                raw.raw_callback_id,
+                $5,
+                1,
+                $6,
+                $7,
+                $8,
+                $9
+            FROM core.raw_provider_callbacks raw
+            JOIN dao.settlement_submissions submission
+                ON submission.provider_submission_id = raw.provider_submission_id
+            JOIN dao.settlement_cases settlement
+                ON settlement.settlement_case_id = submission.settlement_case_id
+            JOIN dao.promise_intents promise
+                ON promise.promise_intent_id = settlement.promise_intent_id
+            JOIN core.pi_account_links link
+                ON link.account_id = promise.initiator_account_id
+            WHERE raw.raw_callback_id = $4
+              AND raw.provider_name = $10
+              AND raw.provider_submission_id IS NOT NULL
+              AND lower(trim(COALESCE(raw.callback_status, ''))) IN ($11, $12, $13)
+              AND submission.submission_status = $14
+              AND raw.payer_pi_uid = link.pi_uid
+              AND raw.amount_minor_units = promise.deposit_amount_minor_units
+              AND upper(trim(COALESCE(raw.currency_code, ''))) = upper(trim(promise.deposit_currency_code))
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM core.payment_receipts receipt
+                    WHERE receipt.provider_key = raw.provider_name
+                      AND receipt.external_payment_id = raw.provider_submission_id
+                      AND receipt.receipt_status = $15
+                )
             ON CONFLICT (aggregate_id)
                 WHERE aggregate_type = 'provider_callback'
                   AND event_type = 'INGEST_PROVIDER_CALLBACK'
@@ -2904,6 +2938,12 @@ async fn insert_provider_callback_repair_outbox_tx(
                 &payload_hash,
                 &stream_key,
                 &OUTBOX_PENDING,
+                &PROVIDER_KEY,
+                &"completed",
+                &"succeeded",
+                &"success",
+                &"accepted",
+                &RECEIPT_STATUS_VERIFIED,
             ],
         )
         .await
