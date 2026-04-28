@@ -1376,7 +1376,7 @@ impl HappyRouteStore {
                       AND submission.submission_status = $5
                       AND raw.payer_pi_uid = link.pi_uid
                       AND raw.amount_minor_units = promise.deposit_amount_minor_units
-                      AND raw.currency_code = promise.deposit_currency_code
+                      AND upper(trim(COALESCE(raw.currency_code, ''))) = upper(trim(promise.deposit_currency_code))
                       AND NOT EXISTS (
                             SELECT 1
                             FROM core.payment_receipts receipt

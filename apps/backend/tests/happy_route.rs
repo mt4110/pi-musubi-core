@@ -2543,6 +2543,47 @@ async fn orchestration_repair_reenqueues_callback_only_when_raw_evidence_matches
 }
 
 #[tokio::test]
+async fn orchestration_repair_reenqueues_callback_with_lowercase_currency_code() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+    let raw_callback_id = insert_raw_callback_repair_fixture(
+        &client,
+        &prepared,
+        "completed",
+        10000,
+        "pi",
+        &prepared.initiator_pi_uid,
+        &prepared.payment_id,
+    )
+    .await;
+
+    let repair = post_repair(
+        &app,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["callback_ingest_enqueued_count"], 1);
+    let event_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM outbox.events
+            WHERE aggregate_id = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback event count must be queryable")
+        .get("count");
+    assert_eq!(event_count, 1);
+}
+
+#[tokio::test]
 async fn orchestration_repair_does_not_reenqueue_failed_cancelled_rejected_or_unknown_callbacks() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
