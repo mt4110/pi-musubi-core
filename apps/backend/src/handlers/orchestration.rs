@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     SharedState,
-    handlers::{ApiResult, bad_request, map_happy_route_error, require_internal_bearer_token},
+    handlers::{
+        ApiResult, bad_request, map_happy_route_error, require_internal_bearer_token,
+        require_operator_id,
+    },
     services::happy_route::{
         OrchestrationRepairInput, drain_outbox as drain_outbox_service,
         repair_orchestration as repair_orchestration_service,
@@ -11,6 +14,8 @@ use crate::{
 };
 
 const MAX_REPAIR_ROWS_PER_CATEGORY: i64 = 500;
+const MAX_REPAIR_REASON_CHARS: usize = 1000;
+const MAX_REPAIR_OPERATOR_ID_CHARS: usize = 200;
 
 #[derive(Debug, Serialize)]
 pub struct DrainOutboxResponse {
@@ -86,6 +91,11 @@ fn repair_input_from_request(
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| bad_request("reason is required"))?;
+    if reason.chars().count() > MAX_REPAIR_REASON_CHARS {
+        return Err(bad_request(format!(
+            "reason must be at most {MAX_REPAIR_REASON_CHARS} characters"
+        )));
+    }
     let max_rows_per_category = request
         .max_rows_per_category
         .ok_or_else(|| bad_request("max_rows_per_category is required"))?;
@@ -118,13 +128,12 @@ fn repair_input_from_request(
         return Err(bad_request("at least one repair category must be included"));
     }
 
-    let requested_by = headers
-        .get("x-musubi-operator-id")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("internal_orchestration_repair")
-        .to_owned();
+    let requested_by = require_operator_id(headers)?;
+    if requested_by.chars().count() > MAX_REPAIR_OPERATOR_ID_CHARS {
+        return Err(bad_request(format!(
+            "x-musubi-operator-id must be at most {MAX_REPAIR_OPERATOR_ID_CHARS} characters"
+        )));
+    }
 
     Ok(OrchestrationRepairInput {
         dry_run,

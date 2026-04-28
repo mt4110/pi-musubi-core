@@ -995,7 +995,7 @@ impl HappyRouteStore {
         let mut limited = false;
         let mut producer_cleanup_repaired_count = 0_i64;
         if input.include_producer_cleanup {
-            let target = bounded_uuid_targets(
+            let producer_rows = if input.dry_run {
                 tx.query(
                     "
                     SELECT events.event_id
@@ -1030,10 +1030,47 @@ impl HappyRouteStore {
                     ],
                 )
                 .await
-                .map_err(db_error)?,
-                "event_id",
-                input.max_rows_per_category,
-            )?;
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT events.event_id
+                    FROM outbox.events events
+                    JOIN outbox.command_inbox inbox
+                        ON inbox.command_id = events.event_id
+                       AND inbox.source_event_id = events.event_id
+                    WHERE inbox.status = 'completed'
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                      AND events.delivery_status IN ($8, $9)
+                    ORDER BY events.causal_order, events.event_id
+                    LIMIT $10
+                    FOR UPDATE OF events SKIP LOCKED
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &OUTBOX_PENDING,
+                        &OUTBOX_PROCESSING,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let target =
+                bounded_uuid_targets(producer_rows, "event_id", input.max_rows_per_category)?;
             limited |= target.limited;
             if input.dry_run {
                 producer_cleanup_repaired_count = target.count;
@@ -1065,6 +1102,7 @@ impl HappyRouteStore {
                                 OR (events.event_type = $6 AND inbox.consumer_name = $7)
                                 OR (events.event_type IN ($8, $9) AND inbox.consumer_name = $10)
                               )
+                          AND events.delivery_status IN ($11, $12)
                         ",
                         &[
                             &target.ids,
@@ -1077,6 +1115,8 @@ impl HappyRouteStore {
                             &EVENT_REFRESH_PROMISE_VIEW,
                             &EVENT_REFRESH_SETTLEMENT_VIEW,
                             &PROJECTION_BUILDER,
+                            &OUTBOX_PENDING,
+                            &OUTBOX_PROCESSING,
                         ],
                     )
                     .await
@@ -1089,7 +1129,7 @@ impl HappyRouteStore {
         let mut stale_outbox_reclaimed_count = 0_i64;
         let mut stale_inbox_reclaimed_count = 0_i64;
         if input.include_stale_claims {
-            let stale_outbox_target = bounded_uuid_targets(
+            let stale_outbox_rows = if input.dry_run {
                 tx.query(
                     "
                     SELECT event_id
@@ -1113,10 +1153,36 @@ impl HappyRouteStore {
                     ],
                 )
                 .await
-                .map_err(db_error)?,
-                "event_id",
-                input.max_rows_per_category,
-            )?;
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT event_id
+                    FROM outbox.events
+                    WHERE delivery_status = $1
+                      AND event_type IN ($2, $3, $4, $5)
+                      AND COALESCE(
+                            claimed_until,
+                            last_attempt_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                    ORDER BY available_at, event_id
+                    LIMIT $6
+                    FOR UPDATE SKIP LOCKED
+                    ",
+                    &[
+                        &OUTBOX_PROCESSING,
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let stale_outbox_target =
+                bounded_uuid_targets(stale_outbox_rows, "event_id", input.max_rows_per_category)?;
             limited |= stale_outbox_target.limited;
             if input.dry_run {
                 stale_outbox_reclaimed_count = stale_outbox_target.count;
@@ -1132,8 +1198,22 @@ impl HappyRouteStore {
                             last_error_class = 'transient',
                             last_error_detail = 'recovery: stale outbox processing claim reset after lease expiry'
                         WHERE event_id = ANY($1::uuid[])
+                          AND delivery_status = $3
+                          AND event_type IN ($4, $5, $6, $7)
+                          AND COALESCE(
+                                claimed_until,
+                                last_attempt_at + interval '5 minutes'
+                              ) < CURRENT_TIMESTAMP
                         ",
-                        &[&stale_outbox_target.ids, &OUTBOX_PENDING],
+                        &[
+                            &stale_outbox_target.ids,
+                            &OUTBOX_PENDING,
+                            &OUTBOX_PROCESSING,
+                            &EVENT_OPEN_HOLD_INTENT,
+                            &EVENT_INGEST_PROVIDER_CALLBACK,
+                            &EVENT_REFRESH_PROMISE_VIEW,
+                            &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        ],
                     )
                     .await
                     .map_err(db_error)?,
@@ -1141,7 +1221,7 @@ impl HappyRouteStore {
                 )?;
             }
 
-            let stale_inbox_target = bounded_uuid_targets(
+            let stale_inbox_rows = if input.dry_run {
                 tx.query(
                     "
                     SELECT inbox.inbox_entry_id
@@ -1178,7 +1258,49 @@ impl HappyRouteStore {
                     ],
                 )
                 .await
-                .map_err(db_error)?,
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT inbox.inbox_entry_id
+                    FROM outbox.command_inbox inbox
+                    JOIN outbox.events events
+                        ON events.event_id = inbox.command_id
+                       AND events.event_id = inbox.source_event_id
+                    WHERE inbox.status = 'processing'
+                      AND inbox.completed_at IS NULL
+                      AND COALESCE(
+                            inbox.claimed_until,
+                            inbox.received_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                    ORDER BY inbox.received_at, inbox.inbox_entry_id
+                    LIMIT $8
+                    FOR UPDATE OF inbox SKIP LOCKED
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let stale_inbox_target = bounded_uuid_targets(
+                stale_inbox_rows,
                 "inbox_entry_id",
                 input.max_rows_per_category,
             )?;
@@ -1189,16 +1311,42 @@ impl HappyRouteStore {
                 stale_inbox_reclaimed_count = rows_affected_to_i64(
                     tx.execute(
                         "
-                        UPDATE outbox.command_inbox
+                        UPDATE outbox.command_inbox AS inbox
                         SET status = 'pending',
                             claimed_by = NULL,
                             claimed_until = NULL,
                             available_at = CURRENT_TIMESTAMP,
                             last_error_class = 'transient',
                             last_error_detail = 'recovery: stale command inbox processing claim reset after lease expiry'
-                        WHERE inbox_entry_id = ANY($1::uuid[])
+                        FROM outbox.events events
+                        WHERE inbox.inbox_entry_id = ANY($1::uuid[])
+                          AND events.event_id = inbox.command_id
+                          AND events.event_id = inbox.source_event_id
+                          AND inbox.status = 'processing'
+                          AND inbox.completed_at IS NULL
+                          AND COALESCE(
+                                inbox.claimed_until,
+                                inbox.received_at + interval '5 minutes'
+                              ) < CURRENT_TIMESTAMP
+                          AND inbox.command_type = events.event_type
+                          AND inbox.schema_version = events.schema_version
+                          AND inbox.payload_checksum = events.payload_hash
+                          AND (
+                                (events.event_type = $2 AND inbox.consumer_name = $3)
+                                OR (events.event_type = $4 AND inbox.consumer_name = $5)
+                                OR (events.event_type IN ($6, $7) AND inbox.consumer_name = $8)
+                              )
                         ",
-                        &[&stale_inbox_target.ids],
+                        &[
+                            &stale_inbox_target.ids,
+                            &EVENT_OPEN_HOLD_INTENT,
+                            &SETTLEMENT_ORCHESTRATOR,
+                            &EVENT_INGEST_PROVIDER_CALLBACK,
+                            &PROVIDER_CALLBACK_CONSUMER,
+                            &EVENT_REFRESH_PROMISE_VIEW,
+                            &EVENT_REFRESH_SETTLEMENT_VIEW,
+                            &PROJECTION_BUILDER,
+                        ],
                     )
                     .await
                     .map_err(db_error)?,
@@ -1214,24 +1362,43 @@ impl HappyRouteStore {
                     "
                     SELECT raw.raw_callback_id
                     FROM core.raw_provider_callbacks raw
-                    WHERE raw.provider_submission_id IS NOT NULL
+                    JOIN dao.settlement_submissions submission
+                        ON submission.provider_submission_id = raw.provider_submission_id
+                    JOIN dao.settlement_cases settlement
+                        ON settlement.settlement_case_id = submission.settlement_case_id
+                    JOIN dao.promise_intents promise
+                        ON promise.promise_intent_id = settlement.promise_intent_id
+                    JOIN core.pi_account_links link
+                        ON link.account_id = promise.initiator_account_id
+                    WHERE raw.provider_name = $1
+                      AND raw.provider_submission_id IS NOT NULL
+                      AND lower(trim(COALESCE(raw.callback_status, ''))) IN ($2, $3, $4)
+                      AND submission.submission_status = $5
+                      AND raw.payer_pi_uid = link.pi_uid
+                      AND raw.amount_minor_units = promise.deposit_amount_minor_units
+                      AND raw.currency_code = promise.deposit_currency_code
                       AND NOT EXISTS (
                             SELECT 1
                             FROM core.payment_receipts receipt
                             WHERE receipt.provider_key = raw.provider_name
                               AND receipt.external_payment_id = raw.provider_submission_id
-                              AND receipt.receipt_status = $1
+                              AND receipt.receipt_status = $6
                         )
                       AND NOT EXISTS (
                             SELECT 1
                             FROM outbox.events events
                             WHERE events.aggregate_id = raw.raw_callback_id
-                              AND events.event_type = $2
+                              AND events.event_type = $7
                         )
                     ORDER BY raw.received_at, raw.raw_callback_id
-                    LIMIT $3
+                    LIMIT $8
                     ",
                     &[
+                        &PROVIDER_KEY,
+                        &"completed",
+                        &"succeeded",
+                        &"success",
+                        &"accepted",
                         &RECEIPT_STATUS_VERIFIED,
                         &EVENT_INGEST_PROVIDER_CALLBACK,
                         &max_plus_one,
@@ -3989,6 +4156,53 @@ struct VerifiedReceiptSideEffects {
     repaired: bool,
 }
 
+async fn receipt_journal_has_expected_postings_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    journal_entry_id: &Uuid,
+    initiator_account_id: &Uuid,
+    amount_minor_units: i64,
+    currency_code: &str,
+) -> Result<bool, HappyRouteError> {
+    let row = tx
+        .query_one(
+            "
+            SELECT
+                count(*) AS posting_count,
+                count(*) FILTER (
+                    WHERE ledger_account_code = $2
+                      AND account_id IS NULL
+                      AND direction = $3
+                      AND amount_minor_units = $4
+                      AND currency_code = $5
+                ) AS expected_debit_count,
+                count(*) FILTER (
+                    WHERE ledger_account_code = $6
+                      AND account_id = $7
+                      AND direction = $8
+                      AND amount_minor_units = $4
+                      AND currency_code = $5
+                ) AS expected_credit_count
+            FROM ledger.account_postings
+            WHERE journal_entry_id = $1
+            ",
+            &[
+                journal_entry_id,
+                &LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND,
+                &LEDGER_DIRECTION_DEBIT,
+                &amount_minor_units,
+                &currency_code,
+                &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
+                initiator_account_id,
+                &LEDGER_DIRECTION_CREDIT,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(row.get::<_, i64>("posting_count") == 2
+        && row.get::<_, i64>("expected_debit_count") == 1
+        && row.get::<_, i64>("expected_credit_count") == 1)
+}
+
 async fn apply_verified_receipt_side_effects_tx(
     tx: &tokio_postgres::Transaction<'_>,
     settlement_case_id: &Uuid,
@@ -4044,7 +4258,25 @@ async fn apply_verified_receipt_side_effects_tx(
     }
 
     let promise_intent_id: Uuid = row.get("promise_intent_id");
+    let initiator_account_id: Uuid = row.get("initiator_account_id");
+    let amount_minor_units: i64 = row.get("deposit_amount_minor_units");
+    let currency_code: String = row.get("deposit_currency_code");
     let ledger_journal_id = if let Some(journal_entry_id) = existing_journal_id {
+        let journal_is_complete = receipt_journal_has_expected_postings_tx(
+            tx,
+            &journal_entry_id,
+            &initiator_account_id,
+            amount_minor_units,
+            &currency_code,
+        )
+        .await?;
+        if !journal_is_complete {
+            return Ok(VerifiedReceiptSideEffects {
+                ledger_journal_id: Some(journal_entry_id),
+                outbox_event_ids: Vec::new(),
+                repaired: false,
+            });
+        }
         if case_status != SETTLEMENT_CASE_FUNDED {
             tx.execute(
                 "
@@ -4074,9 +4306,6 @@ async fn apply_verified_receipt_side_effects_tx(
             .map_err(db_error)?;
         }
         let realm_id: String = row.get("settlement_realm_id");
-        let initiator_account_id: Uuid = row.get("initiator_account_id");
-        let amount_minor_units: i64 = row.get("deposit_amount_minor_units");
-        let currency_code: String = row.get("deposit_currency_code");
         let journal_entry_id = Uuid::new_v4();
         tx.execute(
             "

@@ -104,8 +104,8 @@ The HTTP callback endpoint does not advance settlement state, append ledger rows
 
 Issue #16 adds a writer-owned orchestration repair pass for recovery, PITR asymmetry, and stale claim cleanup.
 The repair path is internal-only, separated from the drain gate, records bounded `outbox.recovery_runs`, reads writer truth only, and treats projection or observability rows as non-authoritative.
-It requires an explicit dry-run/scope/reason body, takes a transaction-scoped advisory lock, and caps each repair category with deterministic ordering.
-It repairs forward by resetting expired coordination claims for known orchestration types, closing completed-consumer/unfinished-producer gaps only when command identity and checksum match, re-enqueuing lost callback-ingest coordination from raw evidence with a provider submission id, and applying verified receipt side effects without duplicating receipt-recognition journals.
+It requires an explicit dry-run/scope/reason body plus operator id, takes a transaction-scoped advisory lock, and caps each repair category with deterministic ordering.
+It repairs forward by resetting expired coordination claims for known orchestration types while re-checking stale predicates at mutation time, closing completed-consumer/unfinished-producer gaps only when command identity and checksum still match, re-enqueuing lost callback-ingest coordination only from accepted writer-owned settlement evidence with matching payer/amount/currency, and applying verified receipt side effects without duplicating receipt-recognition journals or advancing incomplete ledger posting state.
 
 ISSUE-10 adds safer venue proof input primitives.
 Proof challenges are short-lived, near single-use, account-bound, realm/venue-bound, and verified against the challenge-issued, server-secret-backed, key-version-aware rotating code or a rate-limited operator fallback.

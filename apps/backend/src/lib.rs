@@ -332,7 +332,8 @@ pub fn build_app(state: SharedState) -> Router {
     let app = if internal_orchestration_repair_enabled() {
         app.route(
             "/api/internal/orchestration/repair",
-            post(handlers::orchestration::repair_orchestration),
+            post(handlers::orchestration::repair_orchestration)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
     } else {
         app
