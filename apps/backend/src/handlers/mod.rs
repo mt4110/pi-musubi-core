@@ -51,6 +51,16 @@ pub fn unauthorized(message: impl Into<String>) -> ApiError {
     )
 }
 
+pub fn conflict(message: impl Into<String>) -> ApiError {
+    (
+        StatusCode::CONFLICT,
+        Json(ErrorResponse {
+            error: message.into(),
+            message_code: None,
+        }),
+    )
+}
+
 pub fn not_found(message: impl Into<String>) -> ApiError {
     (
         StatusCode::NOT_FOUND,
@@ -177,6 +187,7 @@ pub fn map_happy_route_error(error: HappyRouteError) -> ApiError {
     match error {
         HappyRouteError::BadRequest(message) => bad_request(message),
         HappyRouteError::Unauthorized(message) => unauthorized(message),
+        HappyRouteError::Conflict(message) => conflict(message),
         HappyRouteError::NotFound(message) => not_found(message),
         HappyRouteError::ProviderCallbackMappingDeferred(message) => {
             eprintln!("provider callback mapping deferred: {message}");

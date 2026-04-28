@@ -153,6 +153,7 @@ fn callback_review_error(error: HappyRouteError) -> HappyRouteError {
     match error {
         HappyRouteError::Provider { .. }
         | HappyRouteError::ProviderCallbackMappingDeferred(_)
+        | HappyRouteError::Conflict(_)
         | HappyRouteError::Database { .. }
         | HappyRouteError::Internal(_) => error,
         other => HappyRouteError::Provider {

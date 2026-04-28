@@ -552,6 +552,7 @@ fn store_error_to_backend_error(error: HappyRouteError) -> BackendError {
         HappyRouteError::NotFound(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::BadRequest(_) => BackendError::InvalidProviderPayload,
         HappyRouteError::Unauthorized(_) => BackendError::InvalidProviderPayload,
+        HappyRouteError::Conflict(_) => BackendError::TemporarilyUnavailable,
         HappyRouteError::ProviderCallbackMappingDeferred(_) => BackendError::TemporarilyUnavailable,
         HappyRouteError::Database {
             code,

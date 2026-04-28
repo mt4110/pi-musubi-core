@@ -329,6 +329,15 @@ pub fn build_app(state: SharedState) -> Router {
     } else {
         app
     };
+    let app = if internal_orchestration_repair_enabled() {
+        app.route(
+            "/api/internal/orchestration/repair",
+            post(handlers::orchestration::repair_orchestration)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+    } else {
+        app
+    };
 
     app.layer(cors).with_state(state)
 }
@@ -394,6 +403,14 @@ fn internal_orchestration_drain_enabled() -> bool {
     )
 }
 
+fn internal_orchestration_repair_enabled() -> bool {
+    internal_orchestration_repair_enabled_with_flags(
+        cfg!(debug_assertions),
+        env_flag_enabled("MUSUBI_DISABLE_INTERNAL_ORCHESTRATION_REPAIR"),
+        env_flag_enabled("MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_REPAIR"),
+    )
+}
+
 fn unauthenticated_pi_callback_enabled() -> bool {
     cfg!(debug_assertions) || env_flag_enabled("MUSUBI_ENABLE_UNAUTHENTICATED_PI_CALLBACK")
 }
@@ -435,9 +452,24 @@ fn internal_orchestration_drain_enabled_with_flags(
     debug_build || enable_internal_drain
 }
 
+fn internal_orchestration_repair_enabled_with_flags(
+    debug_build: bool,
+    disable_internal_repair: bool,
+    enable_internal_repair: bool,
+) -> bool {
+    if disable_internal_repair {
+        return false;
+    }
+
+    debug_build || enable_internal_repair
+}
+
 #[cfg(test)]
 mod tests {
-    use super::internal_orchestration_drain_enabled_with_flags;
+    use super::{
+        internal_orchestration_drain_enabled_with_flags,
+        internal_orchestration_repair_enabled_with_flags,
+    };
 
     #[test]
     fn debug_build_can_disable_internal_drain() {
@@ -450,6 +482,30 @@ mod tests {
     fn release_build_can_enable_internal_drain() {
         assert!(internal_orchestration_drain_enabled_with_flags(
             false, false, true,
+        ));
+    }
+
+    #[test]
+    fn debug_build_can_disable_internal_repair() {
+        assert!(!internal_orchestration_repair_enabled_with_flags(
+            true, true, false,
+        ));
+    }
+
+    #[test]
+    fn release_build_can_enable_internal_repair() {
+        assert!(internal_orchestration_repair_enabled_with_flags(
+            false, false, true,
+        ));
+    }
+
+    #[test]
+    fn release_drain_enabled_does_not_enable_internal_repair() {
+        assert!(internal_orchestration_drain_enabled_with_flags(
+            false, false, true,
+        ));
+        assert!(!internal_orchestration_repair_enabled_with_flags(
+            false, false, false,
         ));
     }
 }

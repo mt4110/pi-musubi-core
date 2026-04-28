@@ -33,12 +33,17 @@ use super::{
     types::{
         AuthenticatedAccount, AuthenticationInput, CallbackContext, ExpandedSettlementViewSnapshot,
         HappyRouteError, OpenHoldIntentPersistResult, OpenHoldIntentPrepareOutcome,
-        ParsedPaymentCallback, PaymentCallbackInput, PaymentCallbackOutcome, ProjectionProvenance,
-        ProjectionRebuildItem, ProjectionRebuildOutcome, PromiseIntentInput, PromiseIntentOutcome,
+        OrchestrationRepairInput, ParsedPaymentCallback, PaymentCallbackInput,
+        PaymentCallbackOutcome, ProjectionProvenance, ProjectionRebuildItem,
+        ProjectionRebuildOutcome, PromiseIntentInput, PromiseIntentOutcome,
         PromiseProjectionSnapshot, RawPaymentCallbackFields, SettlementViewSnapshot,
         SubmissionPreparation, TrustSnapshot, processed_outbox_message,
     },
 };
+
+const ORCHESTRATION_REPAIR_LOCK_CLASS: i32 = 2_026_041;
+const ORCHESTRATION_REPAIR_LOCK_ID: i32 = 16;
+const RECOVERY_RUN_RETAINED_COMPLETED_LIMIT: i64 = 500;
 
 #[derive(Clone)]
 pub struct HappyRouteStore {
@@ -72,6 +77,7 @@ impl HappyRouteStore {
                     dao.settlement_submissions,
                     dao.settlement_intents,
                     outbox.command_inbox,
+                    outbox.recovery_runs,
                     outbox.events,
                     core.raw_provider_callbacks,
                     core.raw_provider_callback_dedupe,
@@ -901,6 +907,643 @@ impl HappyRouteStore {
         Ok(())
     }
 
+    pub(super) async fn repair_orchestration_recovery(
+        &self,
+        input: OrchestrationRepairInput,
+    ) -> Result<super::types::OrchestrationRepairOutcome, HappyRouteError> {
+        let recovery_run_id = Uuid::new_v4();
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+        let lock_acquired: bool = tx
+            .query_one(
+                "
+                SELECT pg_try_advisory_xact_lock($1, $2) AS acquired
+                ",
+                &[
+                    &ORCHESTRATION_REPAIR_LOCK_CLASS,
+                    &ORCHESTRATION_REPAIR_LOCK_ID,
+                ],
+            )
+            .await
+            .map_err(db_error)?
+            .get("acquired");
+        if !lock_acquired {
+            return Err(HappyRouteError::Conflict(
+                "orchestration repair is already running".to_owned(),
+            ));
+        }
+
+        let recovery_notes = json!({
+            "source": "writer_db",
+            "projection_authority": false,
+            "observability_authority": false,
+            "repair_semantics": "forward_only"
+        });
+        let max_plus_one = input
+            .max_rows_per_category
+            .checked_add(1)
+            .ok_or_else(|| HappyRouteError::Internal("repair row limit overflowed".to_owned()))?;
+        let max_rows_per_category_i32 =
+            i32::try_from(input.max_rows_per_category).map_err(|_| {
+                HappyRouteError::Internal("repair row limit exceeded database range".to_owned())
+            })?;
+
+        tx.execute(
+            "
+            DELETE FROM outbox.recovery_runs
+            WHERE retain_until < CURRENT_TIMESTAMP
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.execute(
+            "
+            INSERT INTO outbox.recovery_runs (
+                recovery_run_id,
+                recovery_kind,
+                triggered_by,
+                dry_run,
+                request_reason,
+                requested_by,
+                max_rows_per_category,
+                include_stale_claims,
+                include_producer_cleanup,
+                include_callback_ingest,
+                include_verified_receipt_side_effects,
+                notes
+            )
+            VALUES ($1, 'orchestration_repair', 'internal_orchestration_repair', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ",
+            &[
+                &recovery_run_id,
+                &input.dry_run,
+                &input.reason,
+                &input.requested_by,
+                &max_rows_per_category_i32,
+                &input.include_stale_claims,
+                &input.include_producer_cleanup,
+                &input.include_callback_ingest,
+                &input.include_verified_receipt_side_effects,
+                &recovery_notes,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+
+        let mut limited = false;
+        let mut producer_cleanup_repaired_count = 0_i64;
+        if input.include_producer_cleanup {
+            let producer_rows = if input.dry_run {
+                tx.query(
+                    "
+                    SELECT events.event_id
+                    FROM outbox.events events
+                    JOIN outbox.command_inbox inbox
+                        ON inbox.command_id = events.event_id
+                       AND inbox.source_event_id = events.event_id
+                    WHERE inbox.status = 'completed'
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                      AND events.delivery_status IN ($8, $9)
+                    ORDER BY events.causal_order, events.event_id
+                    LIMIT $10
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &OUTBOX_PENDING,
+                        &OUTBOX_PROCESSING,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT events.event_id
+                    FROM outbox.events events
+                    JOIN outbox.command_inbox inbox
+                        ON inbox.command_id = events.event_id
+                       AND inbox.source_event_id = events.event_id
+                    WHERE inbox.status = 'completed'
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                      AND events.delivery_status IN ($8, $9)
+                    ORDER BY events.causal_order, events.event_id
+                    LIMIT $10
+                    FOR UPDATE OF events SKIP LOCKED
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &OUTBOX_PENDING,
+                        &OUTBOX_PROCESSING,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let target =
+                bounded_uuid_targets(producer_rows, "event_id", input.max_rows_per_category)?;
+            limited |= target.limited;
+            if input.dry_run {
+                producer_cleanup_repaired_count = target.count;
+            } else if !target.ids.is_empty() {
+                producer_cleanup_repaired_count = rows_affected_to_i64(
+                    tx.execute(
+                        "
+                        UPDATE outbox.events events
+                        SET delivery_status = $2,
+                            claimed_by = NULL,
+                            claimed_until = NULL,
+                            published_at = COALESCE(events.published_at, inbox.completed_at, CURRENT_TIMESTAMP),
+                            retain_until = COALESCE(
+                                events.retain_until,
+                                CURRENT_TIMESTAMP + ($3::bigint * interval '1 minute')
+                            ),
+                            last_error_class = NULL,
+                            last_error_detail = NULL
+                        FROM outbox.command_inbox inbox
+                        WHERE events.event_id = ANY($1::uuid[])
+                          AND inbox.command_id = events.event_id
+                          AND inbox.source_event_id = events.event_id
+                          AND inbox.status = 'completed'
+                          AND inbox.command_type = events.event_type
+                          AND inbox.schema_version = events.schema_version
+                          AND inbox.payload_checksum = events.payload_hash
+                          AND (
+                                (events.event_type = $4 AND inbox.consumer_name = $5)
+                                OR (events.event_type = $6 AND inbox.consumer_name = $7)
+                                OR (events.event_type IN ($8, $9) AND inbox.consumer_name = $10)
+                              )
+                          AND events.delivery_status IN ($11, $12)
+                        ",
+                        &[
+                            &target.ids,
+                            &OUTBOX_PUBLISHED,
+                            &COMMAND_INBOX_RETENTION_MINUTES,
+                            &EVENT_OPEN_HOLD_INTENT,
+                            &SETTLEMENT_ORCHESTRATOR,
+                            &EVENT_INGEST_PROVIDER_CALLBACK,
+                            &PROVIDER_CALLBACK_CONSUMER,
+                            &EVENT_REFRESH_PROMISE_VIEW,
+                            &EVENT_REFRESH_SETTLEMENT_VIEW,
+                            &PROJECTION_BUILDER,
+                            &OUTBOX_PENDING,
+                            &OUTBOX_PROCESSING,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?,
+                    "producer cleanup repairs",
+                )?;
+            }
+        }
+
+        let mut stale_outbox_reclaimed_count = 0_i64;
+        let mut stale_inbox_reclaimed_count = 0_i64;
+        if input.include_stale_claims {
+            let stale_outbox_rows = if input.dry_run {
+                tx.query(
+                    "
+                    SELECT event_id
+                    FROM outbox.events
+                    WHERE delivery_status = $1
+                      AND event_type IN ($2, $3, $4, $5)
+                      AND COALESCE(
+                            claimed_until,
+                            last_attempt_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                    ORDER BY causal_order, event_id
+                    LIMIT $6
+                    ",
+                    &[
+                        &OUTBOX_PROCESSING,
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT event_id
+                    FROM outbox.events
+                    WHERE delivery_status = $1
+                      AND event_type IN ($2, $3, $4, $5)
+                      AND COALESCE(
+                            claimed_until,
+                            last_attempt_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                    ORDER BY available_at, event_id
+                    LIMIT $6
+                    FOR UPDATE SKIP LOCKED
+                    ",
+                    &[
+                        &OUTBOX_PROCESSING,
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let stale_outbox_target =
+                bounded_uuid_targets(stale_outbox_rows, "event_id", input.max_rows_per_category)?;
+            limited |= stale_outbox_target.limited;
+            if input.dry_run {
+                stale_outbox_reclaimed_count = stale_outbox_target.count;
+            } else if !stale_outbox_target.ids.is_empty() {
+                stale_outbox_reclaimed_count = rows_affected_to_i64(
+                    tx.execute(
+                        "
+                        UPDATE outbox.events
+                        SET delivery_status = $2,
+                            claimed_by = NULL,
+                            claimed_until = NULL,
+                            available_at = CURRENT_TIMESTAMP,
+                            last_error_class = 'transient',
+                            last_error_detail = 'recovery: stale outbox processing claim reset after lease expiry'
+                        WHERE event_id = ANY($1::uuid[])
+                          AND delivery_status = $3
+                          AND event_type IN ($4, $5, $6, $7)
+                          AND COALESCE(
+                                claimed_until,
+                                last_attempt_at + interval '5 minutes'
+                              ) < CURRENT_TIMESTAMP
+                        ",
+                        &[
+                            &stale_outbox_target.ids,
+                            &OUTBOX_PENDING,
+                            &OUTBOX_PROCESSING,
+                            &EVENT_OPEN_HOLD_INTENT,
+                            &EVENT_INGEST_PROVIDER_CALLBACK,
+                            &EVENT_REFRESH_PROMISE_VIEW,
+                            &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?,
+                    "stale outbox claims",
+                )?;
+            }
+
+            let stale_inbox_rows = if input.dry_run {
+                tx.query(
+                    "
+                    SELECT inbox.inbox_entry_id
+                    FROM outbox.command_inbox inbox
+                    JOIN outbox.events events
+                        ON events.event_id = inbox.command_id
+                       AND events.event_id = inbox.source_event_id
+                    WHERE inbox.status = 'processing'
+                      AND inbox.completed_at IS NULL
+                      AND COALESCE(
+                            inbox.claimed_until,
+                            inbox.received_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                    ORDER BY inbox.received_at, inbox.inbox_entry_id
+                    LIMIT $8
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            } else {
+                tx.query(
+                    "
+                    SELECT inbox.inbox_entry_id
+                    FROM outbox.command_inbox inbox
+                    JOIN outbox.events events
+                        ON events.event_id = inbox.command_id
+                       AND events.event_id = inbox.source_event_id
+                    WHERE inbox.status = 'processing'
+                      AND inbox.completed_at IS NULL
+                      AND COALESCE(
+                            inbox.claimed_until,
+                            inbox.received_at + interval '5 minutes'
+                          ) < CURRENT_TIMESTAMP
+                      AND inbox.command_type = events.event_type
+                      AND inbox.schema_version = events.schema_version
+                      AND inbox.payload_checksum = events.payload_hash
+                      AND (
+                            (events.event_type = $1 AND inbox.consumer_name = $2)
+                            OR (events.event_type = $3 AND inbox.consumer_name = $4)
+                            OR (events.event_type IN ($5, $6) AND inbox.consumer_name = $7)
+                          )
+                    ORDER BY inbox.received_at, inbox.inbox_entry_id
+                    LIMIT $8
+                    FOR UPDATE OF inbox SKIP LOCKED
+                    ",
+                    &[
+                        &EVENT_OPEN_HOLD_INTENT,
+                        &SETTLEMENT_ORCHESTRATOR,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &PROVIDER_CALLBACK_CONSUMER,
+                        &EVENT_REFRESH_PROMISE_VIEW,
+                        &EVENT_REFRESH_SETTLEMENT_VIEW,
+                        &PROJECTION_BUILDER,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?
+            };
+            let stale_inbox_target = bounded_uuid_targets(
+                stale_inbox_rows,
+                "inbox_entry_id",
+                input.max_rows_per_category,
+            )?;
+            limited |= stale_inbox_target.limited;
+            if input.dry_run {
+                stale_inbox_reclaimed_count = stale_inbox_target.count;
+            } else if !stale_inbox_target.ids.is_empty() {
+                stale_inbox_reclaimed_count = rows_affected_to_i64(
+                    tx.execute(
+                        "
+                        UPDATE outbox.command_inbox AS inbox
+                        SET status = 'pending',
+                            claimed_by = NULL,
+                            claimed_until = NULL,
+                            available_at = CURRENT_TIMESTAMP,
+                            last_error_class = 'transient',
+                            last_error_detail = 'recovery: stale command inbox processing claim reset after lease expiry'
+                        FROM outbox.events events
+                        WHERE inbox.inbox_entry_id = ANY($1::uuid[])
+                          AND events.event_id = inbox.command_id
+                          AND events.event_id = inbox.source_event_id
+                          AND inbox.status = 'processing'
+                          AND inbox.completed_at IS NULL
+                          AND COALESCE(
+                                inbox.claimed_until,
+                                inbox.received_at + interval '5 minutes'
+                              ) < CURRENT_TIMESTAMP
+                          AND inbox.command_type = events.event_type
+                          AND inbox.schema_version = events.schema_version
+                          AND inbox.payload_checksum = events.payload_hash
+                          AND (
+                                (events.event_type = $2 AND inbox.consumer_name = $3)
+                                OR (events.event_type = $4 AND inbox.consumer_name = $5)
+                                OR (events.event_type IN ($6, $7) AND inbox.consumer_name = $8)
+                              )
+                        ",
+                        &[
+                            &stale_inbox_target.ids,
+                            &EVENT_OPEN_HOLD_INTENT,
+                            &SETTLEMENT_ORCHESTRATOR,
+                            &EVENT_INGEST_PROVIDER_CALLBACK,
+                            &PROVIDER_CALLBACK_CONSUMER,
+                            &EVENT_REFRESH_PROMISE_VIEW,
+                            &EVENT_REFRESH_SETTLEMENT_VIEW,
+                            &PROJECTION_BUILDER,
+                        ],
+                    )
+                    .await
+                    .map_err(db_error)?,
+                    "stale inbox claims",
+                )?;
+            }
+        }
+
+        let mut callback_ingest_enqueued_count = 0_i64;
+        if input.include_callback_ingest {
+            let callback_target = bounded_uuid_targets(
+                tx.query(
+                    "
+                    SELECT raw.raw_callback_id
+                    FROM core.raw_provider_callbacks raw
+                    JOIN dao.settlement_submissions submission
+                        ON submission.provider_submission_id = raw.provider_submission_id
+                    JOIN dao.settlement_cases settlement
+                        ON settlement.settlement_case_id = submission.settlement_case_id
+                    JOIN dao.promise_intents promise
+                        ON promise.promise_intent_id = settlement.promise_intent_id
+                    JOIN core.pi_account_links link
+                        ON link.account_id = promise.initiator_account_id
+                    WHERE raw.provider_name = $1
+                      AND raw.provider_submission_id IS NOT NULL
+                      AND lower(trim(COALESCE(raw.callback_status, ''))) IN ($2, $3, $4)
+                      AND submission.submission_status = $5
+                      AND raw.payer_pi_uid = link.pi_uid
+                      AND raw.amount_minor_units = promise.deposit_amount_minor_units
+                      AND upper(trim(COALESCE(raw.currency_code, ''))) = upper(trim(promise.deposit_currency_code))
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM core.payment_receipts receipt
+                            WHERE receipt.provider_key = raw.provider_name
+                              AND receipt.external_payment_id = raw.provider_submission_id
+                              AND receipt.receipt_status = $6
+                        )
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM outbox.events events
+                            WHERE events.aggregate_id = raw.raw_callback_id
+                              AND events.event_type = $7
+                        )
+                    ORDER BY raw.received_at, raw.raw_callback_id
+                    LIMIT $8
+                    ",
+                    &[
+                        &PROVIDER_KEY,
+                        &"completed",
+                        &"succeeded",
+                        &"success",
+                        &"accepted",
+                        &RECEIPT_STATUS_VERIFIED,
+                        &EVENT_INGEST_PROVIDER_CALLBACK,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?,
+                "raw_callback_id",
+                input.max_rows_per_category,
+            )?;
+            limited |= callback_target.limited;
+            if input.dry_run {
+                callback_ingest_enqueued_count = callback_target.count;
+            } else {
+                for raw_callback_id in callback_target.ids {
+                    if insert_provider_callback_repair_outbox_tx(&tx, &raw_callback_id)
+                        .await?
+                        .is_some()
+                    {
+                        callback_ingest_enqueued_count = callback_ingest_enqueued_count
+                            .checked_add(1)
+                            .ok_or_else(|| {
+                                HappyRouteError::Internal(
+                                    "callback repair count overflowed".to_owned(),
+                                )
+                            })?;
+                    }
+                }
+            }
+        }
+
+        let mut verified_receipt_repaired_count = 0_i64;
+        if input.include_verified_receipt_side_effects {
+            let receipt_target = bounded_uuid_targets(
+                tx.query(
+                    "
+                    SELECT DISTINCT receipt.settlement_case_id
+                    FROM core.payment_receipts receipt
+                    JOIN dao.settlement_cases settlement
+                        ON settlement.settlement_case_id = receipt.settlement_case_id
+                    WHERE receipt.receipt_status = $1
+                      AND (
+                            settlement.case_status <> $2
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM ledger.journal_entries journal
+                                WHERE journal.settlement_case_id = receipt.settlement_case_id
+                                  AND journal.entry_kind = 'receipt_recognized'
+                            )
+                          )
+                    ORDER BY receipt.settlement_case_id
+                    LIMIT $3
+                    ",
+                    &[
+                        &RECEIPT_STATUS_VERIFIED,
+                        &SETTLEMENT_CASE_FUNDED,
+                        &max_plus_one,
+                    ],
+                )
+                .await
+                .map_err(db_error)?,
+                "settlement_case_id",
+                input.max_rows_per_category,
+            )?;
+            limited |= receipt_target.limited;
+            if input.dry_run {
+                verified_receipt_repaired_count = receipt_target.count;
+            } else {
+                for settlement_case_id in receipt_target.ids {
+                    let effects =
+                        apply_verified_receipt_side_effects_tx(&tx, &settlement_case_id).await?;
+                    if effects.repaired {
+                        verified_receipt_repaired_count = verified_receipt_repaired_count
+                            .checked_add(1)
+                            .ok_or_else(|| {
+                                HappyRouteError::Internal(
+                                    "verified receipt repair count overflowed".to_owned(),
+                                )
+                            })?;
+                    }
+                }
+            }
+        }
+
+        tx.execute(
+            "
+            UPDATE outbox.recovery_runs
+            SET completed_at = CURRENT_TIMESTAMP,
+                stale_outbox_reclaimed_count = $2,
+                stale_inbox_reclaimed_count = $3,
+                producer_cleanup_repaired_count = $4,
+                callback_ingest_enqueued_count = $5,
+                verified_receipt_repaired_count = $6,
+                limited = $7
+            WHERE recovery_run_id = $1
+            ",
+            &[
+                &recovery_run_id,
+                &stale_outbox_reclaimed_count,
+                &stale_inbox_reclaimed_count,
+                &producer_cleanup_repaired_count,
+                &callback_ingest_enqueued_count,
+                &verified_receipt_repaired_count,
+                &limited,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+        tx.execute(
+            "
+            DELETE FROM outbox.recovery_runs runs
+            USING (
+                SELECT recovery_run_id
+                FROM (
+                    SELECT
+                        recovery_run_id,
+                        row_number() OVER (
+                            PARTITION BY recovery_kind
+                            ORDER BY completed_at DESC, started_at DESC, recovery_run_id DESC
+                        ) AS retained_rank
+                    FROM outbox.recovery_runs
+                    WHERE completed_at IS NOT NULL
+                ) ranked
+                WHERE retained_rank > $1
+            ) expired
+            WHERE runs.recovery_run_id = expired.recovery_run_id
+            ",
+            &[&RECOVERY_RUN_RETAINED_COMPLETED_LIMIT],
+        )
+        .await
+        .map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+
+        Ok(super::types::OrchestrationRepairOutcome {
+            recovery_run_id: recovery_run_id.to_string(),
+            dry_run: input.dry_run,
+            stale_outbox_reclaimed_count,
+            stale_inbox_reclaimed_count,
+            producer_cleanup_repaired_count,
+            callback_ingest_enqueued_count,
+            verified_receipt_repaired_count,
+            limited,
+        })
+    }
+
     pub(super) async fn prepare_open_hold_intent(
         &self,
         message: &OutboxMessageRecord,
@@ -1524,8 +2167,8 @@ impl HappyRouteStore {
         let mut outbox_event_ids = Vec::new();
         if should_apply_verified_effects {
             let effects = apply_verified_receipt_side_effects_tx(&tx, &settlement_case_id).await?;
-            ledger_journal_id = effects.0;
-            outbox_event_ids = effects.1;
+            ledger_journal_id = effects.ledger_journal_id;
+            outbox_event_ids = effects.outbox_event_ids;
             if outbox_event_ids.is_empty() && !duplicate_receipt {
                 let settlement_refresh_event_id = insert_outbox_message_tx(
                     &tx,
@@ -2215,6 +2858,97 @@ async fn insert_outbox_message_tx(
     .await
     .map_err(db_error)?;
     Ok(event_id)
+}
+
+async fn insert_provider_callback_repair_outbox_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    raw_callback_id: &Uuid,
+) -> Result<Option<Uuid>, HappyRouteError> {
+    let event_id = Uuid::new_v4();
+    let idempotency_key = Uuid::new_v4();
+    let payload = command_payload(&OutboxCommand::IngestProviderCallback {
+        raw_callback_id: raw_callback_id.to_string(),
+    });
+    let payload_hash = sha256_hex(payload.to_string().as_bytes());
+    let aggregate_type = "provider_callback";
+    let stream_key = format!("{aggregate_type}:{raw_callback_id}");
+    let row = tx
+        .query_opt(
+            "
+            INSERT INTO outbox.events (
+                event_id,
+                idempotency_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                stream_key,
+                delivery_status
+            )
+            SELECT
+                $1,
+                $2,
+                $3,
+                raw.raw_callback_id,
+                $5,
+                1,
+                $6,
+                $7,
+                $8,
+                $9
+            FROM core.raw_provider_callbacks raw
+            JOIN dao.settlement_submissions submission
+                ON submission.provider_submission_id = raw.provider_submission_id
+            JOIN dao.settlement_cases settlement
+                ON settlement.settlement_case_id = submission.settlement_case_id
+            JOIN dao.promise_intents promise
+                ON promise.promise_intent_id = settlement.promise_intent_id
+            JOIN core.pi_account_links link
+                ON link.account_id = promise.initiator_account_id
+            WHERE raw.raw_callback_id = $4
+              AND raw.provider_name = $10
+              AND raw.provider_submission_id IS NOT NULL
+              AND lower(trim(COALESCE(raw.callback_status, ''))) IN ($11, $12, $13)
+              AND submission.submission_status = $14
+              AND raw.payer_pi_uid = link.pi_uid
+              AND raw.amount_minor_units = promise.deposit_amount_minor_units
+              AND upper(trim(COALESCE(raw.currency_code, ''))) = upper(trim(promise.deposit_currency_code))
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM core.payment_receipts receipt
+                    WHERE receipt.provider_key = raw.provider_name
+                      AND receipt.external_payment_id = raw.provider_submission_id
+                      AND receipt.receipt_status = $15
+                )
+            ON CONFLICT (aggregate_id)
+                WHERE aggregate_type = 'provider_callback'
+                  AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            DO NOTHING
+            RETURNING event_id
+            ",
+            &[
+                &event_id,
+                &idempotency_key,
+                &aggregate_type,
+                raw_callback_id,
+                &EVENT_INGEST_PROVIDER_CALLBACK,
+                &payload,
+                &payload_hash,
+                &stream_key,
+                &OUTBOX_PENDING,
+                &PROVIDER_KEY,
+                &"completed",
+                &"succeeded",
+                &"success",
+                &"accepted",
+                &RECEIPT_STATUS_VERIFIED,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(row.map(|row| row.get("event_id")))
 }
 
 async fn begin_command_tx(
@@ -3295,6 +4029,40 @@ fn db_error(error: tokio_postgres::Error) -> HappyRouteError {
     }
 }
 
+fn rows_affected_to_i64(rows: u64, label: &str) -> Result<i64, HappyRouteError> {
+    i64::try_from(rows)
+        .map_err(|_| HappyRouteError::Internal(format!("{label} count exceeded i64 range")))
+}
+
+struct BoundedUuidTargets {
+    ids: Vec<Uuid>,
+    count: i64,
+    limited: bool,
+}
+
+fn bounded_uuid_targets(
+    rows: Vec<Row>,
+    column_name: &str,
+    max_rows: i64,
+) -> Result<BoundedUuidTargets, HappyRouteError> {
+    let max_rows = usize::try_from(max_rows).map_err(|_| {
+        HappyRouteError::Internal("repair row limit could not be represented".to_owned())
+    })?;
+    let limited = rows.len() > max_rows;
+    let ids = rows
+        .into_iter()
+        .take(max_rows)
+        .map(|row| row.get(column_name))
+        .collect::<Vec<Uuid>>();
+    let count = i64::try_from(ids.len())
+        .map_err(|_| HappyRouteError::Internal("repair target count overflowed".to_owned()))?;
+    Ok(BoundedUuidTargets {
+        ids,
+        count,
+        limited,
+    })
+}
+
 async fn update_submission_status_tx(
     tx: &tokio_postgres::Transaction<'_>,
     settlement_submission_id: &Uuid,
@@ -3422,10 +4190,63 @@ async fn append_normalized_observations_tx(
     Ok(())
 }
 
+struct VerifiedReceiptSideEffects {
+    ledger_journal_id: Option<Uuid>,
+    outbox_event_ids: Vec<Uuid>,
+    repaired: bool,
+}
+
+async fn receipt_journal_has_expected_postings_tx(
+    tx: &tokio_postgres::Transaction<'_>,
+    journal_entry_id: &Uuid,
+    initiator_account_id: &Uuid,
+    amount_minor_units: i64,
+    currency_code: &str,
+) -> Result<bool, HappyRouteError> {
+    let row = tx
+        .query_one(
+            "
+            SELECT
+                count(*) AS posting_count,
+                count(*) FILTER (
+                    WHERE ledger_account_code = $2
+                      AND account_id IS NULL
+                      AND direction = $3
+                      AND amount_minor_units = $4
+                      AND currency_code = $5
+                ) AS expected_debit_count,
+                count(*) FILTER (
+                    WHERE ledger_account_code = $6
+                      AND account_id = $7
+                      AND direction = $8
+                      AND amount_minor_units = $4
+                      AND currency_code = $5
+                ) AS expected_credit_count
+            FROM ledger.account_postings
+            WHERE journal_entry_id = $1
+            ",
+            &[
+                journal_entry_id,
+                &LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND,
+                &LEDGER_DIRECTION_DEBIT,
+                &amount_minor_units,
+                &currency_code,
+                &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
+                initiator_account_id,
+                &LEDGER_DIRECTION_CREDIT,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+    Ok(row.get::<_, i64>("posting_count") == 2
+        && row.get::<_, i64>("expected_debit_count") == 1
+        && row.get::<_, i64>("expected_credit_count") == 1)
+}
+
 async fn apply_verified_receipt_side_effects_tx(
     tx: &tokio_postgres::Transaction<'_>,
     settlement_case_id: &Uuid,
-) -> Result<(Option<Uuid>, Vec<Uuid>), HappyRouteError> {
+) -> Result<VerifiedReceiptSideEffects, HappyRouteError> {
     let row = tx
         .query_one(
             "
@@ -3453,79 +4274,133 @@ async fn apply_verified_receipt_side_effects_tx(
         .await
         .map_err(db_error)?;
     let case_status: String = row.get("case_status");
-    if case_status == SETTLEMENT_CASE_FUNDED {
-        return Ok((None, Vec::new()));
+    let existing_journal_id = tx
+        .query_opt(
+            "
+            SELECT journal_entry_id
+            FROM ledger.journal_entries
+            WHERE settlement_case_id = $1
+              AND entry_kind = 'receipt_recognized'
+            ORDER BY created_at, journal_entry_id
+            LIMIT 1
+            ",
+            &[settlement_case_id],
+        )
+        .await
+        .map_err(db_error)?
+        .map(|row| row.get::<_, Uuid>("journal_entry_id"));
+    if case_status == SETTLEMENT_CASE_FUNDED && existing_journal_id.is_some() {
+        return Ok(VerifiedReceiptSideEffects {
+            ledger_journal_id: existing_journal_id,
+            outbox_event_ids: Vec::new(),
+            repaired: false,
+        });
     }
-    tx.execute(
-        "
-        UPDATE dao.settlement_cases
-        SET case_status = $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE settlement_case_id = $1
-        ",
-        &[settlement_case_id, &SETTLEMENT_CASE_FUNDED],
-    )
-    .await
-    .map_err(db_error)?;
 
     let promise_intent_id: Uuid = row.get("promise_intent_id");
-    let realm_id: String = row.get("settlement_realm_id");
     let initiator_account_id: Uuid = row.get("initiator_account_id");
     let amount_minor_units: i64 = row.get("deposit_amount_minor_units");
     let currency_code: String = row.get("deposit_currency_code");
-    let journal_entry_id = Uuid::new_v4();
-    tx.execute(
-        "
-        INSERT INTO ledger.journal_entries (
-            journal_entry_id,
-            settlement_case_id,
-            promise_intent_id,
-            realm_id,
-            entry_kind,
-            effective_at
-        )
-        VALUES ($1, $2, $3, $4, 'receipt_recognized', CURRENT_TIMESTAMP)
-        ",
-        &[
+    let ledger_journal_id = if let Some(journal_entry_id) = existing_journal_id {
+        let journal_is_complete = receipt_journal_has_expected_postings_tx(
+            tx,
             &journal_entry_id,
-            settlement_case_id,
-            &promise_intent_id,
-            &realm_id,
-        ],
-    )
-    .await
-    .map_err(db_error)?;
-    tx.execute(
-        "
-        INSERT INTO ledger.account_postings (
-            posting_id,
-            journal_entry_id,
-            posting_order,
-            ledger_account_code,
-            account_id,
-            direction,
-            amount_minor_units,
-            currency_code
-        )
-        VALUES
-            ($1, $2, 1, $3, NULL, $4, $5, $6),
-            ($7, $2, 2, $8, $9, $10, $5, $6)
-        ",
-        &[
-            &Uuid::new_v4(),
-            &journal_entry_id,
-            &LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND,
-            &LEDGER_DIRECTION_DEBIT,
-            &amount_minor_units,
-            &currency_code,
-            &Uuid::new_v4(),
-            &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
             &initiator_account_id,
-            &LEDGER_DIRECTION_CREDIT,
-        ],
-    )
-    .await
-    .map_err(db_error)?;
+            amount_minor_units,
+            &currency_code,
+        )
+        .await?;
+        if !journal_is_complete {
+            return Ok(VerifiedReceiptSideEffects {
+                ledger_journal_id: Some(journal_entry_id),
+                outbox_event_ids: Vec::new(),
+                repaired: false,
+            });
+        }
+        if case_status != SETTLEMENT_CASE_FUNDED {
+            tx.execute(
+                "
+                UPDATE dao.settlement_cases
+                SET case_status = $2,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE settlement_case_id = $1
+                ",
+                &[settlement_case_id, &SETTLEMENT_CASE_FUNDED],
+            )
+            .await
+            .map_err(db_error)?;
+        }
+        journal_entry_id
+    } else {
+        if case_status != SETTLEMENT_CASE_FUNDED {
+            tx.execute(
+                "
+                UPDATE dao.settlement_cases
+                SET case_status = $2,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE settlement_case_id = $1
+                ",
+                &[settlement_case_id, &SETTLEMENT_CASE_FUNDED],
+            )
+            .await
+            .map_err(db_error)?;
+        }
+        let realm_id: String = row.get("settlement_realm_id");
+        let journal_entry_id = Uuid::new_v4();
+        tx.execute(
+            "
+            INSERT INTO ledger.journal_entries (
+                journal_entry_id,
+                settlement_case_id,
+                promise_intent_id,
+                realm_id,
+                entry_kind,
+                effective_at
+            )
+            VALUES ($1, $2, $3, $4, 'receipt_recognized', CURRENT_TIMESTAMP)
+            ",
+            &[
+                &journal_entry_id,
+                settlement_case_id,
+                &promise_intent_id,
+                &realm_id,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+        tx.execute(
+            "
+            INSERT INTO ledger.account_postings (
+                posting_id,
+                journal_entry_id,
+                posting_order,
+                ledger_account_code,
+                account_id,
+                direction,
+                amount_minor_units,
+                currency_code
+            )
+            VALUES
+                ($1, $2, 1, $3, NULL, $4, $5, $6),
+                ($7, $2, 2, $8, $9, $10, $5, $6)
+            ",
+            &[
+                &Uuid::new_v4(),
+                &journal_entry_id,
+                &LEDGER_ACCOUNT_PROVIDER_CLEARING_INBOUND,
+                &LEDGER_DIRECTION_DEBIT,
+                &amount_minor_units,
+                &currency_code,
+                &Uuid::new_v4(),
+                &LEDGER_ACCOUNT_USER_SECURED_FUNDS_LIABILITY,
+                &initiator_account_id,
+                &LEDGER_DIRECTION_CREDIT,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+        journal_entry_id
+    };
     let settlement_event_id = insert_outbox_message_tx(
         tx,
         "settlement_case",
@@ -3546,10 +4421,11 @@ async fn apply_verified_receipt_side_effects_tx(
         },
     )
     .await?;
-    Ok((
-        Some(journal_entry_id),
-        vec![settlement_event_id, promise_event_id],
-    ))
+    Ok(VerifiedReceiptSideEffects {
+        ledger_journal_id: Some(ledger_journal_id),
+        outbox_event_ids: vec![settlement_event_id, promise_event_id],
+        repaired: true,
+    })
 }
 
 fn outbox_message_from_row(row: &Row) -> Result<OutboxMessageRecord, HappyRouteError> {

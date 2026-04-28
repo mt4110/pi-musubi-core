@@ -90,6 +90,43 @@ Because of that, the orchestration store only exposes state-changing reads throu
 
 That keeps the invariant explicit now instead of relying on code review memory later.
 
+## Recovery and reconciliation baseline
+
+Issue #16 adds an internal repair pass at `POST /api/internal/orchestration/repair`.
+It is mounted behind a separate internal/debug gate from drain.
+In debug builds it is available unless `MUSUBI_DISABLE_INTERNAL_ORCHESTRATION_REPAIR=true`.
+In release builds, `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_DRAIN=true` does not expose repair; repair requires `MUSUBI_ENABLE_INTERNAL_ORCHESTRATION_REPAIR=true`.
+In release builds it requires `Authorization: Bearer $MUSUBI_INTERNAL_API_TOKEN`.
+
+Repair requires an explicit JSON request body:
+- `dry_run`
+- `reason`
+- `max_rows_per_category` between 1 and 500
+- `include_stale_claims`
+- `include_producer_cleanup`
+- `include_callback_ingest`
+- `include_verified_receipt_side_effects`
+
+At least one include flag must be true.
+Each run requires `x-musubi-operator-id`, caps the trimmed reason at 1000 characters, caps the operator id at 200 characters, takes a transaction-scoped advisory lock, records the operator, reason, requested scope, dry-run flag, row bound, and whether the result was limited.
+Dry runs record the audit row and count bounded writer-owned targets, but do not mutate domain or coordination rows.
+The HTTP body is limited to 16 KiB.
+
+The repair pass uses the writer database as the only authority.
+It records each run in `outbox.recovery_runs` and does only forward repair:
+- reset expired `processing` outbox leases back to `pending` only for known orchestration event types
+- reset expired `processing` command-inbox leases back to `pending` only for known event/consumer pairs
+- mark an event `published` when the matching expected consumer command is already `completed`, with matching command id, source event id, command type, schema version, and payload checksum, but producer cleanup did not finish
+- re-enqueue `INGEST_PROVIDER_CALLBACK` only when raw callback evidence still matches an accepted writer-owned settlement submission, successful callback status, expected payer, expected amount, expected currency, and no verified receipt or ingest event already exists
+- apply verified receipt side effects when a verified writer-owned receipt exists but the settlement case or receipt-recognition journal side effect was not completed; an existing receipt-recognition journal is considered repairable only when its canonical debit and credit postings are already complete
+
+Recovery-run audit rows carry `retain_until`, and each repair pass prunes expired rows plus old completed audit rows beyond the hot-table retention cap.
+They are operational evidence with bounded retention, not eternal truth.
+
+Projection rows and observability snapshots are not repair authority.
+They may show stale or misleading state after failover or PITR restore, but recovery decides from writer-owned `dao`, `core`, `ledger`, and `outbox` records.
+Repair never destructively rewrites authoritative history; duplicate repair runs must converge through database idempotency and existing writer truth.
+
 ## Intentionally deferred
 
 Issue #5 does not implement:

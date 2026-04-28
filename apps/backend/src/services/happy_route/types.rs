@@ -6,6 +6,7 @@ use super::state::{PromiseIntentRecord, SettlementCaseRecord};
 pub enum HappyRouteError {
     BadRequest(String),
     Unauthorized(String),
+    Conflict(String),
     NotFound(String),
     ProviderCallbackMappingDeferred(String),
     Database {
@@ -26,6 +27,7 @@ impl HappyRouteError {
         match self {
             Self::BadRequest(message)
             | Self::Unauthorized(message)
+            | Self::Conflict(message)
             | Self::NotFound(message)
             | Self::ProviderCallbackMappingDeferred(message)
             | Self::Database { message, .. }
@@ -140,6 +142,30 @@ pub struct PaymentCallbackOutcome {
 #[derive(Clone, Debug)]
 pub struct DrainOutboxOutcome {
     pub processed_messages: Vec<ProcessedOutboxMessage>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OrchestrationRepairOutcome {
+    pub recovery_run_id: String,
+    pub dry_run: bool,
+    pub stale_outbox_reclaimed_count: i64,
+    pub stale_inbox_reclaimed_count: i64,
+    pub producer_cleanup_repaired_count: i64,
+    pub callback_ingest_enqueued_count: i64,
+    pub verified_receipt_repaired_count: i64,
+    pub limited: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct OrchestrationRepairInput {
+    pub dry_run: bool,
+    pub reason: String,
+    pub requested_by: String,
+    pub max_rows_per_category: i64,
+    pub include_stale_claims: bool,
+    pub include_producer_cleanup: bool,
+    pub include_callback_ingest: bool,
+    pub include_verified_receipt_side_effects: bool,
 }
 
 #[derive(Clone, Debug)]
