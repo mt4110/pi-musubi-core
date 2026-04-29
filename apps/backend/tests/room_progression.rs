@@ -766,7 +766,7 @@ async fn live_room_seal_rejects_decided_review_case() {
 }
 
 #[tokio::test]
-async fn stale_review_status_projection_does_not_authorize_live_room_seal() {
+async fn misleading_review_status_projection_does_not_authorize_live_room_seal() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
     let subject = sign_in(
@@ -826,6 +826,19 @@ async fn stale_review_status_projection_does_not_authorize_live_room_seal() {
     .await;
     assert_eq!(decision.status, StatusCode::OK);
 
+    let writer_review = client
+        .query_one(
+            "
+            SELECT review_status
+            FROM dao.review_cases
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review case writer truth must remain readable");
+    assert_eq!(writer_review.get::<_, String>("review_status"), "decided");
+
     let corrupted_rows = client
         .execute(
             "
@@ -846,6 +859,26 @@ async fn stale_review_status_projection_does_not_authorize_live_room_seal() {
         .await
         .expect("review status projection corruption fixture must update");
     assert_eq!(corrupted_rows, 1);
+
+    let misleading_projection = client
+        .query_one(
+            "
+            SELECT user_facing_status, latest_decision_fact_id
+            FROM projection.review_status_views
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("misleading review status projection must remain readable");
+    assert_eq!(
+        misleading_projection.get::<_, String>("user_facing_status"),
+        "pending_review"
+    );
+    assert_eq!(
+        misleading_projection.get::<_, Option<Uuid>>("latest_decision_fact_id"),
+        None
+    );
 
     let sealed = internal_post_json(
         &app,
