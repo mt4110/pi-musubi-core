@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft v0.1
+Status: Draft; aligned to accepted foundation commit `0c1c636`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -25,11 +25,16 @@ Upstream repository:
 
 Pinned reference for implementation work:
 
-- Foundation version: `v0.1.0`
-- Foundation commit SHA: `b094727`
-- Date pinned: `2026-03-31`
+- Foundation reference type: `commit`
+- Foundation commit SHA: `0c1c636`
+- Foundation commit title: `docs: accept core foundation ADRs 0006-0010`
+- Date pinned: `2026-04-30`
 - Pinned by: `Masaki Takemura`
-- Pinned release URL: `https://github.com/mt4110/musubi-foundation/releases/tag/v0.1.0`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0c1c636`
+- Previous pinned reference: `v0.1.0` / `b094727`
+
+No release tag is asserted for this alignment.
+Do not invent a foundation version label for this commit.
 
 Do not update this file casually.
 If the implementation starts depending on a newer foundation decision, update the pinned reference explicitly.
@@ -51,33 +56,49 @@ Before coding, read these upstream documents in order.
 6. `docs/adr/0003_server_realm_citadel_pool.md`
 7. `docs/adr/0004_japan_first_tax_first_and_named_operator.md`
 8. `docs/adr/0005_store_policy_and_token_boundary.md`
+9. `docs/adr/0006_writer_truth_projection_authority.md` - Status: Accepted at `0c1c636`
+10. `docs/adr/0007_pii_evidence_segregation.md` - Status: Accepted at `0c1c636`
+11. `docs/adr/0008_topology_ownership_boundaries.md` - Status: Accepted at `0c1c636`
+12. `docs/adr/0009_account_constraints.md` - Status: Accepted at `0c1c636`
+13. `docs/adr/0010_promise_trust_depth_semantics.md` - Status: Accepted at `0c1c636`
 
 ### Detail layer
-9. `docs/detail/accountability_matrix.md`
-10. `docs/detail/critical_incident_and_loss.md`
-11. `docs/detail/automated_decisioning_and_human_appeal.md`
-12. `docs/detail/youth_safety_and_age_assurance.md`
-13. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-14. `docs/detail/data_deletion_vs_legal_hold.md`
-15. `docs/detail/realm_model.md`
-16. `docs/detail/data_scope_model.md`
-17. `docs/detail/mobility_model.md`
-18. `docs/detail/settlement_model.md`
-19. `docs/detail/settlement_backend_trait.md`
-20. `docs/detail/proof_of_infrastructure.md`
-21. `docs/detail/protected_groups_and_translation_safety.md`
+14. `docs/detail/accountability_matrix.md`
+15. `docs/detail/critical_incident_and_loss.md`
+16. `docs/detail/automated_decisioning_and_human_appeal.md`
+17. `docs/detail/youth_safety_and_age_assurance.md`
+18. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+19. `docs/detail/data_deletion_vs_legal_hold.md`
+20. `docs/detail/realm_model.md`
+21. `docs/detail/data_scope_model.md`
+22. `docs/detail/mobility_model.md`
+23. `docs/detail/settlement_model.md`
+24. `docs/detail/settlement_backend_trait.md`
+25. `docs/detail/proof_of_infrastructure.md`
+26. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-22. `docs/whitepaper/01_executive_summary.md`
-23. `docs/whitepaper/02_realm_model.md`
-24. `docs/whitepaper/03_experience_model.md`
-25. `docs/whitepaper/04_dm_shield.md`
-26. `docs/whitepaper/05_trust_model.md`
-27. `docs/whitepaper/06_promise_protocol.md`
-28. `docs/whitepaper/07_realm_economy.md`
-29. `docs/whitepaper/08_unlock_engine.md`
+27. `docs/whitepaper/01_executive_summary.md`
+28. `docs/whitepaper/02_realm_model.md`
+29. `docs/whitepaper/03_experience_model.md`
+30. `docs/whitepaper/04_dm_shield.md`
+31. `docs/whitepaper/05_trust_model.md`
+32. `docs/whitepaper/06_promise_protocol.md`
+33. `docs/whitepaper/07_realm_economy.md`
+34. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
+
+### ADR-RC and implementation authority
+
+`docs/adr_reconstruction/*` files remain reconstruction records only.
+They are not implementation authority unless converted into an accepted foundation ADR and locked here.
+
+Accepted ADR-0006 through ADR-0010 are implementation-authorizing only within their stated scope.
+Prompt 3 implementation is not globally unblocked.
+Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
+
+Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
 ---
 
@@ -88,6 +109,10 @@ The following laws must survive all implementation work.
 ### 3.1 PostgreSQL is truth
 Business truth lives in PostgreSQL.
 Providers, chains, callbacks, and external runtimes are observed evidence.
+Writer truth controls state-changing decisions.
+Projection is not repair authority.
+Observability is not writer truth.
+Provider events, chain events, callback records, Device Attestation, Proximity Proof, ZK proofs, client state, and caches are evidence only unless an accepted ADR explicitly says otherwise.
 
 ### 3.2 PII and immutable truth are physically separated
 PII belongs in mutable, deletable, legally governed core records.
@@ -102,32 +127,45 @@ Realm promotion or relocation must not break realm identity.
 ### 3.5 One natural person, one Ordinary Account
 Do not weaken this.
 Operational or system identities are not ordinary participants.
+Controlled Exceptional Accounts must not become participants.
 
 ### 3.6 Trust is reliability infrastructure
 Not popularity.
 Not human worth.
 Not a bypass around consent.
+Not reply speed.
+Not dwell time.
+Not tenure.
+Not payment amount or payment frequency.
+Not engagement loops.
+Not romantic desirability.
 
 ### 3.7 Promise is accountable commitment
 Not a right to a person.
 Not romance entitlement.
 
-### 3.8 Escrow is self-discipline
+### 3.8 Relationship Depth requires consented facts
+Relationship Depth must not increase from unilateral or non-consented facts.
+
+### 3.9 Operator notes are not writer truth
+Operator notes are not financial truth, consent truth, Social Trust truth, Relationship Depth truth, or repair authority.
+
+### 3.10 Escrow is self-discipline
 Not bounty.
 Not pay-to-win.
 Not platform extraction from loneliness.
 
-### 3.9 Outbox / inbox are coordination logs
+### 3.11 Outbox / inbox are coordination logs
 Not eternal truth.
 They require pruning, quarantine, retry discipline, and idempotent external delivery.
 
-### 3.10 No float money
+### 3.12 No float money
 All monetary values must use integer minor units or fixed-point-safe abstractions.
 
-### 3.11 Drop-Tx-Before-Await
+### 3.13 Drop-Tx-Before-Await
 No authoritative transaction may be held open during external network I/O.
 
-### 3.12 Day 1 is web-only
+### 3.14 Day 1 is web-only
 Implement for Pi App / DApp on the web first.
 Do not optimize architecture around native mobile assumptions.
 
@@ -172,6 +210,9 @@ The next major implementation package should align to:
 5. outbox / inbox orchestration with pruning from Day 1
 6. proof inputs that are safer than naive client assertions
 
+This lock update does not authorize broad runtime implementation.
+Implementation work must still be split into tasks whose applicable foundation ADRs and dependencies are Accepted.
+
 ---
 
 ## 6. Update protocol
@@ -184,7 +225,7 @@ Update this file when:
 
 When updating:
 
-1. change the pinned SHA / version
+1. change the pinned SHA / release reference
 2. summarize what changed
 3. verify AGENTS.md still matches the new foundation
 4. run a drift review before merging
