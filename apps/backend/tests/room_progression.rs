@@ -766,6 +766,143 @@ async fn live_room_seal_rejects_decided_review_case() {
 }
 
 #[tokio::test]
+async fn stale_review_status_projection_does_not_authorize_live_room_seal() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-room-projection-authority-a",
+        "room-projection-authority-a",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-room-projection-authority-b",
+        "room-projection-authority-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let room_progression_id =
+        create_room(&app, &subject.account_id, &counterparty.account_id).await;
+
+    let review_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "sealed_room_fallback",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-room-default",
+            "opened_reason_code": "manual_hold_safety_review",
+            "source_fact_kind": "room_progression",
+            "source_fact_id": room_progression_id,
+            "source_snapshot_json": {},
+            "request_idempotency_key": "room-projection-authority-review"
+        }),
+    )
+    .await;
+    assert_eq!(review_case.status, StatusCode::OK);
+    let review_case_id = review_case.body["review_case_id"]
+        .as_str()
+        .expect("review case id must exist")
+        .to_owned();
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": "restriction rationale is internal",
+            "decision_payload_json": {
+                "resolution": "restrict"
+            },
+            "decision_idempotency_key": "room-projection-authority-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+
+    let corrupted_rows = client
+        .execute(
+            "
+            UPDATE projection.review_status_views
+            SET user_facing_status = 'pending_review',
+                user_facing_reason_code = 'manual_hold_safety_review',
+                appeal_status = 'none',
+                latest_decision_fact_id = NULL,
+                evidence_requested = FALSE,
+                appeal_available = FALSE,
+                source_watermark_at = CURRENT_TIMESTAMP,
+                source_fact_count = 1,
+                last_projected_at = CURRENT_TIMESTAMP
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review status projection corruption fixture must update");
+    assert_eq!(corrupted_rows, 1);
+
+    let sealed = internal_post_json(
+        &app,
+        &format!("/api/internal/room-progressions/{room_progression_id}/facts"),
+        json!({
+            "transition_kind": "seal",
+            "to_stage": "sealed",
+            "user_facing_reason_code": "manual_hold_safety_review",
+            "triggered_by_kind": "system",
+            "source_fact_kind": "review_case",
+            "source_fact_id": review_case_id,
+            "source_snapshot_json": {},
+            "review_case_id": review_case_id,
+            "fact_idempotency_key": "room-projection-authority-seal"
+        }),
+    )
+    .await;
+    assert_eq!(sealed.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        sealed.body["error"],
+        "live-room seal transitions require an active room-scoped review case"
+    );
+
+    let writer_track = client
+        .query_one(
+            "
+            SELECT current_stage, current_status_code, current_review_case_id
+            FROM dao.room_progression_tracks
+            WHERE room_progression_id::text = $1
+            ",
+            &[&room_progression_id],
+        )
+        .await
+        .expect("room progression writer track must remain readable");
+    assert_eq!(writer_track.get::<_, String>("current_stage"), "intent");
+    assert_eq!(
+        writer_track.get::<_, String>("current_status_code"),
+        "intent_open"
+    );
+    assert_eq!(
+        writer_track.get::<_, Option<Uuid>>("current_review_case_id"),
+        None
+    );
+
+    let room_view = get_json(
+        &app,
+        &format!("/api/projection/room-progression-views/{room_progression_id}"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(room_view.status, StatusCode::OK);
+    assert_eq!(room_view.body["visible_stage"], "intent");
+    assert_eq!(room_view.body["status_code"], "intent_open");
+    assert_eq!(room_view.body["review_case_id"], Value::Null);
+}
+
+#[tokio::test]
 async fn restricted_seal_rejects_participant_actor() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
