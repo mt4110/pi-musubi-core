@@ -372,6 +372,167 @@ async fn operator_review_flow_preserves_writer_truth_and_projects_safe_status() 
 }
 
 #[tokio::test]
+async fn operator_note_source_snapshot_does_not_mutate_settlement_writer_truth() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-review-source-authority",
+        "review-source-authority",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-review-source-authority-b",
+        "review-source-authority-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(subject.token.as_str()),
+        json!({
+            "internal_idempotency_key": "operator-source-authority-promise",
+            "realm_id": "realm-operator-source-authority",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+    assert_eq!(create_promise.status, StatusCode::OK);
+    let settlement_case_id = create_promise.body["settlement_case_id"]
+        .as_str()
+        .expect("settlement_case_id must exist")
+        .to_owned();
+    let original_settlement = settlement_writer_snapshot(&client, &settlement_case_id).await;
+    assert_eq!(original_settlement.case_status, "pending_funding");
+
+    let misleading_source_fact_id =
+        format!("settlement_case:{settlement_case_id}:operator-note-claims-funded");
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "settlement_conflict",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_settlement_case_id": settlement_case_id,
+            "related_realm_id": "realm-operator-source-authority",
+            "opened_reason_code": "policy_review",
+            "source_fact_kind": "settlement_case",
+            "source_fact_id": misleading_source_fact_id,
+            "source_snapshot_json": {
+                "settlement_case_id": settlement_case_id,
+                "case_status": "funded",
+                "payment_receipt_status": "verified",
+                "ledger_journal_count": 1,
+                "repair_authority": "operator_note_internal",
+                "consent_override": true,
+                "social_trust_delta": 99,
+                "relationship_depth_delta": 99
+            },
+            "request_idempotency_key": "operator-source-authority-review"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let review_source = client
+        .query_one(
+            "
+            SELECT source_fact_kind, source_fact_id, source_snapshot_json
+            FROM dao.review_cases
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review case source metadata must remain readable");
+    assert_eq!(
+        review_source.get::<_, String>("source_fact_kind"),
+        "settlement_case"
+    );
+    assert_eq!(
+        review_source.get::<_, String>("source_fact_id"),
+        misleading_source_fact_id
+    );
+    let source_snapshot = review_source.get::<_, Value>("source_snapshot_json");
+    assert_eq!(source_snapshot["case_status"], "funded");
+    assert_eq!(
+        source_snapshot["repair_authority"],
+        "operator_note_internal"
+    );
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "no_action",
+            "user_facing_reason_code": "resolved_no_action",
+            "operator_note_internal": format!(
+                "operator note claims settlement {settlement_case_id} is funded and repairable"
+            ),
+            "decision_payload_json": {
+                "settlement_case_id": settlement_case_id,
+                "case_status": "funded",
+                "payment_receipt_status": "verified",
+                "ledger_journal_count": 1,
+                "repair_authority": "operator_note_internal",
+                "consent_override": true,
+                "social_trust_delta": 99,
+                "relationship_depth_delta": 99
+            },
+            "decision_idempotency_key": "operator-source-authority-decision"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("decision fact id must exist")
+        .to_owned();
+
+    let decision_fact = client
+        .query_one(
+            "
+            SELECT operator_note_internal, decision_payload_json
+            FROM dao.operator_decision_facts
+            WHERE operator_decision_fact_id::text = $1
+            ",
+            &[&decision_fact_id],
+        )
+        .await
+        .expect("operator decision fact must remain readable");
+    let operator_note = decision_fact
+        .get::<_, Option<String>>("operator_note_internal")
+        .expect("operator note fixture must be stored on the operator decision fact");
+    assert!(operator_note.contains("is funded and repairable"));
+    let decision_payload = decision_fact.get::<_, Value>("decision_payload_json");
+    assert_eq!(decision_payload["case_status"], "funded");
+    assert_eq!(
+        decision_payload["repair_authority"],
+        "operator_note_internal"
+    );
+
+    assert_eq!(decision_count(&client, &review_case_id).await, 1);
+    assert_eq!(
+        settlement_writer_snapshot(&client, &settlement_case_id).await,
+        original_settlement,
+        "operator notes and source snapshots must not mutate settlement writer truth"
+    );
+}
+
+#[tokio::test]
 async fn distinct_operator_decisions_append_new_facts_without_rewriting_source_truth() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -1415,6 +1576,56 @@ async fn settlement_status(client: &tokio_postgres::Client, settlement_case_id: 
         .await
         .expect("settlement case must exist")
         .get("case_status")
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SettlementWriterSnapshot {
+    case_status: String,
+    payment_receipt_count: i64,
+    journal_count: i64,
+    posting_count: i64,
+    observation_count: i64,
+    submission_count: i64,
+}
+
+async fn settlement_writer_snapshot(
+    client: &tokio_postgres::Client,
+    settlement_case_id: &str,
+) -> SettlementWriterSnapshot {
+    let row = client
+        .query_one(
+            "
+            SELECT
+                settlement.case_status,
+                (SELECT count(*) FROM core.payment_receipts receipt
+                 WHERE receipt.settlement_case_id::text = $1) AS payment_receipt_count,
+                (SELECT count(*) FROM ledger.journal_entries journal
+                 WHERE journal.settlement_case_id::text = $1) AS journal_count,
+                (SELECT count(*)
+                 FROM ledger.account_postings posting
+                 JOIN ledger.journal_entries journal
+                   ON journal.journal_entry_id = posting.journal_entry_id
+                 WHERE journal.settlement_case_id::text = $1) AS posting_count,
+                (SELECT count(*) FROM dao.settlement_observations observation
+                 WHERE observation.settlement_case_id::text = $1) AS observation_count,
+                (SELECT count(*) FROM dao.settlement_submissions submission
+                 WHERE submission.settlement_case_id::text = $1) AS submission_count
+            FROM dao.settlement_cases settlement
+            WHERE settlement.settlement_case_id::text = $1
+            ",
+            &[&settlement_case_id],
+        )
+        .await
+        .expect("settlement writer snapshot must be queryable");
+
+    SettlementWriterSnapshot {
+        case_status: row.get("case_status"),
+        payment_receipt_count: row.get("payment_receipt_count"),
+        journal_count: row.get("journal_count"),
+        posting_count: row.get("posting_count"),
+        observation_count: row.get("observation_count"),
+        submission_count: row.get("submission_count"),
+    }
 }
 
 async fn decision_count(client: &tokio_postgres::Client, review_case_id: &str) -> i64 {
