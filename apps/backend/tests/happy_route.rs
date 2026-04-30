@@ -1468,6 +1468,120 @@ async fn orchestration_repair_ignores_projection_without_writer_receipt() {
 }
 
 #[tokio::test]
+async fn raw_provider_callback_paid_without_verified_receipt_does_not_advance_settlement_truth() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+    let raw_callback_id = insert_raw_callback_repair_fixture(
+        &client,
+        &prepared,
+        "completed",
+        10000,
+        "PI",
+        &prepared.initiator_pi_uid,
+        &prepared.payment_id,
+    )
+    .await;
+
+    let before = client
+        .query_one(
+            "
+            SELECT
+                (SELECT case_status FROM dao.settlement_cases WHERE settlement_case_id::text = $1) AS case_status,
+                (SELECT count(*) FROM core.payment_receipts WHERE settlement_case_id::text = $1) AS receipt_count,
+                (SELECT count(*) FROM ledger.journal_entries WHERE settlement_case_id::text = $1) AS journal_count,
+                (SELECT count(*)
+                   FROM ledger.account_postings posting
+                   JOIN ledger.journal_entries journal
+                     ON journal.journal_entry_id = posting.journal_entry_id
+                  WHERE journal.settlement_case_id::text = $1) AS posting_count,
+                (SELECT count(*)
+                   FROM core.raw_provider_callbacks
+                  WHERE raw_callback_id = $2
+                    AND provider_submission_id = $3
+                    AND callback_status = 'completed') AS raw_paid_evidence_count
+            ",
+            &[&prepared.settlement_case_id, &raw_callback_id, &prepared.payment_id],
+        )
+        .await
+        .expect("provider evidence preconditions must be queryable");
+    assert_eq!(before.get::<_, String>("case_status"), "pending_funding");
+    assert_eq!(before.get::<_, i64>("receipt_count"), 0);
+    assert_eq!(before.get::<_, i64>("journal_count"), 0);
+    assert_eq!(before.get::<_, i64>("posting_count"), 0);
+    assert_eq!(before.get::<_, i64>("raw_paid_evidence_count"), 1);
+
+    let repair = post_repair(
+        &app,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["callback_ingest_enqueued_count"], 1);
+    assert_eq!(repair.body["verified_receipt_repaired_count"], 0);
+
+    let after = client
+        .query_one(
+            "
+            SELECT
+                (SELECT case_status FROM dao.settlement_cases WHERE settlement_case_id::text = $1) AS case_status,
+                (SELECT count(*) FROM core.payment_receipts WHERE settlement_case_id::text = $1) AS receipt_count,
+                (SELECT count(*) FROM ledger.journal_entries WHERE settlement_case_id::text = $1) AS journal_count,
+                (SELECT count(*)
+                   FROM ledger.account_postings posting
+                   JOIN ledger.journal_entries journal
+                     ON journal.journal_entry_id = posting.journal_entry_id
+                  WHERE journal.settlement_case_id::text = $1) AS posting_count,
+                (SELECT count(*)
+                   FROM outbox.events
+                  WHERE aggregate_id = $2
+                    AND event_type = 'INGEST_PROVIDER_CALLBACK') AS callback_ingest_event_count,
+                (SELECT count(*)
+                   FROM outbox.events
+                  WHERE aggregate_id = $2
+                    AND event_type = 'INGEST_PROVIDER_CALLBACK'
+                    AND delivery_status = 'pending') AS pending_callback_ingest_event_count,
+                (SELECT count(*)
+                   FROM core.raw_provider_callbacks
+                  WHERE raw_callback_id = $2
+                    AND provider_submission_id = $3
+                    AND callback_status = 'completed') AS raw_paid_evidence_count
+            ",
+            &[&prepared.settlement_case_id, &raw_callback_id, &prepared.payment_id],
+        )
+        .await
+        .expect("provider evidence non-authority result must be queryable");
+    assert_eq!(after.get::<_, String>("case_status"), "pending_funding");
+    assert_eq!(after.get::<_, i64>("receipt_count"), 0);
+    assert_eq!(after.get::<_, i64>("journal_count"), 0);
+    assert_eq!(after.get::<_, i64>("posting_count"), 0);
+    assert_eq!(after.get::<_, i64>("callback_ingest_event_count"), 1);
+    assert_eq!(
+        after.get::<_, i64>("pending_callback_ingest_event_count"),
+        1
+    );
+    assert_eq!(after.get::<_, i64>("raw_paid_evidence_count"), 1);
+
+    let settlement_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(settlement_view.status, StatusCode::OK);
+    assert_eq!(
+        settlement_view.body["current_settlement_status"],
+        "pending_funding"
+    );
+    assert_eq!(settlement_view.body["total_funded_minor_units"], 0);
+    assert!(settlement_view.body["latest_journal_entry_id"].is_null());
+}
+
+#[tokio::test]
 async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
