@@ -1582,6 +1582,140 @@ async fn raw_provider_callback_paid_without_verified_receipt_does_not_advance_se
 }
 
 #[tokio::test]
+async fn outbox_callback_ingest_payload_does_not_archive_raw_callback_pii() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+    let raw_callback_id = insert_raw_callback_repair_fixture(
+        &client,
+        &prepared,
+        "completed",
+        10000,
+        "PI",
+        &prepared.initiator_pi_uid,
+        &prepared.payment_id,
+    )
+    .await;
+
+    let raw_evidence = client
+        .query_one(
+            "
+            SELECT
+                raw_body,
+                raw_body_bytes,
+                payer_pi_uid,
+                provider_submission_id,
+                txid,
+                callback_status
+            FROM core.raw_provider_callbacks
+            WHERE raw_callback_id = $1
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("raw callback evidence must remain queryable");
+    let raw_body = raw_evidence.get::<_, String>("raw_body");
+    let raw_body_bytes = raw_evidence.get::<_, Vec<u8>>("raw_body_bytes");
+    let raw_body_from_bytes =
+        String::from_utf8(raw_body_bytes).expect("raw callback fixture must be UTF-8");
+    let provider_submission_id = raw_evidence
+        .get::<_, Option<String>>("provider_submission_id")
+        .expect("provider submission id must be copied only into raw evidence");
+    let payer_pi_uid = raw_evidence
+        .get::<_, Option<String>>("payer_pi_uid")
+        .expect("payer_pi_uid must be copied only into raw evidence");
+    let txid = raw_evidence
+        .get::<_, Option<String>>("txid")
+        .expect("txid must be copied only into raw evidence");
+    assert_eq!(provider_submission_id, prepared.payment_id);
+    assert_eq!(payer_pi_uid, prepared.initiator_pi_uid);
+    assert_eq!(
+        raw_evidence.get::<_, Option<String>>("callback_status"),
+        Some("completed".to_owned())
+    );
+    assert!(raw_body.contains(&prepared.payment_id));
+    assert!(raw_body.contains(&prepared.initiator_pi_uid));
+    assert_eq!(raw_body_from_bytes, raw_body);
+
+    let repair = post_repair(
+        &app,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["callback_ingest_enqueued_count"], 1);
+    assert_eq!(repair.body["verified_receipt_repaired_count"], 0);
+
+    let outbox_event = client
+        .query_one(
+            "
+            SELECT payload_json, delivery_status
+            FROM outbox.events
+            WHERE aggregate_id = $1
+              AND event_type = 'INGEST_PROVIDER_CALLBACK'
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("callback ingest outbox event must be enqueued");
+    assert_eq!(outbox_event.get::<_, String>("delivery_status"), "pending");
+    let payload = outbox_event.get::<_, Value>("payload_json");
+    let payload_object = payload
+        .as_object()
+        .expect("outbox payload must be a JSON object");
+    assert_eq!(payload_object.len(), 1);
+    let expected_raw_callback_id = raw_callback_id.to_string();
+    assert_eq!(
+        payload["raw_callback_id"].as_str(),
+        Some(expected_raw_callback_id.as_str())
+    );
+
+    let payload_text = payload.to_string();
+    for forbidden in [
+        prepared.initiator_pi_uid.as_str(),
+        prepared.payment_id.as_str(),
+        raw_body.as_str(),
+        provider_submission_id.as_str(),
+        payer_pi_uid.as_str(),
+        txid.as_str(),
+        "payer_pi_uid",
+        "payment_id",
+        "provider_submission_id",
+        "raw_body",
+        "raw_body_bytes",
+        "redacted_headers",
+        "headers",
+        "provider_payload",
+        "amount_minor_units",
+        "currency_code",
+        "callback_status",
+        "completed",
+    ] {
+        assert!(
+            !payload_text.contains(forbidden),
+            "outbox payload_json must not archive raw callback PII or provider evidence field {forbidden}"
+        );
+    }
+
+    let raw_evidence_count: i64 = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM core.raw_provider_callbacks
+            WHERE raw_callback_id = $1
+              AND raw_body = $2
+              AND payer_pi_uid = $3
+            ",
+            &[&raw_callback_id, &raw_body, &prepared.initiator_pi_uid],
+        )
+        .await
+        .expect("raw callback evidence must remain in raw evidence storage")
+        .get("count");
+    assert_eq!(raw_evidence_count, 1);
+}
+
+#[tokio::test]
 async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
