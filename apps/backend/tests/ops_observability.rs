@@ -3,7 +3,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use musubi_backend::{build_app, new_test_state};
+use musubi_backend::{build_app, new_test_state, services::launch_posture::LaunchPostureConfig};
 use musubi_db_runtime::MIGRATION_LOCK_KEY;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -204,6 +204,69 @@ async fn ops_snapshot_reports_maintained_projection_meta_freshness() {
         .as_i64()
         .expect("settlement_views lag must be reported");
     assert!(lag >= 60_000, "expected settlement_views lag, got {lag}");
+}
+
+#[tokio::test]
+async fn healthy_observability_projection_does_not_open_paused_launch_writes() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let client = test_db_client().await;
+    let participant = sign_in(
+        &app,
+        "pi-user-ops-launch-nonauthority",
+        "ops-launch-nonauthority",
+    )
+    .await;
+    test_state
+        .replace_launch_config_for_test(LaunchPostureConfig::paused_for_test())
+        .await;
+    upsert_projection_meta_freshness_row(&client, "promise_views", 1, 0, 0).await;
+    upsert_projection_meta_freshness_row(&client, "settlement_views", 1, 0, 0).await;
+
+    let ops = get_json(&app, "/api/internal/ops/observability/snapshot", None).await;
+
+    assert_eq!(ops.status, StatusCode::OK);
+    assert_eq!(ops.body["status"], "ok");
+    for projection_name in ["promise_views", "settlement_views"] {
+        let metric = projection_metric(&ops.body, projection_name);
+        assert_eq!(metric["status"], "ok");
+        assert_eq!(metric["max_projection_lag_ms"], 0);
+    }
+    assert_eq!(
+        ops.body["boundary"]["observability_is_business_truth"],
+        false
+    );
+    assert_eq!(
+        ops.body["boundary"]["projection_lag_is_writer_decision_input"],
+        false
+    );
+
+    let launch = get_json(&app, "/api/internal/launch/posture", None).await;
+    assert_eq!(launch.status, StatusCode::OK);
+    assert_eq!(launch.body["effective_posture"], "paused");
+    assert_eq!(launch.body["observability_is_launch_truth"], false);
+    assert_eq!(launch.body["projection_is_launch_truth"], false);
+
+    let slug_candidate = "ops-launch-nonauthority";
+    let before_count = realm_request_count(&client, slug_candidate).await;
+    let response = post_json(
+        &app,
+        "/api/realms/requests",
+        Some(participant.token.as_str()),
+        realm_request_body(slug_candidate),
+    )
+    .await;
+    let after_count = realm_request_count(&client, slug_candidate).await;
+
+    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.body["message_code"], "launch_paused");
+    assert_eq!(before_count, after_count);
+
+    let launch_after = get_json(&app, "/api/internal/launch/posture", None).await;
+    assert_eq!(launch_after.status, StatusCode::OK);
+    assert_eq!(launch_after.body["effective_posture"], "paused");
+    assert_eq!(launch_after.body["observability_is_launch_truth"], false);
+    assert_eq!(launch_after.body["projection_is_launch_truth"], false);
 }
 
 #[tokio::test]
@@ -586,6 +649,40 @@ fn maybe_projection_metric<'a>(body: &'a Value, projection_name: &str) -> Option
         .expect("projection_lag must be an array")
         .iter()
         .find(|metric| metric["projection_name"] == projection_name)
+}
+
+fn realm_request_body(slug_candidate: &str) -> Value {
+    json!({
+        "display_name": "Ops Launch Non-Authority Realm",
+        "slug_candidate": slug_candidate,
+        "purpose_text": "Validate observability non-authority for launch posture",
+        "venue_context_json": {
+            "kind": "test_venue",
+            "locality": "Tokyo"
+        },
+        "expected_member_shape_json": {
+            "kind": "bounded_test_group"
+        },
+        "bootstrap_rationale_text": "Projection and observability must not open launch",
+        "proposed_sponsor_account_id": null,
+        "proposed_steward_account_id": null,
+        "request_idempotency_key": format!("ops-launch-request-{slug_candidate}")
+    })
+}
+
+async fn realm_request_count(client: &tokio_postgres::Client, slug_candidate: &str) -> i64 {
+    client
+        .query_one(
+            "
+            SELECT COUNT(*)::bigint AS count
+            FROM dao.realm_requests
+            WHERE slug_candidate = $1
+            ",
+            &[&slug_candidate],
+        )
+        .await
+        .expect("realm request count must be queryable")
+        .get("count")
 }
 
 async fn migration_tracking_count(client: &tokio_postgres::Client) -> i64 {
