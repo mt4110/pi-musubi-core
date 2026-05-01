@@ -5021,6 +5021,226 @@ async fn promise_intent_rejects_blank_internal_idempotency_key() {
 }
 
 #[tokio::test]
+async fn controlled_exceptional_account_cannot_create_promise_as_participant() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let controlled = sign_in(&app, "pi-user-controlled-promise-a", "controlled-promise-a").await;
+    let counterparty = sign_in(&app, "pi-user-controlled-promise-b", "controlled-promise-b").await;
+    let controlled_account_id =
+        Uuid::parse_str(&controlled.account_id).expect("controlled account id must be uuid");
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE core.accounts
+            SET account_class = 'Controlled Exceptional Account'
+            WHERE account_id = $1
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("account class fixture must update");
+
+    let account_row = client
+        .query_one(
+            "
+            SELECT account_class, account_state
+            FROM core.accounts
+            WHERE account_id = $1
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("controlled account fixture must exist");
+    assert_eq!(
+        account_row.get::<_, String>("account_class"),
+        "Controlled Exceptional Account"
+    );
+    assert_eq!(account_row.get::<_, String>("account_state"), "active");
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(controlled.token.as_str()),
+        json!({
+            "internal_idempotency_key": "controlled-exceptional-promise",
+            "realm_id": "realm-controlled-exceptional-promise",
+            "counterparty_account_id": counterparty.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+
+    let row = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*)
+                   FROM dao.promise_intents
+                  WHERE initiator_account_id = $1
+                     OR counterparty_account_id = $1) AS promise_count,
+                (SELECT count(*)
+                   FROM dao.settlement_cases settlement
+                   JOIN dao.promise_intents promise
+                     ON promise.promise_intent_id = settlement.promise_intent_id
+                  WHERE promise.initiator_account_id = $1
+                     OR promise.counterparty_account_id = $1) AS settlement_count,
+                (SELECT count(*)
+                   FROM projection.trust_snapshots
+                  WHERE account_id = $1) AS trust_snapshot_count,
+                (SELECT count(*)
+                   FROM projection.realm_trust_snapshots
+                  WHERE account_id = $1) AS realm_trust_snapshot_count
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("controlled account participant effects must be queryable");
+    assert_eq!(
+        row.get::<_, i64>("promise_count"),
+        0,
+        "Controlled Exceptional Account must not create Promise writer facts; response status was {:?}",
+        create_promise.status
+    );
+    assert_eq!(
+        row.get::<_, i64>("settlement_count"),
+        0,
+        "Controlled Exceptional Account must not create settlement writer facts; response status was {:?}",
+        create_promise.status
+    );
+    assert_eq!(row.get::<_, i64>("trust_snapshot_count"), 0);
+    assert_eq!(row.get::<_, i64>("realm_trust_snapshot_count"), 0);
+    assert!(
+        matches!(
+            create_promise.status,
+            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ),
+        "Controlled Exceptional Account participant request must be rejected; got {:?}",
+        create_promise.status
+    );
+}
+
+#[tokio::test]
+async fn controlled_exceptional_account_cannot_be_promise_counterparty() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let initiator = sign_in(
+        &app,
+        "pi-user-controlled-counterparty-a",
+        "controlled-counterparty-a",
+    )
+    .await;
+    let controlled = sign_in(
+        &app,
+        "pi-user-controlled-counterparty-b",
+        "controlled-counterparty-b",
+    )
+    .await;
+    let controlled_account_id =
+        Uuid::parse_str(&controlled.account_id).expect("controlled account id must be uuid");
+    let client = test_db_client().await;
+
+    client
+        .execute(
+            "
+            UPDATE core.accounts
+            SET account_class = 'Controlled Exceptional Account'
+            WHERE account_id = $1
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("account class fixture must update");
+
+    let account_row = client
+        .query_one(
+            "
+            SELECT account_class, account_state
+            FROM core.accounts
+            WHERE account_id = $1
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("controlled account fixture must exist");
+    assert_eq!(
+        account_row.get::<_, String>("account_class"),
+        "Controlled Exceptional Account"
+    );
+    assert_eq!(account_row.get::<_, String>("account_state"), "active");
+
+    let create_promise = post_json(
+        &app,
+        "/api/promise/intents",
+        Some(initiator.token.as_str()),
+        json!({
+            "internal_idempotency_key": "controlled-exceptional-counterparty",
+            "realm_id": "realm-controlled-exceptional-counterparty",
+            "counterparty_account_id": controlled.account_id,
+            "deposit_amount_minor_units": 10000,
+            "currency_code": "PI"
+        }),
+    )
+    .await;
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+
+    let row = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*)
+                   FROM dao.promise_intents
+                  WHERE initiator_account_id = $1
+                     OR counterparty_account_id = $1) AS promise_count,
+                (SELECT count(*)
+                   FROM dao.settlement_cases settlement
+                   JOIN dao.promise_intents promise
+                     ON promise.promise_intent_id = settlement.promise_intent_id
+                  WHERE promise.initiator_account_id = $1
+                     OR promise.counterparty_account_id = $1) AS settlement_count,
+                (SELECT count(*)
+                   FROM projection.trust_snapshots
+                  WHERE account_id = $1) AS trust_snapshot_count,
+                (SELECT count(*)
+                   FROM projection.realm_trust_snapshots
+                  WHERE account_id = $1) AS realm_trust_snapshot_count
+            ",
+            &[&controlled_account_id],
+        )
+        .await
+        .expect("controlled counterparty participant effects must be queryable");
+    assert_eq!(
+        row.get::<_, i64>("promise_count"),
+        0,
+        "Controlled Exceptional Account must not receive Promise writer facts; response status was {:?}",
+        create_promise.status
+    );
+    assert_eq!(
+        row.get::<_, i64>("settlement_count"),
+        0,
+        "Controlled Exceptional Account must not receive settlement writer facts; response status was {:?}",
+        create_promise.status
+    );
+    assert_eq!(row.get::<_, i64>("trust_snapshot_count"), 0);
+    assert_eq!(row.get::<_, i64>("realm_trust_snapshot_count"), 0);
+    assert!(
+        matches!(
+            create_promise.status,
+            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ),
+        "Controlled Exceptional Account counterparty request must be rejected; got {:?}",
+        create_promise.status
+    );
+}
+
+#[tokio::test]
 async fn promise_intent_idempotency_is_scoped_per_initiator() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
