@@ -1716,6 +1716,233 @@ async fn outbox_callback_ingest_payload_does_not_archive_raw_callback_pii() {
 }
 
 #[tokio::test]
+async fn raw_provider_callback_pii_does_not_leak_to_settlement_projection() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let prepared = prepare_pending_case(&app).await;
+    let client = test_db_client().await;
+    let raw_callback_id = insert_raw_callback_repair_fixture(
+        &client,
+        &prepared,
+        "completed",
+        10000,
+        "PI",
+        &prepared.initiator_pi_uid,
+        &prepared.payment_id,
+    )
+    .await;
+
+    let raw_body_sentinel = "raw-body-leak-sentinel-phase2";
+    let txid_sentinel = "tx-leak-sentinel-phase2";
+    let raw_body = json!({
+        "payment_id": prepared.payment_id,
+        "payer_pi_uid": prepared.initiator_pi_uid,
+        "amount_minor_units": 10000,
+        "currency_code": "PI",
+        "txid": txid_sentinel,
+        "status": "completed",
+        "headers": {
+            "x-provider-debug": raw_body_sentinel
+        },
+        "provider_payload": {
+            "leak_sentinel": raw_body_sentinel
+        }
+    })
+    .to_string();
+    let raw_body_bytes = raw_body.as_bytes().to_vec();
+    client
+        .execute(
+            "
+            UPDATE core.raw_provider_callbacks
+            SET raw_body = $2,
+                raw_body_bytes = $3,
+                txid = $4
+            WHERE raw_callback_id = $1
+            ",
+            &[&raw_callback_id, &raw_body, &raw_body_bytes, &txid_sentinel],
+        )
+        .await
+        .expect("raw callback sentinel fixture must update");
+
+    let raw_evidence = client
+        .query_one(
+            "
+            SELECT
+                raw_body,
+                raw_body_bytes,
+                payer_pi_uid,
+                provider_submission_id,
+                txid,
+                callback_status
+            FROM core.raw_provider_callbacks
+            WHERE raw_callback_id = $1
+            ",
+            &[&raw_callback_id],
+        )
+        .await
+        .expect("raw callback evidence must remain queryable");
+    let stored_raw_body = raw_evidence.get::<_, String>("raw_body");
+    let stored_raw_body_bytes = raw_evidence.get::<_, Vec<u8>>("raw_body_bytes");
+    let stored_raw_body_from_bytes =
+        String::from_utf8(stored_raw_body_bytes).expect("raw callback fixture must be UTF-8");
+    let provider_submission_id = raw_evidence
+        .get::<_, Option<String>>("provider_submission_id")
+        .expect("provider submission id must be copied only into raw evidence");
+    let payer_pi_uid = raw_evidence
+        .get::<_, Option<String>>("payer_pi_uid")
+        .expect("payer_pi_uid must be copied only into raw evidence");
+    let txid = raw_evidence
+        .get::<_, Option<String>>("txid")
+        .expect("txid sentinel must be copied only into raw evidence");
+    assert_eq!(stored_raw_body, raw_body);
+    assert_eq!(stored_raw_body_from_bytes, raw_body);
+    assert!(stored_raw_body.contains(raw_body_sentinel));
+    assert_eq!(provider_submission_id, prepared.payment_id);
+    assert_eq!(payer_pi_uid, prepared.initiator_pi_uid);
+    assert_eq!(txid, txid_sentinel);
+    assert_eq!(
+        raw_evidence.get::<_, Option<String>>("callback_status"),
+        Some("completed".to_owned())
+    );
+
+    let repair = post_repair(
+        &app,
+        repair_request_with_scope(false, 100, false, false, true, false),
+    )
+    .await;
+    assert_eq!(repair.status, StatusCode::OK);
+    assert_eq!(repair.body["callback_ingest_enqueued_count"], 1);
+    assert_eq!(repair.body["verified_receipt_repaired_count"], 0);
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+
+    let projection_row = client
+        .query_one(
+            "
+            SELECT
+                to_jsonb(view) AS projection_json,
+                current_settlement_status,
+                total_funded_minor_units,
+                latest_journal_entry_id
+            FROM projection.settlement_views view
+            WHERE settlement_case_id::text = $1
+            ",
+            &[&prepared.settlement_case_id],
+        )
+        .await
+        .expect("settlement projection row must be queryable");
+    assert_eq!(
+        projection_row.get::<_, String>("current_settlement_status"),
+        "pending_funding"
+    );
+    assert_eq!(projection_row.get::<_, i64>("total_funded_minor_units"), 0);
+    assert!(
+        projection_row
+            .get::<_, Option<Uuid>>("latest_journal_entry_id")
+            .is_none()
+    );
+    let projection_text = projection_row
+        .get::<_, Value>("projection_json")
+        .to_string();
+
+    let settlement_view = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(settlement_view.status, StatusCode::OK);
+
+    let expanded_settlement = get_json(
+        &app,
+        &format!(
+            "/api/projection/settlement-views/{}/expanded",
+            prepared.settlement_case_id
+        ),
+        Some(prepared.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(expanded_settlement.status, StatusCode::OK);
+
+    let response_text = settlement_view.body.to_string();
+    let expanded_response_text = expanded_settlement.body.to_string();
+    for (surface, text) in [
+        ("projection.settlement_views", projection_text.as_str()),
+        (
+            "/api/projection/settlement-views/{id}",
+            response_text.as_str(),
+        ),
+        (
+            "/api/projection/settlement-views/{id}/expanded",
+            expanded_response_text.as_str(),
+        ),
+    ] {
+        for forbidden in [
+            prepared.initiator_pi_uid.as_str(),
+            prepared.payment_id.as_str(),
+            raw_body.as_str(),
+            raw_body_sentinel,
+            provider_submission_id.as_str(),
+            payer_pi_uid.as_str(),
+            txid.as_str(),
+            "payer_pi_uid",
+            "payment_id",
+            "provider_submission_id",
+            "raw_body",
+            "raw_body_bytes",
+            "redacted_headers",
+            "headers",
+            "provider_payload",
+            "callback_status",
+            "completed",
+        ] {
+            assert!(
+                !text.contains(forbidden),
+                "{surface} must not expose raw callback PII or provider evidence field {forbidden}"
+            );
+        }
+    }
+
+    let raw_evidence_and_outbox = client
+        .query_one(
+            "
+            SELECT
+                (SELECT count(*)
+                   FROM core.raw_provider_callbacks
+                  WHERE raw_callback_id = $1
+                    AND raw_body = $2
+                    AND payer_pi_uid = $3
+                    AND txid = $4) AS raw_evidence_count,
+                (SELECT count(*)
+                   FROM outbox.events
+                  WHERE aggregate_id = $1
+                    AND event_type = 'INGEST_PROVIDER_CALLBACK'
+                    AND delivery_status = 'pending') AS pending_callback_ingest_event_count
+            ",
+            &[
+                &raw_callback_id,
+                &raw_body,
+                &prepared.initiator_pi_uid,
+                &txid_sentinel,
+            ],
+        )
+        .await
+        .expect("raw evidence and callback ingest event must remain queryable");
+    assert_eq!(
+        raw_evidence_and_outbox.get::<_, i64>("raw_evidence_count"),
+        1
+    );
+    assert_eq!(
+        raw_evidence_and_outbox.get::<_, i64>("pending_callback_ingest_event_count"),
+        1
+    );
+}
+
+#[tokio::test]
 async fn orchestration_repair_applies_verified_receipt_side_effects_forward_once() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
