@@ -1249,6 +1249,153 @@ async fn bootstrap_summary_authorizes_against_latest_admission_status() {
 }
 
 #[tokio::test]
+async fn forged_realm_admission_projection_does_not_authorize_participant_summary() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let requester = sign_in(
+        &app,
+        "pi-user-realm-projection-authority-a",
+        "realm-projection-authority-a",
+    )
+    .await;
+    let outsider = sign_in(
+        &app,
+        "pi-user-realm-projection-authority-b",
+        "realm-projection-authority-b",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+
+    let (realm_id, _) = create_realm(
+        &app,
+        &requester,
+        None,
+        None,
+        &approver_id,
+        "active",
+        "realm-projection-authority",
+    )
+    .await;
+    assert_eq!(
+        admission_count_for_account(&client, &realm_id, &outsider.account_id).await,
+        0
+    );
+    let writer_admission_count_before: i64 = client
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM dao.realm_admissions
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("writer admission count must query")
+        .get("count");
+
+    let outsider_account_id =
+        Uuid::parse_str(&outsider.account_id).expect("outsider account id must be uuid");
+    client
+        .execute(
+            "
+            INSERT INTO projection.realm_admission_views (
+                realm_id,
+                account_id,
+                admission_status,
+                admission_kind,
+                public_reason_code,
+                source_watermark_at,
+                source_fact_count,
+                projection_lag_ms,
+                rebuild_generation,
+                last_projected_at
+            )
+            VALUES (
+                $1,
+                $2,
+                'admitted',
+                'normal',
+                'active_after_review',
+                CURRENT_TIMESTAMP,
+                1,
+                0,
+                99,
+                CURRENT_TIMESTAMP
+            )
+            ",
+            &[&realm_id, &outsider_account_id],
+        )
+        .await
+        .expect("forged admission projection row must insert");
+
+    let forged_projection = client
+        .query_one(
+            "
+            SELECT admission_status, admission_kind, public_reason_code
+            FROM projection.realm_admission_views
+            WHERE realm_id = $1
+              AND account_id = $2
+            ",
+            &[&realm_id, &outsider_account_id],
+        )
+        .await
+        .expect("forged projection row must query");
+    assert_eq!(
+        forged_projection.get::<_, String>("admission_status"),
+        "admitted"
+    );
+    assert_eq!(
+        forged_projection.get::<_, String>("admission_kind"),
+        "normal"
+    );
+    assert_eq!(
+        forged_projection.get::<_, String>("public_reason_code"),
+        "active_after_review"
+    );
+
+    let outsider_summary = get_json(
+        &app,
+        &format!("/api/projection/realms/{realm_id}/bootstrap-summary"),
+        Some(outsider.token.as_str()),
+    )
+    .await;
+    assert_eq!(outsider_summary.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        admission_count_for_account(&client, &realm_id, &outsider.account_id).await,
+        0
+    );
+    let writer_admission_count_after: i64 = client
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM dao.realm_admissions
+            WHERE realm_id = $1
+            ",
+            &[&realm_id],
+        )
+        .await
+        .expect("writer admission count must query")
+        .get("count");
+    assert_eq!(writer_admission_count_after, writer_admission_count_before);
+
+    let forged_projection_status: String = client
+        .query_one(
+            "
+            SELECT admission_status
+            FROM projection.realm_admission_views
+            WHERE realm_id = $1
+              AND account_id = $2
+            ",
+            &[&realm_id, &outsider_account_id],
+        )
+        .await
+        .expect("forged projection row must remain queryable")
+        .get("admission_status");
+    assert_eq!(forged_projection_status, "admitted");
+}
+
+#[tokio::test]
 async fn approval_rejects_already_expired_corridor() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
