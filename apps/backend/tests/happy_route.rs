@@ -265,6 +265,127 @@ async fn projection_read_models_expose_freshness_and_bounded_trust() {
 }
 
 #[tokio::test]
+async fn larger_payment_amount_does_not_improve_trust_projection() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let realm_id = "realm-adr-0010-payment-amount";
+    let smaller_amount_minor_units = 12_345_i64;
+    let larger_amount_minor_units = 9_876_543_i64;
+
+    let smaller = prepare_funded_case_with_amount(
+        &app,
+        "adr-0010-payment-small",
+        realm_id,
+        smaller_amount_minor_units,
+    )
+    .await;
+    let larger = prepare_funded_case_with_amount(
+        &app,
+        "adr-0010-payment-large",
+        realm_id,
+        larger_amount_minor_units,
+    )
+    .await;
+
+    let rebuild = post_json(&app, "/api/internal/projection/rebuild", None, json!({})).await;
+    assert_eq!(rebuild.status, StatusCode::OK);
+
+    let smaller_global = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            smaller.initiator_account_id
+        ),
+        Some(smaller.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(smaller_global.status, StatusCode::OK);
+    let larger_global = get_json(
+        &app,
+        &format!(
+            "/api/projection/trust-snapshots/{}",
+            larger.initiator_account_id
+        ),
+        Some(larger.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(larger_global.status, StatusCode::OK);
+
+    let smaller_realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/{}",
+            realm_id, smaller.initiator_account_id
+        ),
+        Some(smaller.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(smaller_realm.status, StatusCode::OK);
+    let larger_realm = get_json(
+        &app,
+        &format!(
+            "/api/projection/realm-trust-snapshots/{}/{}",
+            realm_id, larger.initiator_account_id
+        ),
+        Some(larger.initiator_token.as_str()),
+    )
+    .await;
+    assert_eq!(larger_realm.status, StatusCode::OK);
+
+    let assert_amount_non_authority = |smaller: &Value, larger: &Value| {
+        assert_eq!(
+            smaller["promise_participation_count_90d"],
+            larger["promise_participation_count_90d"]
+        );
+        assert_eq!(
+            smaller["funded_settlement_count_90d"],
+            larger["funded_settlement_count_90d"]
+        );
+        assert_eq!(smaller["promise_participation_count_90d"], 1);
+        assert_eq!(smaller["funded_settlement_count_90d"], 1);
+        assert_eq!(larger["promise_participation_count_90d"], 1);
+        assert_eq!(larger["funded_settlement_count_90d"], 1);
+
+        assert_eq!(smaller["trust_posture"], larger["trust_posture"]);
+        assert_eq!(smaller["reason_codes"], larger["reason_codes"]);
+        assert_eq!(
+            smaller["manual_review_case_bucket"],
+            larger["manual_review_case_bucket"]
+        );
+        assert_eq!(smaller["proof_status"], larger["proof_status"]);
+        assert_eq!(smaller["proof_signal_count"], larger["proof_signal_count"]);
+
+        for projection in [smaller, larger] {
+            assert!(projection.get("trust_score").is_none());
+            assert!(projection.get("rank").is_none());
+            assert!(projection.get("tier").is_none());
+            assert!(projection.get("trust_tier").is_none());
+            assert!(projection.get("amount_minor_units").is_none());
+            assert!(projection.get("deposit_amount_minor_units").is_none());
+            assert!(projection.get("payment_amount").is_none());
+            assert!(projection.get("payment_amount_minor_units").is_none());
+
+            let reason_codes = projection["reason_codes"]
+                .as_array()
+                .expect("reason_codes must be an array");
+            assert!(
+                !reason_codes
+                    .iter()
+                    .any(|code| code.as_str().is_some_and(|code| code.contains("amount"))),
+                "payment amount must not appear as a trust reason"
+            );
+
+            let projection_text = projection.to_string();
+            assert!(!projection_text.contains(&smaller_amount_minor_units.to_string()));
+            assert!(!projection_text.contains(&larger_amount_minor_units.to_string()));
+        }
+    };
+
+    assert_amount_non_authority(&smaller_global.body, &larger_global.body);
+    assert_amount_non_authority(&smaller_realm.body, &larger_realm.body);
+}
+
+#[tokio::test]
 async fn projection_rebuild_restores_read_models_from_writer_truth() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
@@ -5601,18 +5722,27 @@ async fn create_undrained_open_hold(app: &Router, suffix: &str) -> OpenHoldFixtu
 }
 
 async fn prepare_pending_case(app: &Router) -> PreparedCase {
-    let initiator = sign_in(app, "pi-user-prepare-a", "prepare-a").await;
-    let counterparty = sign_in(app, "pi-user-prepare-b", "prepare-b").await;
+    prepare_pending_case_with_amount(app, "prepare", "realm-prepare", 10000).await
+}
+
+async fn prepare_pending_case_with_amount(
+    app: &Router,
+    suffix: &str,
+    realm_id: &str,
+    amount_minor_units: i64,
+) -> PreparedCase {
+    let initiator = sign_in(app, &format!("pi-user-{suffix}-a"), &format!("{suffix}-a")).await;
+    let counterparty = sign_in(app, &format!("pi-user-{suffix}-b"), &format!("{suffix}-b")).await;
 
     let create_promise = post_json(
         app,
         "/api/promise/intents",
         Some(initiator.token.as_str()),
         json!({
-            "internal_idempotency_key": "promise-intent-prepare",
-            "realm_id": "realm-prepare",
+            "internal_idempotency_key": format!("promise-intent-{suffix}"),
+            "realm_id": realm_id,
             "counterparty_account_id": counterparty.account_id,
-            "deposit_amount_minor_units": 10000,
+            "deposit_amount_minor_units": amount_minor_units,
             "currency_code": "PI"
         }),
     )
@@ -5643,7 +5773,7 @@ async fn prepare_pending_case(app: &Router) -> PreparedCase {
     PreparedCase {
         promise_intent_id,
         settlement_case_id,
-        realm_id: "realm-prepare".to_owned(),
+        realm_id: realm_id.to_owned(),
         payment_id,
         initiator_account_id: initiator.account_id,
         initiator_pi_uid: initiator.pi_uid,
@@ -5949,6 +6079,38 @@ async fn prepare_funded_case(app: &Router) -> PreparedCase {
             "amount_minor_units": 10000,
             "currency_code": "PI",
             "txid": "pi-tx-prepare",
+            "status": "completed"
+        }),
+    )
+    .await;
+    assert_eq!(callback.status, StatusCode::OK);
+
+    let drain_projection =
+        post_json(app, "/api/internal/orchestration/drain", None, json!({})).await;
+    assert_eq!(drain_projection.status, StatusCode::OK);
+
+    prepared
+}
+
+async fn prepare_funded_case_with_amount(
+    app: &Router,
+    suffix: &str,
+    realm_id: &str,
+    amount_minor_units: i64,
+) -> PreparedCase {
+    let prepared =
+        prepare_pending_case_with_amount(app, suffix, realm_id, amount_minor_units).await;
+
+    let callback = post_json(
+        app,
+        "/api/payment/callback",
+        None,
+        json!({
+            "payment_id": prepared.payment_id,
+            "payer_pi_uid": prepared.initiator_pi_uid,
+            "amount_minor_units": amount_minor_units,
+            "currency_code": "PI",
+            "txid": format!("pi-tx-{suffix}"),
             "status": "completed"
         }),
     )
