@@ -372,6 +372,196 @@ async fn operator_review_flow_preserves_writer_truth_and_projects_safe_status() 
 }
 
 #[tokio::test]
+async fn operator_review_private_fields_do_not_leak_to_participant_status_projection() {
+    let test_state = new_test_state().await.expect("test database state");
+    let app = build_app(test_state.state.clone());
+    let subject = sign_in(
+        &app,
+        "pi-user-review-private-redaction",
+        "review-private-redaction",
+    )
+    .await;
+    let client = test_db_client().await;
+    let approver_id = insert_operator_account(&client, "approver").await;
+    let operator_note_sentinel = "operator-note-leak-sentinel-phase3";
+    let source_snapshot_sentinel = "source-snapshot-leak-sentinel-phase3";
+    let decision_payload_sentinel = "decision-payload-leak-sentinel-phase3";
+    let private_source_fact_sentinel = "private-source-fact-leak-sentinel-phase3";
+    let raw_evidence_locator_sentinel = "raw-evidence-locator-leak-sentinel-phase3";
+
+    let create_case = operator_post_json(
+        &app,
+        "/api/internal/operator/review-cases",
+        &approver_id,
+        json!({
+            "case_type": "proof_anomaly",
+            "severity": "sev1",
+            "subject_account_id": subject.account_id,
+            "related_realm_id": "realm-review-private-redaction",
+            "opened_reason_code": "proof_inconclusive",
+            "source_fact_kind": "proof_submission",
+            "source_fact_id": private_source_fact_sentinel,
+            "source_snapshot_json": {
+                "internal_review_reason": source_snapshot_sentinel,
+                "raw_evidence_locator": raw_evidence_locator_sentinel,
+                "operator_private_context": "source snapshot must stay operator-side"
+            },
+            "request_idempotency_key": "review-case-private-redaction"
+        }),
+    )
+    .await;
+    assert_eq!(create_case.status, StatusCode::OK);
+    let review_case_id = create_case.body["review_case_id"]
+        .as_str()
+        .expect("review_case_id must exist")
+        .to_owned();
+
+    let decision = operator_post_json(
+        &app,
+        &format!("/api/internal/operator/review-cases/{review_case_id}/decisions"),
+        &approver_id,
+        json!({
+            "decision_kind": "restrict",
+            "user_facing_reason_code": "restricted_after_review",
+            "operator_note_internal": operator_note_sentinel,
+            "decision_payload_json": {
+                "internal_review_reason": decision_payload_sentinel,
+                "raw_evidence_locator": raw_evidence_locator_sentinel,
+                "operator_private_context": "decision payload must stay operator-side"
+            },
+            "decision_idempotency_key": "decision-private-redaction"
+        }),
+    )
+    .await;
+    assert_eq!(decision.status, StatusCode::OK);
+    let decision_fact_id = decision.body["operator_decision_fact_id"]
+        .as_str()
+        .expect("decision fact id must exist")
+        .to_owned();
+
+    let review_case = client
+        .query_one(
+            "
+            SELECT source_fact_id, source_snapshot_json
+            FROM dao.review_cases
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review case private source metadata must remain readable");
+    assert_eq!(
+        review_case.get::<_, String>("source_fact_id"),
+        private_source_fact_sentinel
+    );
+    let source_snapshot = review_case.get::<_, Value>("source_snapshot_json");
+    assert_eq!(
+        source_snapshot["internal_review_reason"],
+        source_snapshot_sentinel
+    );
+    assert_eq!(
+        source_snapshot["raw_evidence_locator"],
+        raw_evidence_locator_sentinel
+    );
+
+    let decision_fact = client
+        .query_one(
+            "
+            SELECT operator_note_internal, decision_payload_json
+            FROM dao.operator_decision_facts
+            WHERE operator_decision_fact_id::text = $1
+            ",
+            &[&decision_fact_id],
+        )
+        .await
+        .expect("operator decision private fields must remain readable");
+    assert_eq!(
+        decision_fact.get::<_, Option<String>>("operator_note_internal"),
+        Some(operator_note_sentinel.to_owned())
+    );
+    let decision_payload = decision_fact.get::<_, Value>("decision_payload_json");
+    assert_eq!(
+        decision_payload["internal_review_reason"],
+        decision_payload_sentinel
+    );
+    assert_eq!(
+        decision_payload["raw_evidence_locator"],
+        raw_evidence_locator_sentinel
+    );
+
+    let projection = client
+        .query_one(
+            "
+            SELECT to_jsonb(review_status_view) AS projection_json
+            FROM projection.review_status_views AS review_status_view
+            WHERE review_case_id::text = $1
+            ",
+            &[&review_case_id],
+        )
+        .await
+        .expect("review status projection must be queryable");
+    let projection_json = projection.get::<_, Value>("projection_json");
+    assert_eq!(
+        projection_json["user_facing_status"],
+        "sealed_or_restricted"
+    );
+    assert_eq!(
+        projection_json["user_facing_reason_code"],
+        "restricted_after_review"
+    );
+    assert_eq!(
+        projection_json["latest_decision_fact_id"].as_str(),
+        Some(decision_fact_id.as_str())
+    );
+
+    let participant_status = get_json(
+        &app,
+        &format!("/api/review-cases/{review_case_id}/status"),
+        Some(subject.token.as_str()),
+    )
+    .await;
+    assert_eq!(participant_status.status, StatusCode::OK);
+    assert_eq!(
+        participant_status.body["user_facing_status"],
+        "sealed_or_restricted"
+    );
+    assert_eq!(
+        participant_status.body["user_facing_reason_code"],
+        "restricted_after_review"
+    );
+    assert_eq!(
+        participant_status.body["latest_decision_fact_id"].as_str(),
+        Some(decision_fact_id.as_str())
+    );
+
+    let forbidden_values = [
+        operator_note_sentinel,
+        source_snapshot_sentinel,
+        decision_payload_sentinel,
+        private_source_fact_sentinel,
+        raw_evidence_locator_sentinel,
+        "operator_note_internal",
+        "source_snapshot_json",
+        "decision_payload_json",
+        "internal_review_reason",
+        "raw_evidence_locator",
+        "operator_private_context",
+    ];
+    let projection_text = projection_json.to_string();
+    let participant_status_text = participant_status.body.to_string();
+    for forbidden in forbidden_values {
+        assert!(
+            !projection_text.contains(forbidden),
+            "review status projection must not leak operator private field: {forbidden}"
+        );
+        assert!(
+            !participant_status_text.contains(forbidden),
+            "participant review status response must not leak operator private field: {forbidden}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn operator_note_source_snapshot_does_not_mutate_settlement_writer_truth() {
     let test_state = new_test_state().await.expect("test database state");
     let app = build_app(test_state.state.clone());
