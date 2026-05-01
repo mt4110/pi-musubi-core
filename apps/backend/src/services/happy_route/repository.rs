@@ -339,16 +339,18 @@ impl HappyRouteStore {
         let mut client = self.client.lock().await;
         let tx = client.transaction().await.map_err(db_error)?;
 
-        ensure_account_exists(
+        ensure_ordinary_account_exists(
             &tx,
             &initiator_account_id,
             "initiator account was not found",
+            "initiator account must be an Ordinary Account",
         )
         .await?;
-        ensure_account_exists(
+        ensure_ordinary_account_exists(
             &tx,
             &counterparty_account_id,
             "counterparty account was not found",
+            "counterparty account must be an Ordinary Account",
         )
         .await?;
 
@@ -2790,15 +2792,16 @@ enum CommandBegin {
     Completed,
 }
 
-async fn ensure_account_exists(
+async fn ensure_ordinary_account_exists(
     tx: &tokio_postgres::Transaction<'_>,
     account_id: &Uuid,
     not_found_message: &str,
+    non_ordinary_message: &str,
 ) -> Result<(), HappyRouteError> {
-    let exists = tx
+    let Some(row) = tx
         .query_opt(
             "
-            SELECT account_id
+            SELECT account_class
             FROM core.accounts
             WHERE account_id = $1
               AND account_state = 'active'
@@ -2807,11 +2810,14 @@ async fn ensure_account_exists(
         )
         .await
         .map_err(db_error)?
-        .is_some();
-    if exists {
+    else {
+        return Err(HappyRouteError::NotFound(not_found_message.to_owned()));
+    };
+    let account_class: String = row.get("account_class");
+    if account_class == "Ordinary Account" {
         Ok(())
     } else {
-        Err(HappyRouteError::NotFound(not_found_message.to_owned()))
+        Err(HappyRouteError::BadRequest(non_ordinary_message.to_owned()))
     }
 }
 
