@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `0c1c636`
+Status: Draft; aligned to accepted foundation commit `22fcd261`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,12 +26,12 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `0c1c636`
-- Foundation commit title: `docs: accept core foundation ADRs 0006-0010`
-- Date pinned: `2026-04-30`
+- Foundation commit SHA: `22fcd261ce534f998fedb99278eaad5654fba9b1`
+- Foundation commit title: `docs: accept Key-Shredding foundation ADR`
+- Date pinned: `2026-05-02`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0c1c636`
-- Previous pinned reference: `v0.1.0` / `b094727`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/22fcd261ce534f998fedb99278eaad5654fba9b1`
+- Previous pinned reference: `0c1c636` / `docs: accept core foundation ADRs 0006-0010`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -61,31 +61,35 @@ Before coding, read these upstream documents in order.
 11. `docs/adr/0008_topology_ownership_boundaries.md` - Status: Accepted at `0c1c636`
 12. `docs/adr/0009_account_constraints.md` - Status: Accepted at `0c1c636`
 13. `docs/adr/0010_promise_trust_depth_semantics.md` - Status: Accepted at `0c1c636`
+14. `docs/adr/0011_legal_hold_evidence_preservation_boundary.md` - Status: Accepted at `638c213`
+15. `docs/adr/0012_retention_class_registry_pruning_archive_policy.md` - Status: Accepted at `6500c95`
+16. `docs/adr/0013_deletion_request_subject_tombstone_reference_preserving_anonymization.md` - Status: Accepted at `14278fc`
+17. `docs/adr/0014_key_shredding_boundary_immutable_truth_preservation.md` - Status: Accepted at `22fcd261`
 
 ### Detail layer
-14. `docs/detail/accountability_matrix.md`
-15. `docs/detail/critical_incident_and_loss.md`
-16. `docs/detail/automated_decisioning_and_human_appeal.md`
-17. `docs/detail/youth_safety_and_age_assurance.md`
-18. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-19. `docs/detail/data_deletion_vs_legal_hold.md`
-20. `docs/detail/realm_model.md`
-21. `docs/detail/data_scope_model.md`
-22. `docs/detail/mobility_model.md`
-23. `docs/detail/settlement_model.md`
-24. `docs/detail/settlement_backend_trait.md`
-25. `docs/detail/proof_of_infrastructure.md`
-26. `docs/detail/protected_groups_and_translation_safety.md`
+18. `docs/detail/accountability_matrix.md`
+19. `docs/detail/critical_incident_and_loss.md`
+20. `docs/detail/automated_decisioning_and_human_appeal.md`
+21. `docs/detail/youth_safety_and_age_assurance.md`
+22. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+23. `docs/detail/data_deletion_vs_legal_hold.md`
+24. `docs/detail/realm_model.md`
+25. `docs/detail/data_scope_model.md`
+26. `docs/detail/mobility_model.md`
+27. `docs/detail/settlement_model.md`
+28. `docs/detail/settlement_backend_trait.md`
+29. `docs/detail/proof_of_infrastructure.md`
+30. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-27. `docs/whitepaper/01_executive_summary.md`
-28. `docs/whitepaper/02_realm_model.md`
-29. `docs/whitepaper/03_experience_model.md`
-30. `docs/whitepaper/04_dm_shield.md`
-31. `docs/whitepaper/05_trust_model.md`
-32. `docs/whitepaper/06_promise_protocol.md`
-33. `docs/whitepaper/07_realm_economy.md`
-34. `docs/whitepaper/08_unlock_engine.md`
+31. `docs/whitepaper/01_executive_summary.md`
+32. `docs/whitepaper/02_realm_model.md`
+33. `docs/whitepaper/03_experience_model.md`
+34. `docs/whitepaper/04_dm_shield.md`
+35. `docs/whitepaper/05_trust_model.md`
+36. `docs/whitepaper/06_promise_protocol.md`
+37. `docs/whitepaper/07_realm_economy.md`
+38. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -94,7 +98,12 @@ If any of the above are unavailable or materially inconsistent, stop and escalat
 `docs/adr_reconstruction/*` files remain reconstruction records only.
 They are not implementation authority unless converted into an accepted foundation ADR and locked here.
 
-Accepted ADR-0006 through ADR-0010 are implementation-authorizing only within their stated scope.
+`docs/adr_drafts/*` files remain draft records only.
+They are not implementation authority unless converted into an accepted foundation ADR and locked here.
+
+Accepted ADR-0006 through ADR-0014 are implementation-authorizing only within their stated scope.
+ADR-0011 through ADR-0014 complete the Data Lifecycle foundation tranche for foundation scope only.
+Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
 
@@ -212,6 +221,16 @@ The next major implementation package should align to:
 
 This lock update does not authorize broad runtime implementation.
 Implementation work must still be split into tasks whose applicable foundation ADRs and dependencies are Accepted.
+
+The Data Lifecycle foundation tranche is a FULL FOUNDATION PASS for accepted foundation scope:
+
+- ADR-0011 Legal Hold / Evidence Preservation Boundary
+- ADR-0012 Retention Class Registry / Pruning / Archive Policy
+- ADR-0013 Deletion Request / Subject Tombstone / Reference-Preserving Anonymization
+- ADR-0014 Key-Shredding Boundary / Immutable Truth Preservation
+
+This does not implement Legal Hold, retention workers, deletion workers, Subject Tombstone runtime behavior, or key-shredding runtime behavior.
+Prompt 3 remains not globally unblocked.
 
 ---
 
