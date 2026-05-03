@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `22fcd261`
+Status: Draft; aligned to accepted foundation commit `0bdbde0`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,12 +26,12 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `22fcd261ce534f998fedb99278eaad5654fba9b1`
-- Foundation commit title: `docs: accept Key-Shredding foundation ADR`
-- Date pinned: `2026-05-02`
+- Foundation commit SHA: `0bdbde0da0c9a2838d814975df3888868cf9f892`
+- Foundation commit title: `docs: accept Deletion Reset Boundary foundation ADR`
+- Date pinned: `2026-05-03`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/22fcd261ce534f998fedb99278eaad5654fba9b1`
-- Previous pinned reference: `0c1c636` / `docs: accept core foundation ADRs 0006-0010`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0bdbde0da0c9a2838d814975df3888868cf9f892`
+- Previous pinned reference: `22fcd261` / `docs: accept Key-Shredding foundation ADR`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -65,31 +65,35 @@ Before coding, read these upstream documents in order.
 15. `docs/adr/0012_retention_class_registry_pruning_archive_policy.md` - Status: Accepted at `6500c95`
 16. `docs/adr/0013_deletion_request_subject_tombstone_reference_preserving_anonymization.md` - Status: Accepted at `14278fc`
 17. `docs/adr/0014_key_shredding_boundary_immutable_truth_preservation.md` - Status: Accepted at `22fcd261`
+18. `docs/adr/0015_natural_person_ordinary_account_continuity.md` - Status: Accepted at `166cb3a`
+19. `docs/adr/0016_anti_abuse_continuity_marker_contract.md` - Status: Accepted at `e364c0a`
+20. `docs/adr/0017_age_assurance_writer_state_youth_safety_boundary.md` - Status: Accepted at `8c06963`; appeal / human-review guard clarified at `067cd85`
+21. `docs/adr/0018_deletion_reset_boundary_account_lifecycle_after_deletion.md` - Status: Accepted at `0bdbde0`
 
 ### Detail layer
-18. `docs/detail/accountability_matrix.md`
-19. `docs/detail/critical_incident_and_loss.md`
-20. `docs/detail/automated_decisioning_and_human_appeal.md`
-21. `docs/detail/youth_safety_and_age_assurance.md`
-22. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-23. `docs/detail/data_deletion_vs_legal_hold.md`
-24. `docs/detail/realm_model.md`
-25. `docs/detail/data_scope_model.md`
-26. `docs/detail/mobility_model.md`
-27. `docs/detail/settlement_model.md`
-28. `docs/detail/settlement_backend_trait.md`
-29. `docs/detail/proof_of_infrastructure.md`
-30. `docs/detail/protected_groups_and_translation_safety.md`
+22. `docs/detail/accountability_matrix.md`
+23. `docs/detail/critical_incident_and_loss.md`
+24. `docs/detail/automated_decisioning_and_human_appeal.md`
+25. `docs/detail/youth_safety_and_age_assurance.md`
+26. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+27. `docs/detail/data_deletion_vs_legal_hold.md`
+28. `docs/detail/realm_model.md`
+29. `docs/detail/data_scope_model.md`
+30. `docs/detail/mobility_model.md`
+31. `docs/detail/settlement_model.md`
+32. `docs/detail/settlement_backend_trait.md`
+33. `docs/detail/proof_of_infrastructure.md`
+34. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-31. `docs/whitepaper/01_executive_summary.md`
-32. `docs/whitepaper/02_realm_model.md`
-33. `docs/whitepaper/03_experience_model.md`
-34. `docs/whitepaper/04_dm_shield.md`
-35. `docs/whitepaper/05_trust_model.md`
-36. `docs/whitepaper/06_promise_protocol.md`
-37. `docs/whitepaper/07_realm_economy.md`
-38. `docs/whitepaper/08_unlock_engine.md`
+35. `docs/whitepaper/01_executive_summary.md`
+36. `docs/whitepaper/02_realm_model.md`
+37. `docs/whitepaper/03_experience_model.md`
+38. `docs/whitepaper/04_dm_shield.md`
+39. `docs/whitepaper/05_trust_model.md`
+40. `docs/whitepaper/06_promise_protocol.md`
+41. `docs/whitepaper/07_realm_economy.md`
+42. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -101,8 +105,9 @@ They are not implementation authority unless converted into an accepted foundati
 `docs/adr_drafts/*` files remain draft records only.
 They are not implementation authority unless converted into an accepted foundation ADR and locked here.
 
-Accepted ADR-0006 through ADR-0014 are implementation-authorizing only within their stated scope.
+Accepted ADR-0006 through ADR-0018 are implementation-authorizing only within their stated scope.
 ADR-0011 through ADR-0014 complete the Data Lifecycle foundation tranche for foundation scope only.
+ADR-0015 through ADR-0018 complete the Account Lifecycle foundation tranche for accepted foundation scope only.
 Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
@@ -230,6 +235,16 @@ The Data Lifecycle foundation tranche is a FULL FOUNDATION PASS for accepted fou
 - ADR-0014 Key-Shredding Boundary / Immutable Truth Preservation
 
 This does not implement Legal Hold, retention workers, deletion workers, Subject Tombstone runtime behavior, or key-shredding runtime behavior.
+Prompt 3 remains not globally unblocked.
+
+The Account Lifecycle foundation tranche is a FULL FOUNDATION PASS for accepted foundation scope:
+
+- ADR-0015 Natural Person Uniqueness / Ordinary Account Continuity
+- ADR-0016 Anti-Abuse Continuity Marker Contract
+- ADR-0017 Age Assurance Writer State / `youth_safety` Legal Hold Boundary
+- ADR-0018 Deletion Reset Boundary / Account Lifecycle After Deletion
+
+This does not implement Natural Person uniqueness runtime behavior, Anti-Abuse Continuity Marker runtime behavior, Age Assurance runtime behavior, account deletion reset runtime behavior, re-entry after deletion, Deletion Request runtime behavior, or Subject Tombstone runtime behavior.
 Prompt 3 remains not globally unblocked.
 
 ---
