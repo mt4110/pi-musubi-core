@@ -88,6 +88,12 @@ A future implementation must not:
 
 The first future C1 implementation PR, if a later gate explicitly permits it, should be narrow enough to review as one behavioral contract.
 
+Recommended first contract:
+
+- `Social Trust proposed mutation attempt intake / no-authority decision contract`
+
+See `docs/c1_social_trust_intake_contract_scope.md`.
+
 Recommended first candidate shape:
 
 - no public API;
