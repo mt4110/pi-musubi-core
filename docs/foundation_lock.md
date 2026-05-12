@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `fcb5573`
+Status: Draft; aligned to accepted foundation commit `f576bcd`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `fcb5573b668b6875cf9c983770ad90f9de655e82`
-- Foundation commit title: `Merge pull request #91 from mt4110/feat/add-c1-runtime-handoff-gate-package`
-- Foundation PR title: `docs: add C1 runtime handoff gate package`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/91`
+- Foundation commit SHA: `f576bcd826b7070f573ef8276c68aff5d0ae864e`
+- Foundation commit title: `Merge pull request #92 from mt4110/feat/evaluate-c1-social-trust-intake-handoff`
+- Foundation PR title: `docs: evaluate C1 Social Trust intake handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/92`
 - Date pinned: `2026-05-12`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/fcb5573b668b6875cf9c983770ad90f9de655e82`
-- Previous pinned reference: `0bdbde0` / `docs: accept Deletion Reset Boundary foundation ADR`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/f576bcd826b7070f573ef8276c68aff5d0ae864e`
+- Previous pinned reference: `fcb5573` / `Merge pull request #91 from mt4110/feat/add-c1-runtime-handoff-gate-package`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -95,34 +95,36 @@ Before coding, read these upstream documents in order.
 41. `docs/readiness/foundation_return_plan_closeout_ledger.md`
 42. `docs/readiness/runtime_handoff_gate_evidence_inventory.md`
 43. `docs/readiness/runtime_handoff_slice_selection_ledger.md`
-44. `docs/readiness/c1_runtime_behavior_boundary.md`
-45. `docs/readiness/c1_runtime_handoff_evidence_package.md`
-46. `docs/readiness/c1_runtime_handoff_gate_decision.md`
+44. `docs/readiness/c1_runtime_gate_invocation_guard.md`
+45. `docs/readiness/c1_runtime_behavior_boundary.md`
+46. `docs/readiness/c1_runtime_handoff_evidence_package.md`
+47. `docs/readiness/c1_runtime_handoff_gate_decision.md`
+48. `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
 
 ### Detail layer
-47. `docs/detail/accountability_matrix.md`
-48. `docs/detail/critical_incident_and_loss.md`
-49. `docs/detail/automated_decisioning_and_human_appeal.md`
-50. `docs/detail/youth_safety_and_age_assurance.md`
-51. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-52. `docs/detail/data_deletion_vs_legal_hold.md`
-53. `docs/detail/realm_model.md`
-54. `docs/detail/data_scope_model.md`
-55. `docs/detail/mobility_model.md`
-56. `docs/detail/settlement_model.md`
-57. `docs/detail/settlement_backend_trait.md`
-58. `docs/detail/proof_of_infrastructure.md`
-59. `docs/detail/protected_groups_and_translation_safety.md`
+49. `docs/detail/accountability_matrix.md`
+50. `docs/detail/critical_incident_and_loss.md`
+51. `docs/detail/automated_decisioning_and_human_appeal.md`
+52. `docs/detail/youth_safety_and_age_assurance.md`
+53. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+54. `docs/detail/data_deletion_vs_legal_hold.md`
+55. `docs/detail/realm_model.md`
+56. `docs/detail/data_scope_model.md`
+57. `docs/detail/mobility_model.md`
+58. `docs/detail/settlement_model.md`
+59. `docs/detail/settlement_backend_trait.md`
+60. `docs/detail/proof_of_infrastructure.md`
+61. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-60. `docs/whitepaper/01_executive_summary.md`
-61. `docs/whitepaper/02_realm_model.md`
-62. `docs/whitepaper/03_experience_model.md`
-63. `docs/whitepaper/04_dm_shield.md`
-64. `docs/whitepaper/05_trust_model.md`
-65. `docs/whitepaper/06_promise_protocol.md`
-66. `docs/whitepaper/07_realm_economy.md`
-67. `docs/whitepaper/08_unlock_engine.md`
+62. `docs/whitepaper/01_executive_summary.md`
+63. `docs/whitepaper/02_realm_model.md`
+64. `docs/whitepaper/03_experience_model.md`
+65. `docs/whitepaper/04_dm_shield.md`
+66. `docs/whitepaper/05_trust_model.md`
+67. `docs/whitepaper/06_promise_protocol.md`
+68. `docs/whitepaper/07_realm_economy.md`
+69. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -144,8 +146,10 @@ ADR-0032 through ADR-0036 complete the Discovery / Recommendation foundation tra
 Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
-The C1 Runtime Handoff Gate Decision is accepted as a NO-GO record.
-It does not authorize pi-musubi-core runtime implementation, DDL, migrations, runtime tests, or implementation handoff.
+The C1 Runtime Handoff Gate Decision remains accepted as a broad NO-GO record.
+The C1 Social Trust Intake Handoff Gate Decision is accepted as a narrow GO record for one later implementation-repo PR only.
+That later PR may implement Social Trust proposed mutation attempt intake persistence only, within the accepted envelope.
+It does not authorize broad runtime implementation, Social Trust mutation facts, scores, weights, ranks, display levels, Relationship Depth work, proof / room / discovery / recommendation / settlement / Promise behavior, public API, or mobile UI.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -286,14 +290,23 @@ The Trust / Depth, Proof / Evidence, Server / Realm / Citadel / Pool, Discovery,
 
 This does not implement Social Trust runtime behavior, Relationship Depth runtime behavior, proof writer runtime behavior, Server alias runtime behavior, Citadel binding runtime behavior, Authority Lease runtime behavior, Realm relocation runtime behavior, Pool attribution runtime behavior, discovery runtime behavior, recommendation runtime behavior, or trust/depth contamination guards.
 
-The C1 Runtime Handoff Gate package is accepted as implementation-repo intake evidence only:
+The C1 Runtime Handoff Gate package remains accepted as implementation-repo intake evidence only:
 
+- `docs/readiness/c1_runtime_gate_invocation_guard.md`
 - `docs/readiness/c1_runtime_behavior_boundary.md`
 - `docs/readiness/c1_runtime_handoff_evidence_package.md`
 - `docs/readiness/c1_runtime_handoff_gate_decision.md`
 
-The C1 Runtime Handoff Gate Decision remains NO-GO for pi-musubi-core runtime implementation.
-This lock update is the required implementation-repo alignment step before any later, separate, narrow C1 implementation PR can be considered.
+The C1 Runtime Handoff Gate Decision remains NO-GO for broad pi-musubi-core runtime implementation.
+
+The C1 Social Trust Intake Handoff Gate Decision is accepted as a narrow implementation-repo handoff decision:
+
+- `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
+
+The runtime implementation gate result is `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR`.
+That future slice is Social Trust proposed mutation attempt intake persistence only.
+This lock update is the required docs-only implementation-repo alignment step before that later, separate, narrow persistence PR.
+This lock update itself does not add runtime code, DDL, migrations, runtime tests, public API, mobile UI, projection refresh work, or Social Trust mutation behavior.
 
 ---
 
@@ -321,11 +334,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `0bdbde0da0c9a2838d814975df3888868cf9f892` -> `fcb5573b668b6875cf9c983770ad90f9de655e82`
-- Reason: Align implementation-repo intake with the accepted foundation state after PR #91 (`docs: add C1 runtime handoff gate package`).
-- New required docs: ADR-0019 through ADR-0036, runtime handoff gate criteria, foundation return closeout ledger, runtime handoff evidence inventory, runtime handoff slice selection ledger, C1 runtime behavior boundary, C1 runtime handoff evidence package, and C1 runtime handoff gate decision.
+- Updated from foundation SHA: `fcb5573b668b6875cf9c983770ad90f9de655e82` -> `f576bcd826b7070f573ef8276c68aff5d0ae864e`
+- Reason: Align implementation-repo intake with the accepted foundation state after PR #92 (`docs: evaluate C1 Social Trust intake handoff`).
+- New required docs: C1 runtime gate invocation guard and C1 Social Trust intake handoff gate decision.
 - Removed docs: None.
-- Implementation impact: Docs-only lock alignment. Runtime implementation, DDL, migrations, runtime tests, and C1 implementation handoff remain not authorized by this update.
+- Implementation impact: Docs-only lock alignment. Broad runtime implementation remains blocked. One later implementation-repo PR may implement Social Trust proposed mutation attempt intake persistence only, under the C1 Social Trust intake handoff envelope.
 - Review completed by: TBD
 
 ---
