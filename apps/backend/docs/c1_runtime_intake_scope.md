@@ -18,7 +18,7 @@ Record what the backend may inspect next, what it must not treat as authority, a
 
 The pinned foundation state is `musubi-foundation` commit `fcb5573b668b6875cf9c983770ad90f9de655e82`.
 
-The accepted foundation C1 handoff records are:
+The accepted foundation C1 handoff records are upstream `mt4110/musubi-foundation` paths at the pinned foundation commit, not local `pi-musubi-core` files:
 
 - `docs/readiness/c1_runtime_behavior_boundary.md`
 - `docs/readiness/c1_runtime_handoff_evidence_package.md`
