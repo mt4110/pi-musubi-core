@@ -134,7 +134,7 @@ They are not implementation authority unless converted into an accepted foundati
 `docs/adr_drafts/*` files remain draft records only.
 They are not implementation authority unless converted into an accepted foundation ADR and locked here.
 
-Accepted ADR-0006 through ADR-0036 are implementation-relevant only within their stated scope.
+Accepted ADR-0006 through ADR-0036 are implementation-authorizing only within their stated scope.
 ADR-0011 through ADR-0014 complete the Data Lifecycle foundation tranche for foundation scope only.
 ADR-0015 through ADR-0018 complete the Account Lifecycle foundation tranche for accepted foundation scope only.
 ADR-0019 through ADR-0022 complete the Trust / Depth foundation tranche for accepted foundation scope only.
@@ -326,7 +326,7 @@ When updating:
 - New required docs: ADR-0019 through ADR-0036, runtime handoff gate criteria, foundation return closeout ledger, runtime handoff evidence inventory, runtime handoff slice selection ledger, C1 runtime behavior boundary, C1 runtime handoff evidence package, and C1 runtime handoff gate decision.
 - Removed docs: None.
 - Implementation impact: Docs-only lock alignment. Runtime implementation, DDL, migrations, runtime tests, and C1 implementation handoff remain not authorized by this update.
-- Review completed by: Masaki Takemura / implementation agent.
+- Review completed by: TBD
 
 ---
 
