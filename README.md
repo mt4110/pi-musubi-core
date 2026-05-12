@@ -60,8 +60,8 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8088
 This repo is the canonical implementation repo for MUSUBI Day 1.
 The constitutional and design source of truth is `mt4110/musubi-foundation`.
 
-Pinned foundation release URL:
-https://github.com/mt4110/musubi-foundation/releases/tag/v0.1.0
+Pinned foundation reference:
+See `docs/foundation_lock.md`.
 
 Current implementation milestone:
 M1 - Core Truth and Orchestration Baseline

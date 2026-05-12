@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `0bdbde0`
+Status: Draft; aligned to accepted foundation commit `fcb5573`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,12 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `0bdbde0da0c9a2838d814975df3888868cf9f892`
-- Foundation commit title: `docs: accept Deletion Reset Boundary foundation ADR`
-- Date pinned: `2026-05-03`
+- Foundation commit SHA: `fcb5573b668b6875cf9c983770ad90f9de655e82`
+- Foundation commit title: `Merge pull request #91 from mt4110/feat/add-c1-runtime-handoff-gate-package`
+- Foundation PR title: `docs: add C1 runtime handoff gate package`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/91`
+- Date pinned: `2026-05-12`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0bdbde0da0c9a2838d814975df3888868cf9f892`
-- Previous pinned reference: `22fcd261` / `docs: accept Key-Shredding foundation ADR`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/fcb5573b668b6875cf9c983770ad90f9de655e82`
+- Previous pinned reference: `0bdbde0` / `docs: accept Deletion Reset Boundary foundation ADR`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -69,31 +71,58 @@ Before coding, read these upstream documents in order.
 19. `docs/adr/0016_anti_abuse_continuity_marker_contract.md` - Status: Accepted at `e364c0a`
 20. `docs/adr/0017_age_assurance_writer_state_youth_safety_boundary.md` - Status: Accepted at `8c06963`; appeal / human-review guard clarified at `067cd85`
 21. `docs/adr/0018_deletion_reset_boundary_account_lifecycle_after_deletion.md` - Status: Accepted at `0bdbde0`
+22. `docs/adr/0019_trust_depth_mutation_registry_non_authority_boundary.md` - Status: Accepted at `6aa9922`
+23. `docs/adr/0020_social_trust_writer_facts_conduct_reliability_boundary.md` - Status: Accepted at `c44f213`
+24. `docs/adr/0021_relationship_depth_writer_facts_consent_mutuality_boundary.md` - Status: Accepted at `92d2775`
+25. `docs/adr/0022_room_progression_relationship_depth_transition_boundary.md` - Status: Accepted at `80ab949`; runtime non-authorization clarified at `3efc33b`
+26. `docs/adr/0023_durable_proof_evidence_writer_facts_boundary.md` - Status: Accepted at `496faf4`
+27. `docs/adr/0024_device_attestation_proximity_proof_evidence_boundary.md` - Status: Accepted at `09f0f1d`
+28. `docs/adr/0025_proof_eligibility_state_machine_boundary.md` - Status: Accepted at `346a0d6`
+29. `docs/adr/0026_proof_replay_repair_trust_depth_non_authority_boundary.md` - Status: Accepted at `1295857`
+30. `docs/adr/0027_server_alias_lifecycle_boundary.md` - Status: Accepted at `9c28fb7`
+31. `docs/adr/0028_citadel_binding_lifecycle_boundary.md` - Status: Accepted at `a4ae40f`
+32. `docs/adr/0029_authority_lease_semantics_boundary.md` - Status: Accepted at `6ae166c`
+33. `docs/adr/0030_realm_relocation_lifecycle_boundary.md` - Status: Accepted at `1693f8f`
+34. `docs/adr/0031_pool_attribution_quota_non_authority_boundary.md` - Status: Accepted at `759db93`
+35. `docs/adr/0032_discovery_surface_constraints_boundary.md` - Status: Accepted at `e3d491f`; terminology aligned at `9c96c43`
+36. `docs/adr/0033_recommendation_non_authority_boundary.md` - Status: Accepted at `92a436d`
+37. `docs/adr/0034_forbidden_recommendation_signals_boundary.md` - Status: Accepted at `d8b09a8`
+38. `docs/adr/0035_controlled_exceptional_account_discovery_recommendation_exclusion_boundary.md` - Status: Accepted at `7bbc87a`
+39. `docs/adr/0036_recommendation_trust_depth_non_contamination_boundary.md` - Status: Accepted at `abe8c67`; replay facts clarified at `6f1150a`
+
+### Runtime readiness layer
+40. `docs/readiness/runtime_handoff_gate_criteria.md`
+41. `docs/readiness/foundation_return_plan_closeout_ledger.md`
+42. `docs/readiness/runtime_handoff_gate_evidence_inventory.md`
+43. `docs/readiness/runtime_handoff_slice_selection_ledger.md`
+44. `docs/readiness/c1_runtime_behavior_boundary.md`
+45. `docs/readiness/c1_runtime_handoff_evidence_package.md`
+46. `docs/readiness/c1_runtime_handoff_gate_decision.md`
 
 ### Detail layer
-22. `docs/detail/accountability_matrix.md`
-23. `docs/detail/critical_incident_and_loss.md`
-24. `docs/detail/automated_decisioning_and_human_appeal.md`
-25. `docs/detail/youth_safety_and_age_assurance.md`
-26. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-27. `docs/detail/data_deletion_vs_legal_hold.md`
-28. `docs/detail/realm_model.md`
-29. `docs/detail/data_scope_model.md`
-30. `docs/detail/mobility_model.md`
-31. `docs/detail/settlement_model.md`
-32. `docs/detail/settlement_backend_trait.md`
-33. `docs/detail/proof_of_infrastructure.md`
-34. `docs/detail/protected_groups_and_translation_safety.md`
+47. `docs/detail/accountability_matrix.md`
+48. `docs/detail/critical_incident_and_loss.md`
+49. `docs/detail/automated_decisioning_and_human_appeal.md`
+50. `docs/detail/youth_safety_and_age_assurance.md`
+51. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+52. `docs/detail/data_deletion_vs_legal_hold.md`
+53. `docs/detail/realm_model.md`
+54. `docs/detail/data_scope_model.md`
+55. `docs/detail/mobility_model.md`
+56. `docs/detail/settlement_model.md`
+57. `docs/detail/settlement_backend_trait.md`
+58. `docs/detail/proof_of_infrastructure.md`
+59. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-35. `docs/whitepaper/01_executive_summary.md`
-36. `docs/whitepaper/02_realm_model.md`
-37. `docs/whitepaper/03_experience_model.md`
-38. `docs/whitepaper/04_dm_shield.md`
-39. `docs/whitepaper/05_trust_model.md`
-40. `docs/whitepaper/06_promise_protocol.md`
-41. `docs/whitepaper/07_realm_economy.md`
-42. `docs/whitepaper/08_unlock_engine.md`
+60. `docs/whitepaper/01_executive_summary.md`
+61. `docs/whitepaper/02_realm_model.md`
+62. `docs/whitepaper/03_experience_model.md`
+63. `docs/whitepaper/04_dm_shield.md`
+64. `docs/whitepaper/05_trust_model.md`
+65. `docs/whitepaper/06_promise_protocol.md`
+66. `docs/whitepaper/07_realm_economy.md`
+67. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -105,12 +134,18 @@ They are not implementation authority unless converted into an accepted foundati
 `docs/adr_drafts/*` files remain draft records only.
 They are not implementation authority unless converted into an accepted foundation ADR and locked here.
 
-Accepted ADR-0006 through ADR-0018 are implementation-authorizing only within their stated scope.
+Accepted ADR-0006 through ADR-0036 are implementation-authorizing only within their stated scope.
 ADR-0011 through ADR-0014 complete the Data Lifecycle foundation tranche for foundation scope only.
 ADR-0015 through ADR-0018 complete the Account Lifecycle foundation tranche for accepted foundation scope only.
+ADR-0019 through ADR-0022 complete the Trust / Depth foundation tranche for accepted foundation scope only.
+ADR-0023 through ADR-0026 complete the Proof / Evidence foundation tranche for accepted foundation scope only.
+ADR-0027 through ADR-0031 complete the Server / Citadel / Authority Lease / Realm Relocation / Pool foundation tranche for accepted foundation scope only.
+ADR-0032 through ADR-0036 complete the Discovery / Recommendation foundation tranche for accepted foundation scope only.
 Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
+The C1 Runtime Handoff Gate Decision is accepted as a NO-GO record.
+It does not authorize pi-musubi-core runtime implementation, DDL, migrations, runtime tests, or implementation handoff.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -247,6 +282,19 @@ The Account Lifecycle foundation tranche is a FULL FOUNDATION PASS for accepted 
 This does not implement Natural Person uniqueness runtime behavior, Anti-Abuse Continuity Marker runtime behavior, Age Assurance runtime behavior, account deletion reset runtime behavior, re-entry after deletion, Deletion Request runtime behavior, or Subject Tombstone runtime behavior.
 Prompt 3 remains not globally unblocked.
 
+The Trust / Depth, Proof / Evidence, Server / Realm / Citadel / Pool, Discovery, and Recommendation foundation tranches are FULL FOUNDATION PASS records for accepted foundation scope through ADR-0036.
+
+This does not implement Social Trust runtime behavior, Relationship Depth runtime behavior, proof writer runtime behavior, Server alias runtime behavior, Citadel binding runtime behavior, Authority Lease runtime behavior, Realm relocation runtime behavior, Pool attribution runtime behavior, discovery runtime behavior, recommendation runtime behavior, or trust/depth contamination guards.
+
+The C1 Runtime Handoff Gate package is accepted as implementation-repo intake evidence only:
+
+- `docs/readiness/c1_runtime_behavior_boundary.md`
+- `docs/readiness/c1_runtime_handoff_evidence_package.md`
+- `docs/readiness/c1_runtime_handoff_gate_decision.md`
+
+The C1 Runtime Handoff Gate Decision remains NO-GO for pi-musubi-core runtime implementation.
+This lock update is the required implementation-repo alignment step before any later, separate, narrow C1 implementation PR can be considered.
+
 ---
 
 ## 6. Update protocol
@@ -271,6 +319,14 @@ When updating:
 - Removed docs:
 - Implementation impact:
 - Review completed by:
+
+### Current drift note
+- Updated from foundation SHA: `0bdbde0da0c9a2838d814975df3888868cf9f892` -> `fcb5573b668b6875cf9c983770ad90f9de655e82`
+- Reason: Align implementation-repo intake with the accepted foundation state after PR #91 (`docs: add C1 runtime handoff gate package`).
+- New required docs: ADR-0019 through ADR-0036, runtime handoff gate criteria, foundation return closeout ledger, runtime handoff evidence inventory, runtime handoff slice selection ledger, C1 runtime behavior boundary, C1 runtime handoff evidence package, and C1 runtime handoff gate decision.
+- Removed docs: None.
+- Implementation impact: Docs-only lock alignment. Runtime implementation, DDL, migrations, runtime tests, and C1 implementation handoff remain not authorized by this update.
+- Review completed by: TBD
 
 ---
 
