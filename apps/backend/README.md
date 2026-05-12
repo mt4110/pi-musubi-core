@@ -175,6 +175,7 @@ Proof challenges are short-lived, proof envelopes are server-verified before acc
 Operator PIN fallback remains an internal/deferred primitive until an authenticated operator surface exists; subject-facing requests for `operator_pin` are rejected before any operator audit or rate-limit state is touched.
 Location hints are sanitized before proof records are built, unsupported fallback modes are rejected before display-code verification, and malformed or cross-subject attempts do not burn another challenge's failed-attempt budget.
 These proof records are input facts only; they are not settlement truth or final anti-spoof guarantees.
+Design source: C1 Social Trust intake handoff adds the first narrow Social Trust intake persistence boundary. Proposed mutation attempts and their intake decisions live in `social_trust`, use PostgreSQL-enforced idempotency and payload-hash replay checks, and remain intake / audit facts only. This does not add Social Trust mutation facts, scores, weights, ranks, display levels, Relationship Depth behavior, projection refresh, public API, or mobile UI.
 
 ## Local design notes
 
@@ -193,4 +194,5 @@ These proof records are input facts only; they are not settlement truth or final
 - `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/c1_runtime_intake_scope.md`: C1 trust/depth runtime intake scope and non-authority boundary for future backend work
 - `docs/c1_social_trust_intake_contract_scope.md`: selected first C1 Social Trust intake / no-authority contract scope
+- `docs/c1_social_trust_writer_fact_scope.md`: C1 Social Trust intake persistence envelope and non-authority stop conditions
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path

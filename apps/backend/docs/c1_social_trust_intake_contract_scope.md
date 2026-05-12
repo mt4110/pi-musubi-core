@@ -29,15 +29,12 @@ This does not select room progression / Relationship Depth ambiguity work.
 
 ## Current Authorization State
 
-This document does not authorize runtime implementation.
-This document does not authorize DDL.
-This document does not authorize migrations.
-This document does not authorize runtime tests.
-This document does not authorize API changes.
-This document does not authorize mobile UI changes.
-This document does not authorize app-service wiring.
+This document records the earlier pure intake contract scope.
 
-The C1 runtime implementation gate result remains NO-GO until a later PR explicitly authorizes one narrow implementation step.
+`musubi-foundation` PR #92 later authorized one narrow implementation-repo PR for Social Trust proposed mutation attempt intake persistence only.
+That current persistence envelope is tracked in `c1_social_trust_writer_fact_scope.md`.
+
+This document still does not authorize API changes, mobile UI changes, projection refresh, Social Trust mutation facts, scoring, ranking, display levels, or Relationship Depth behavior.
 
 ## Why Social Trust First
 

@@ -16,16 +16,24 @@ Name the writer-owned fact families, idempotency boundary, retention posture, ou
 
 ## Current Authorization State
 
-This document does not authorize runtime implementation.
-This document does not authorize DDL.
-This document does not authorize migrations.
-This document does not authorize PostgreSQL writer tables.
-This document does not authorize HTTP routes or Axum handlers.
-This document does not authorize mobile UI.
-This document does not authorize projection writes.
-This document does not authorize Social Trust scoring, weights, rank, display level, narrowing, freeze, recovery, or public presentation.
+`musubi-foundation` PR #92 authorizes one later implementation-repo PR for Social Trust proposed mutation attempt intake persistence only.
 
-The C1 runtime implementation gate remains NO-GO.
+This document is now the local implementation scope note for that narrow PR.
+
+This document authorizes only:
+
+- additive PostgreSQL persistence for proposed mutation attempt intake;
+- rejected and `CandidateForWriterPersistence` intake decision records;
+- database-enforced idempotency / replay checks;
+- minimal reason, evidence-posture, reviewability, retention-class, and audit metadata;
+- deterministic backend tests for the broken paths named here and in the pinned handoff gate.
+
+This document still does not authorize HTTP routes or Axum handlers.
+This document still does not authorize mobile UI.
+This document still does not authorize projection writes.
+This document still does not authorize Social Trust scoring, weights, rank, display level, narrowing, freeze, recovery, mutation facts, or public presentation.
+
+The broad C1 runtime implementation gate remains NO-GO.
 
 ## Decision
 
@@ -65,7 +73,7 @@ A later C1 persistence PR, if separately authorized, may create only these write
 - Durable idempotency / replay facts for proposed mutation attempts.
 - Minimal reason, retention, reviewability, evidence-posture, and audit facts needed to explain the intake decision.
 
-This is a maximum envelope for a later accepted persistence PR, not authorization from this document.
+This is the maximum envelope for this accepted persistence PR.
 
 That later PR must not create:
 
@@ -189,10 +197,10 @@ A later persistence PR must include deterministic tests for these failure paths:
 
 Stop before implementation if any of these are still unresolved:
 
-- a positive Social Trust source family has not been accepted;
+- the implementation would treat a positive Social Trust source family as accepted mutation authority;
 - the future work would require exact Social Trust weights or mutation magnitude;
 - the future work would require new durable vocabulary outside the pinned foundation docs;
-- an accepted Retention Class Registry entry is not named or cannot be mapped without inventing durations;
+- the intake records cannot be mapped to the ADR-0012 category `Social Trust evidence or future Social Trust writer facts` without inventing durations;
 - idempotency cannot be enforced by durable writer facts or database constraints;
 - projection refresh is being treated as writer truth;
 - outbox / inbox cleanup is being treated as business completion truth;
@@ -200,6 +208,6 @@ Stop before implementation if any of these are still unresolved:
 
 ## Bottom Line
 
-C1 may be narrowed toward Social Trust intake persistence, but the only safe next writer boundary is proposed mutation attempt intake facts.
+C1 is now narrowed toward Social Trust intake persistence, and the only safe writer boundary is proposed mutation attempt intake facts.
 
 Actual Social Trust mutation facts still need a later, separate acceptance boundary.

@@ -675,6 +675,7 @@ dependencies = [
  "hmac",
  "musubi_db_runtime",
  "musubi_settlement_domain",
+ "musubi_social_trust_domain",
  "serde",
  "serde_json",
  "sha2 0.11.0",

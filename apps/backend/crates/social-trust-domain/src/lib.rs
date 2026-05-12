@@ -25,6 +25,16 @@ pub enum SocialTrustSourceCategory {
     Unknown,
 }
 
+impl SocialTrustSourceCategory {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::WriterSourceCandidate => "writer_source_candidate",
+            Self::Forbidden(source) => source.as_str(),
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ForbiddenSocialTrustSourceCategory {
     ProjectionState,
@@ -110,9 +120,25 @@ pub enum EvidencePosture {
     Bounded,
 }
 
+impl EvidencePosture {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Bounded => "bounded",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReviewabilityPosture {
     Reviewable,
+}
+
+impl ReviewabilityPosture {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Reviewable => "reviewable",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,12 +152,37 @@ pub enum SocialTrustAuthorityPosture {
     ProjectionOnly,
 }
 
+impl SocialTrustAuthorityPosture {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::WriterTruthOnly => "writer_truth_only",
+            Self::ProjectionOnly => "projection_only",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SocialTrustIntakeDecision {
     Reject(SocialTrustIntakeRejection),
     /// The attempt satisfied this pure intake contract, but Social Trust has
     /// not been mutated and no writer fact has been persisted by this crate.
     CandidateForWriterPersistence,
+}
+
+impl SocialTrustIntakeDecision {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Reject(_) => "rejected",
+            Self::CandidateForWriterPersistence => "candidate_for_writer_persistence",
+        }
+    }
+
+    pub const fn rejection_reason_code(&self) -> Option<&'static str> {
+        match self {
+            Self::Reject(rejection) => Some(rejection.as_str()),
+            Self::CandidateForWriterPersistence => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -147,6 +198,22 @@ pub enum SocialTrustIntakeRejection {
     MissingEvidencePosture,
     MissingReviewabilityPosture,
     MissingRetentionPosture,
+}
+
+impl SocialTrustIntakeRejection {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::ForbiddenSource { .. } => "forbidden_source",
+            Self::UnknownSourceCategory => "unknown_source_category",
+            Self::ProjectionOnlyAuthority => "projection_only_authority",
+            Self::MissingWriterSourceReference => "missing_writer_source_reference",
+            Self::MissingReasonFact => "missing_reason_fact",
+            Self::MissingIdempotencyPosture => "missing_idempotency_posture",
+            Self::MissingEvidencePosture => "missing_evidence_posture",
+            Self::MissingReviewabilityPosture => "missing_reviewability_posture",
+            Self::MissingRetentionPosture => "missing_retention_posture",
+        }
+    }
 }
 
 #[must_use]
@@ -268,6 +335,12 @@ impl RetentionPosture {
     pub fn is_present(&self) -> bool {
         match self {
             Self::Classified(reference) => reference.is_present(),
+        }
+    }
+
+    pub fn class_reference(&self) -> &RetentionClassReference {
+        match self {
+            Self::Classified(reference) => reference,
         }
     }
 }
