@@ -61,7 +61,7 @@ This document does not make any of those families eligible, implementation-ready
 A later C1 persistence PR, if separately authorized, may create only these writer-owned intake families:
 
 - Social Trust proposed mutation attempt facts.
-- Social Trust intake decision facts, including rejected decisions and candidate-for-writer-persistence decisions.
+- Social Trust intake decision facts, including rejected decisions and `CandidateForWriterPersistence` decisions.
 - Durable idempotency / replay facts for proposed mutation attempts.
 - Minimal reason, retention, reviewability, evidence-posture, and audit facts needed to explain the intake decision.
 
@@ -99,11 +99,11 @@ The dedupe identity must not include raw PII, raw evidence payloads, payment amo
 
 ## Retention Class Posture
 
-Candidate-for-writer-persistence attempts and rejected attempts are material record families and must be retention-classified before production use.
+`CandidateForWriterPersistence` attempts and rejected attempts are material record families and must be retention-classified before production use.
 This document does not invent concrete retention durations.
 Both attempt outcomes must use an accepted Retention Class Registry entry for the ADR-0012 category `Social Trust evidence or future Social Trust writer facts` before production use.
 
-Candidate-for-writer-persistence attempts:
+`CandidateForWriterPersistence` attempts:
 
 - are not Social Trust mutation truth;
 - must be retained as intake / audit / replay facts under that accepted lifecycle class;
@@ -137,7 +137,7 @@ If outbox / inbox is introduced:
 - completed coordination rows must be pruned, archived, or compacted under ADR-0002 and ADR-0012.
 
 Rejected attempts should not emit projection refresh work.
-Candidate-for-writer-persistence attempt facts should not emit projection refresh work.
+`CandidateForWriterPersistence` attempt facts should not emit projection refresh work.
 Projection refresh becomes eligible only after a separate accepted boundary creates actual Social Trust writer facts whose derived posture needs to be refreshed.
 
 ## Projection Refresh Posture
@@ -183,7 +183,7 @@ A later persistence PR must include deterministic tests for these failure paths:
 - missing retention posture fails closed;
 - missing evidence or reviewability posture fails closed where required;
 - rejected attempts do not emit projection refresh work;
-- candidate-for-writer-persistence attempt facts do not create Social Trust score, weight, rank, display level, narrowing, freeze, or recovery facts.
+- `CandidateForWriterPersistence` attempt facts do not create Social Trust score, weight, rank, display level, narrowing, freeze, or recovery facts.
 
 ## Stop Conditions
 
