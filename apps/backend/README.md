@@ -192,4 +192,5 @@ These proof records are input facts only; they are not settlement truth or final
 - `docs/guardrails.md`: executable architectural guardrails
 - `docs/proof_primitives.md`: Day 1 safer venue proof input boundary
 - `docs/c1_runtime_intake_scope.md`: C1 trust/depth runtime intake scope and non-authority boundary for future backend work
+- `docs/c1_social_trust_intake_contract_scope.md`: selected first C1 Social Trust intake / no-authority contract scope
 - `docs/happy_route_walkthrough.md`: current Issue #7 end-to-end path
