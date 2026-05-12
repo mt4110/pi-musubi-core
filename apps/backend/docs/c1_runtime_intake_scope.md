@@ -16,22 +16,25 @@ Record what the backend may inspect next, what it must not treat as authority, a
 
 ## Current Gate State
 
-The pinned foundation state is `musubi-foundation` commit `fcb5573b668b6875cf9c983770ad90f9de655e82`.
+The pinned foundation state is `musubi-foundation` commit `f576bcd826b7070f573ef8276c68aff5d0ae864e`.
 
 The accepted foundation C1 handoff records are upstream `mt4110/musubi-foundation` paths at the pinned foundation commit, not local `pi-musubi-core` files:
 
+- `docs/readiness/c1_runtime_gate_invocation_guard.md`
 - `docs/readiness/c1_runtime_behavior_boundary.md`
 - `docs/readiness/c1_runtime_handoff_evidence_package.md`
 - `docs/readiness/c1_runtime_handoff_gate_decision.md`
+- `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
 
-The current C1 runtime implementation gate result remains NO-GO.
+The broad C1 runtime implementation gate result remains NO-GO.
+The current C1 Social Trust intake handoff result is `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR`.
 
-This note does not authorize runtime implementation.
-This note does not authorize DDL.
-This note does not authorize migrations.
-This note does not authorize runtime tests.
+The authorized implementation-repo slice is Social Trust proposed mutation attempt intake persistence only.
+This authorization is limited to additive backend persistence, deterministic tests, and documentation that keeps the boundary explicit.
+
+This note still does not authorize broad runtime implementation.
 This note does not authorize API changes.
-This note does not authorize app code changes.
+This note does not authorize HTTP handlers, public routes, mobile UI, projection refresh work, or app-state exposure.
 
 ## Local Surfaces Already Present
 
@@ -62,19 +65,16 @@ This note does not select any of those as C1 implementation scope.
 
 The next safe backend step is not to mutate trust/depth.
 
-The next safe backend step is to keep C1 scoped as an intake and non-authority planning problem until a later PR explicitly names:
+The next safe backend step is to persist only the C1 Social Trust intake / non-authority decision boundary authorized by the pinned handoff gate:
 
-- the exact writer-owned fact families C1 may consume;
-- the exact writer-owned fact family C1 may create, if any;
-- the durable idempotency boundary for a proposed mutation attempt;
-- the retention class for `CandidateForWriterPersistence` and rejected attempts;
-- the outbox / inbox behavior for cross-process effects;
-- the broken-path tests that prove forbidden sources fail closed;
-- the projection refresh posture after writer facts exist.
+- proposed mutation attempt intake records;
+- rejected and `CandidateForWriterPersistence` intake decisions;
+- durable database-enforced idempotency / replay posture;
+- minimized reason, evidence, reviewability, retention, and audit metadata;
+- deterministic tests for forbidden sources, missing posture, duplicate replay, payload drift, and projection non-authority.
 
-The next local scope note for that narrowing is:
-
-- `c1_social_trust_writer_fact_scope.md`
+This is intake persistence only.
+It is not Social Trust mutation persistence.
 
 ## Forbidden Shortcut
 
@@ -88,11 +88,11 @@ A future implementation must not:
 - hold an authoritative transaction open across provider, model, analytics, notification, search, or other network I/O;
 - create broad C1 tables, APIs, workers, or migration scope by convenience.
 
-## Candidate Future PR Shape
+## Authorized Narrow PR Shape
 
-The first future C1 implementation PR, if a later gate explicitly permits it, should be narrow enough to review as one behavioral contract.
+The first C1 implementation PR is narrow enough to review as one behavioral contract plus one persistence boundary.
 
-Recommended first contract:
+Selected contract:
 
 - `Social Trust proposed mutation attempt intake / no-authority decision contract`
 
@@ -102,18 +102,15 @@ The follow-up writer-fact planning boundary is:
 
 - `c1_social_trust_writer_fact_scope.md`
 
-Recommended first candidate shape:
+Authorized first candidate shape:
 
 - no public API;
 - no mobile UI;
 - no discovery or recommendation changes;
 - no projection-based authority;
 - no payment or Support influence;
-- one writer-owned C1 intake path or one deterministic no-authority guard, not both;
+- one writer-owned C1 intake persistence path;
 - deterministic tests focused on duplicate delivery, missing source references, forbidden source categories, and projection non-authority.
-
-This candidate shape is not authorization.
-It is the smallest shape that appears compatible with the pinned foundation constraints.
 
 ## Stop Conditions
 
@@ -128,8 +125,6 @@ Stop before implementation if any of the following remain unclear:
 
 ## Bottom Line
 
-The backend is now aligned enough to plan C1 locally.
+The backend is now aligned enough to implement one narrow C1 Social Trust intake persistence PR.
 
-It is not yet authorized to implement C1 runtime behavior.
-
-The next useful PR should either keep narrowing C1 into exact backend implementation scope or, if separately authorized, implement one small writer-owned C1 intake / no-authority contract without touching projection as authority.
+The authorized implementation must remain one small writer-owned C1 intake / no-authority persistence boundary without touching projection as authority.

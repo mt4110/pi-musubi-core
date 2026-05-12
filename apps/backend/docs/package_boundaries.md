@@ -109,6 +109,20 @@ Must not own:
 - DB persistence, migrations, HTTP handlers, app-service wiring, or projection refresh behavior
 - proof, settlement, room progression, discovery, recommendation, or operator review behavior
 
+### `musubi_backend::services::social_trust_intake`
+Owns:
+- backend-local persistence for C1 Social Trust proposed mutation attempt intake records
+- backend-local replay of persisted intake decisions
+- database-enforced duplicate delivery and payload-drift checks
+- writer-first account reference checks for Ordinary Account subjects
+- tests proving forbidden source, projection-only, missing posture, and replay paths fail closed
+
+Must not own:
+- HTTP handlers, public API routes, mobile UI, or app-state exposure
+- Social Trust mutation facts, scoring, weights, ranks, display levels, narrowing, freeze, or recovery behavior
+- Relationship Depth, proof, room progression, discovery, recommendation, settlement, Promise, payment, Support, or operator-review behavior
+- projection refresh or projection-derived authority
+
 ### `musubi_orchestration`
 Owns:
 - transactional outbox runtime shape

@@ -39,6 +39,20 @@ Must not own:
 - outbox delivery state
 - profile data
 
+### `social_trust`
+Owns:
+- C1 Social Trust proposed mutation attempt intake records
+- C1 Social Trust intake decision records for rejected attempts and `CandidateForWriterPersistence`
+- database-enforced idempotency / replay posture for proposed mutation attempts
+- minimized reason, evidence-posture, reviewability, retention-class, and audit metadata for intake decisions
+
+Must not own:
+- actual Social Trust mutation facts
+- Social Trust scores, weights, ranks, display levels, narrowing, freeze, or recovery facts
+- Relationship Depth facts
+- projection refresh state
+- raw PII, raw evidence payloads, payment behavior, popularity metrics, engagement telemetry, operator notes, support tickets, or issue comments
+
 ### `ledger`
 Owns:
 - append-only journal entries
@@ -182,3 +196,20 @@ The architectural boundary is strict:
 - operator/steward summaries are redacted, rebuildable, and still non-authoritative
 
 ISSUE-12 operator review remains the review/evidence system of record, ISSUE-13 room progression remains the room surface baseline, and ISSUE-14 Promise UI remains out of scope for this schema addition.
+
+## C1 Social Trust intake persistence additions
+
+Design source: `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md` in `musubi-foundation` PR #92.
+
+Migration `0020_social_trust_intake_persistence.sql` adds the narrow C1 Social Trust intake persistence baseline:
+- `social_trust.proposed_mutation_attempts`
+- `social_trust.intake_decisions`
+
+The architectural boundary is strict:
+- proposed mutation attempts and intake decisions are writer-owned intake / replay facts only
+- `CandidateForWriterPersistence` is internal intake classification only
+- durable idempotency is enforced by a PostgreSQL unique index over the minimized dedupe identity
+- duplicate delivery with payload drift fails closed through stored payload hashes
+- retention is mapped to the ADR-0012 category `Social Trust evidence or future Social Trust writer facts` without inventing concrete retention durations
+- rejected attempts and candidates do not emit projection refresh work
+- no Social Trust mutation fact, score, weight, rank, display level, Relationship Depth fact, public API, or mobile UI is introduced
