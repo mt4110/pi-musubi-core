@@ -13,6 +13,7 @@ Later milestone work has since added:
 - DB runtime and migration runner wiring
 - settlement-domain types and backend traits
 - orchestration runtime notes
+- Social Trust intake / no-authority domain contract
 
 The backend still does not implement:
 - provider-specific adapters
@@ -95,6 +96,18 @@ Note:
 the current PoC escrow record and callback input remain in the app crate on purpose.
 They still encode callback-oriented glue and `f64` PoC data that should not be promoted into long-term domain truth by boundary cleanup alone.
 Typed provider payloads in the domain crate must remain provider-agnostic and must not become arbitrary bytes or JSON convenience blobs.
+
+### `musubi_social_trust_domain`
+Owns:
+- pure Social Trust proposed mutation attempt intake decisions
+- forbidden-source and unknown-source fail-closed checks
+- required writer source reference, reason fact, idempotency, evidence, reviewability, retention, and authority posture checks
+
+Must not own:
+- Social Trust scoring, weights, display levels, or recovery ceilings
+- Relationship Depth behavior
+- DB persistence, migrations, HTTP handlers, app-service wiring, or projection refresh behavior
+- proof, settlement, room progression, discovery, recommendation, or operator review behavior
 
 ### `musubi_orchestration`
 Owns:
