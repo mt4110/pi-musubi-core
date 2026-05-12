@@ -67,10 +67,14 @@ The next safe backend step is to keep C1 scoped as an intake and non-authority p
 - the exact writer-owned fact families C1 may consume;
 - the exact writer-owned fact family C1 may create, if any;
 - the durable idempotency boundary for a proposed mutation attempt;
-- the retention class for accepted and rejected attempts;
+- the retention class for candidate-for-writer-persistence and rejected attempts;
 - the outbox / inbox behavior for cross-process effects;
 - the broken-path tests that prove forbidden sources fail closed;
 - the projection refresh posture after writer facts exist.
+
+The next local scope note for that narrowing is:
+
+- `c1_social_trust_writer_fact_scope.md`
 
 ## Forbidden Shortcut
 
@@ -92,7 +96,11 @@ Recommended first contract:
 
 - `Social Trust proposed mutation attempt intake / no-authority decision contract`
 
-See `docs/c1_social_trust_intake_contract_scope.md`.
+See `c1_social_trust_intake_contract_scope.md`.
+
+The follow-up writer-fact planning boundary is:
+
+- `c1_social_trust_writer_fact_scope.md`.
 
 Recommended first candidate shape:
 

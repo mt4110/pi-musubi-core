@@ -75,6 +75,9 @@ Forbidden future write scope for the first implementation:
 This scope intentionally avoids `musubi_core_domain` because that crate currently owns neutral account-adjacent identifiers only.
 Social Trust must not pollute the core account boundary by convenience.
 
+The next docs-only boundary after this pure contract is `c1_social_trust_writer_fact_scope.md`.
+That note names the future writer-owned fact families, idempotency posture, retention posture, outbox / inbox posture, broken-path tests, and projection refresh posture without authorizing DDL, migrations, API wiring, projection writes, or Social Trust mutation facts.
+
 ## Contract Behavior To Implement Later
 
 The future pure domain contract should decide whether a proposed Social Trust mutation attempt is:
@@ -83,7 +86,7 @@ The future pure domain contract should decide whether a proposed Social Trust mu
 - rejected because required source reference facts are missing;
 - rejected because idempotency posture is missing;
 - rejected because evidence / reviewability / retention posture is missing where required;
-- accepted only as a candidate for later writer-owned persistence, not as an immediate trust mutation.
+- classified only as `CandidateForWriterPersistence` for later writer-owned persistence, not as an immediate trust mutation.
 
 The contract must fail closed for unknown source categories.
 
