@@ -1,0 +1,4 @@
+[package]
+name = "musubi_social_trust_domain"
+version.workspace = true
+edition.workspace = true

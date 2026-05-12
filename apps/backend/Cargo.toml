@@ -10,6 +10,7 @@ members = [
     "crates/db-runtime",
     "crates/realm-domain",
     "crates/settlement-domain",
+    "crates/social-trust-domain",
     "crates/orchestration",
     "crates/ops",
 ]
@@ -19,6 +20,7 @@ default-members = [
     "crates/db-runtime",
     "crates/realm-domain",
     "crates/settlement-domain",
+    "crates/social-trust-domain",
     "crates/orchestration",
     "crates/ops",
 ]
