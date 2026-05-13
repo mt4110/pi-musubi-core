@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `f576bcd`
+Status: Draft; aligned to accepted foundation commit `cff85a6`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `f576bcd826b7070f573ef8276c68aff5d0ae864e`
-- Foundation commit title: `Merge pull request #92 from mt4110/feat/evaluate-c1-social-trust-intake-handoff`
-- Foundation PR title: `docs: evaluate C1 Social Trust intake handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/92`
-- Date pinned: `2026-05-12`
+- Foundation commit SHA: `cff85a6c55b9094cb5fcc223f3d0a7a918a29def`
+- Foundation commit title: `Merge pull request #94 from mt4110/feat/evaluate-c1-social-trust-intake-persistence-closeout`
+- Foundation PR title: `docs: close out C1 Social Trust intake persistence`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/94`
+- Date pinned: `2026-05-13`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/f576bcd826b7070f573ef8276c68aff5d0ae864e`
-- Previous pinned reference: `fcb5573` / `Merge pull request #91 from mt4110/feat/add-c1-runtime-handoff-gate-package`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/cff85a6c55b9094cb5fcc223f3d0a7a918a29def`
+- Previous pinned reference: `f576bcd` / `Merge pull request #92 from mt4110/feat/evaluate-c1-social-trust-intake-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -100,31 +100,32 @@ Before coding, read these upstream documents in order.
 46. `docs/readiness/c1_runtime_handoff_evidence_package.md`
 47. `docs/readiness/c1_runtime_handoff_gate_decision.md`
 48. `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
+49. `docs/readiness/c1_social_trust_intake_persistence_closeout_ledger.md`
 
 ### Detail layer
-49. `docs/detail/accountability_matrix.md`
-50. `docs/detail/critical_incident_and_loss.md`
-51. `docs/detail/automated_decisioning_and_human_appeal.md`
-52. `docs/detail/youth_safety_and_age_assurance.md`
-53. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-54. `docs/detail/data_deletion_vs_legal_hold.md`
-55. `docs/detail/realm_model.md`
-56. `docs/detail/data_scope_model.md`
-57. `docs/detail/mobility_model.md`
-58. `docs/detail/settlement_model.md`
-59. `docs/detail/settlement_backend_trait.md`
-60. `docs/detail/proof_of_infrastructure.md`
-61. `docs/detail/protected_groups_and_translation_safety.md`
+50. `docs/detail/accountability_matrix.md`
+51. `docs/detail/critical_incident_and_loss.md`
+52. `docs/detail/automated_decisioning_and_human_appeal.md`
+53. `docs/detail/youth_safety_and_age_assurance.md`
+54. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+55. `docs/detail/data_deletion_vs_legal_hold.md`
+56. `docs/detail/realm_model.md`
+57. `docs/detail/data_scope_model.md`
+58. `docs/detail/mobility_model.md`
+59. `docs/detail/settlement_model.md`
+60. `docs/detail/settlement_backend_trait.md`
+61. `docs/detail/proof_of_infrastructure.md`
+62. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-62. `docs/whitepaper/01_executive_summary.md`
-63. `docs/whitepaper/02_realm_model.md`
-64. `docs/whitepaper/03_experience_model.md`
-65. `docs/whitepaper/04_dm_shield.md`
-66. `docs/whitepaper/05_trust_model.md`
-67. `docs/whitepaper/06_promise_protocol.md`
-68. `docs/whitepaper/07_realm_economy.md`
-69. `docs/whitepaper/08_unlock_engine.md`
+63. `docs/whitepaper/01_executive_summary.md`
+64. `docs/whitepaper/02_realm_model.md`
+65. `docs/whitepaper/03_experience_model.md`
+66. `docs/whitepaper/04_dm_shield.md`
+67. `docs/whitepaper/05_trust_model.md`
+68. `docs/whitepaper/06_promise_protocol.md`
+69. `docs/whitepaper/07_realm_economy.md`
+70. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -147,9 +148,10 @@ Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
 The C1 Runtime Handoff Gate Decision remains accepted as a broad NO-GO record.
-The C1 Social Trust Intake Handoff Gate Decision is accepted as a narrow GO record for one later implementation-repo PR only.
-That later PR may implement Social Trust proposed mutation attempt intake persistence only, within the accepted envelope.
-It does not authorize broad runtime implementation, Social Trust mutation facts, scores, weights, ranks, display levels, Relationship Depth work, proof / room / discovery / recommendation / settlement / Promise behavior, public API, or mobile UI.
+The C1 Social Trust Intake Handoff Gate Decision remains accepted as the historical narrow GO record for one later implementation-repo PR only.
+The C1 Social Trust Intake Persistence Closeout Ledger records that the one later implementation-repo PR was consumed by `mt4110/pi-musubi-core` PR #82.
+The current runtime implementation gate result is NO-GO after that narrow intake persistence allowance was consumed.
+The closeout ledger does not authorize broad runtime implementation, pi-musubi-core changes, DDL, migrations, runtime tests, gate invocation, implementation handoff, Social Trust mutation facts, scores, weights, ranks, display levels, Relationship Depth work, proof / room / discovery / recommendation / settlement / Promise behavior, public API, mobile UI, or projection refresh work.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -299,13 +301,19 @@ The C1 Runtime Handoff Gate package remains accepted as implementation-repo inta
 
 The C1 Runtime Handoff Gate Decision remains NO-GO for broad pi-musubi-core runtime implementation.
 
-The C1 Social Trust Intake Handoff Gate Decision is accepted as a narrow implementation-repo handoff decision:
+The C1 Social Trust Intake Handoff Gate Decision remains recorded as the historical narrow implementation-repo handoff decision:
 
 - `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
 
-The runtime implementation gate result is `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR`.
-That future slice is Social Trust proposed mutation attempt intake persistence only.
-This lock update is the required docs-only implementation-repo alignment step before that later, separate, narrow persistence PR.
+The C1 Social Trust Intake Persistence Closeout Ledger is accepted as a docs-only closeout ledger:
+
+- `docs/readiness/c1_social_trust_intake_persistence_closeout_ledger.md`
+
+The runtime implementation gate result is now `NO-GO`.
+The prior `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR` has been consumed by `mt4110/pi-musubi-core` PR #82.
+The C1 intake persistence slice is closed.
+No remaining work may inherit permission from foundation PR #92 or implementation PR #82.
+Any next slice must be defined by a separate accepted foundation decision before implementation work proceeds.
 This lock update itself does not add runtime code, DDL, migrations, runtime tests, public API, mobile UI, projection refresh work, or Social Trust mutation behavior.
 
 ---
@@ -334,12 +342,12 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `fcb5573b668b6875cf9c983770ad90f9de655e82` -> `f576bcd826b7070f573ef8276c68aff5d0ae864e`
-- Reason: Align implementation-repo intake with the accepted foundation state after PR #92 (`docs: evaluate C1 Social Trust intake handoff`).
-- New required docs: C1 runtime gate invocation guard and C1 Social Trust intake handoff gate decision.
+- Updated from foundation SHA: `f576bcd826b7070f573ef8276c68aff5d0ae864e` -> `cff85a6c55b9094cb5fcc223f3d0a7a918a29def`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #94 (`docs: close out C1 Social Trust intake persistence`).
+- New required docs: C1 Social Trust intake persistence closeout ledger.
 - Removed docs: None.
-- Implementation impact: Docs-only lock alignment. Broad runtime implementation remains blocked. One later implementation-repo PR may implement Social Trust proposed mutation attempt intake persistence only, under the C1 Social Trust intake handoff envelope.
-- Review completed by: TBD
+- Implementation impact: Docs-only lock alignment. The prior PR #92 narrow allowance was consumed by `mt4110/pi-musubi-core` PR #82. Runtime implementation returns to NO-GO. Broad runtime implementation, pi-musubi-core changes beyond this lock alignment, DDL, migrations, runtime tests, actual Social Trust mutation facts, scoring, weighting, ranking, display, Relationship Depth, proof, room, discovery, recommendation, settlement, Promise, public API, mobile UI, and projection refresh work remain blocked.
+- Review completed by: Masaki Takemura
 
 ---
 
