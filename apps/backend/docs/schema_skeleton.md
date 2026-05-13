@@ -45,10 +45,13 @@ Owns:
 - C1 Social Trust intake decision records for rejected attempts and `CandidateForWriterPersistence`
 - database-enforced idempotency / replay posture for proposed mutation attempts
 - minimized reason, evidence-posture, reviewability, retention-class, and audit metadata for intake decisions
+- C2 bounded Promise reliability accepted source references
+- C2 bounded Promise reliability categorical Social Trust mutation facts
+- database-enforced idempotency / replay posture for accepted C2 categorical fact persistence
+- minimized Promise, Consent, block / Withdrawal, Age Assurance, Legal Hold, Critical Harm, account lifecycle, anti-abuse, safety, evidence-level, reason, retention, and audit references for C2 categorical fact persistence
 
 Must not own:
-- actual Social Trust mutation facts
-- Social Trust scores, weights, ranks, display levels, narrowing, freeze, or recovery facts
+- Social Trust scores, weights, ranks, display levels, recovery ceilings, public levels, recommendation boosts, discovery priorities, contact unlocks, room transitions, or settlement progression facts
 - Relationship Depth facts
 - projection refresh state
 - raw PII, raw evidence payloads, payment behavior, popularity metrics, engagement telemetry, operator notes, support tickets, or issue comments
@@ -213,3 +216,23 @@ The architectural boundary is strict:
 - retention is mapped to the ADR-0012 category `Social Trust evidence or future Social Trust writer facts` without inventing concrete retention durations
 - rejected attempts and candidates do not emit projection refresh work
 - no Social Trust mutation fact, score, weight, rank, display level, Relationship Depth fact, public API, or mobile UI is introduced
+
+## C2 bounded Promise reliability categorical persistence additions
+
+Design source: `docs/readiness/c2_bounded_promise_reliability_implementation_handoff_gate.md` in `musubi-foundation` PR #108.
+
+Migration `0021_c2_categorical_social_trust_fact_persistence.sql` adds the narrow C2 bounded Promise reliability persistence baseline:
+- `social_trust.categorical_source_references`
+- `social_trust.categorical_mutation_facts`
+
+The architectural boundary is strict:
+- only the accepted C2 source labels from the foundation handoff can be persisted
+- only the accepted C2 categorical mutation labels can be persisted
+- source-to-mutation mapping is enforced by domain code and PostgreSQL checks
+- durable idempotency is enforced by PostgreSQL unique indexes over the subject, policy version, and fact idempotency key
+- duplicate delivery with payload drift fails closed through stored payload hashes
+- accepted facts use minimized references rather than raw PII or raw evidence payloads
+- accepted facts do not create Social Trust scores, weights, ranks, public display, projection refresh, Relationship Depth, discovery / recommendation use, room progression, settlement behavior, Promise runtime behavior, public API, or mobile UI
+- rejected sources and projection-only authority fail closed before persistence
+- unresolved Consent / block / Withdrawal / Age Assurance / Legal Hold / Critical Harm / lifecycle / safety boundaries block positive contribution; only the exact `promise_reliability_outcome.review_required_boundary_intersection` source may persist the categorical freeze fact
+- persisted freeze source references store the boundary intersection label so later review does not need projection, display, or narrative text to distinguish why the source path is frozen

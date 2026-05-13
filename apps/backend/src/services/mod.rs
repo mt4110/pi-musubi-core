@@ -7,3 +7,4 @@ pub mod proof;
 pub mod realm_bootstrap;
 pub mod room_progression;
 pub mod social_trust_intake;
+pub mod social_trust_mutation;
