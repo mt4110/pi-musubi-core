@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `00409c3`
+Status: Draft; aligned to accepted foundation commit `86362a6`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `00409c3b7384b3e2330d662bba1a481e09d3b3ec`
-- Foundation commit title: `Merge pull request #104 from mt4110/feat/define-c2-bounded-promise-reliability-mutation-fact-gate`
-- Foundation PR title: `docs: define C2 bounded Promise reliability mutation-fact gate`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/104`
+- Foundation commit SHA: `86362a6bf1b6bf15abc1125fb2e5b90ad022ebfb`
+- Foundation commit title: `Merge pull request #108 from mt4110/feat/define-c2-bounded-promise-reliability-implementation-handoff-gate`
+- Foundation PR title: `docs: define C2 bounded Promise reliability implementation handoff gate`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/108`
 - Date pinned: `2026-05-13`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/00409c3b7384b3e2330d662bba1a481e09d3b3ec`
-- Previous pinned reference: `cff85a6` / `Merge pull request #94 from mt4110/feat/evaluate-c1-social-trust-intake-persistence-closeout`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/86362a6bf1b6bf15abc1125fb2e5b90ad022ebfb`
+- Previous pinned reference: `00409c3` / `Merge pull request #104 from mt4110/feat/define-c2-bounded-promise-reliability-mutation-fact-gate`
 - Alignment scope source: `b554645` / `Merge pull request #106 from mt4110/feat/evaluate-c2-bounded-promise-reliability-foundation-lock-alignment-scope`
 
 No release tag is asserted for this alignment.
@@ -107,31 +107,32 @@ Before coding, read these upstream documents in order.
 52. `docs/readiness/c2_bounded_promise_reliability_mutation_prereqs.md`
 53. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate_readiness.md`
 54. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate.md`
+55. `docs/readiness/c2_bounded_promise_reliability_implementation_handoff_gate.md`
 
 ### Detail layer
-55. `docs/detail/accountability_matrix.md`
-56. `docs/detail/critical_incident_and_loss.md`
-57. `docs/detail/automated_decisioning_and_human_appeal.md`
-58. `docs/detail/youth_safety_and_age_assurance.md`
-59. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-60. `docs/detail/data_deletion_vs_legal_hold.md`
-61. `docs/detail/realm_model.md`
-62. `docs/detail/data_scope_model.md`
-63. `docs/detail/mobility_model.md`
-64. `docs/detail/settlement_model.md`
-65. `docs/detail/settlement_backend_trait.md`
-66. `docs/detail/proof_of_infrastructure.md`
-67. `docs/detail/protected_groups_and_translation_safety.md`
+56. `docs/detail/accountability_matrix.md`
+57. `docs/detail/critical_incident_and_loss.md`
+58. `docs/detail/automated_decisioning_and_human_appeal.md`
+59. `docs/detail/youth_safety_and_age_assurance.md`
+60. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+61. `docs/detail/data_deletion_vs_legal_hold.md`
+62. `docs/detail/realm_model.md`
+63. `docs/detail/data_scope_model.md`
+64. `docs/detail/mobility_model.md`
+65. `docs/detail/settlement_model.md`
+66. `docs/detail/settlement_backend_trait.md`
+67. `docs/detail/proof_of_infrastructure.md`
+68. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-68. `docs/whitepaper/01_executive_summary.md`
-69. `docs/whitepaper/02_realm_model.md`
-70. `docs/whitepaper/03_experience_model.md`
-71. `docs/whitepaper/04_dm_shield.md`
-72. `docs/whitepaper/05_trust_model.md`
-73. `docs/whitepaper/06_promise_protocol.md`
-74. `docs/whitepaper/07_realm_economy.md`
-75. `docs/whitepaper/08_unlock_engine.md`
+69. `docs/whitepaper/01_executive_summary.md`
+70. `docs/whitepaper/02_realm_model.md`
+71. `docs/whitepaper/03_experience_model.md`
+72. `docs/whitepaper/04_dm_shield.md`
+73. `docs/whitepaper/05_trust_model.md`
+74. `docs/whitepaper/06_promise_protocol.md`
+75. `docs/whitepaper/07_realm_economy.md`
+76. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -156,8 +157,10 @@ Prompt 3 implementation may proceed only where all applicable foundation ADRs an
 The C1 Runtime Handoff Gate Decision remains accepted as a broad NO-GO record.
 The C1 Social Trust Intake Handoff Gate Decision remains accepted as the historical narrow GO record for one later implementation-repo PR only.
 The C1 Social Trust Intake Persistence Closeout Ledger records that the one later implementation-repo PR was consumed by `mt4110/pi-musubi-core` PR #82.
-The current runtime implementation gate result is NO-GO after that narrow intake persistence allowance was consumed.
-The closeout ledger does not authorize broad runtime implementation, pi-musubi-core changes, DDL, migrations, runtime tests, gate invocation, implementation handoff, Social Trust mutation facts, scores, weights, ranks, display levels, Relationship Depth work, proof / room / discovery / recommendation / settlement / Promise behavior, public API, mobile UI, or projection refresh work.
+The C2 bounded Promise reliability implementation handoff gate is accepted as a narrow GO for one later implementation-repo PR only.
+The current runtime implementation gate result is NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR, limited to C2 bounded Promise reliability categorical Social Trust mutation fact persistence in `mt4110/pi-musubi-core`.
+That one-use allowance authorizes additive `social_trust` schema persistence, backend-local Social Trust domain / service code, and deterministic backend tests only inside that narrow PR.
+It does not authorize broad runtime implementation, numeric Social Trust weights, score deltas, ranks, public display, projection refresh, discovery / recommendation use, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior outside accepted source references, public API, mobile UI, Relationship Depth work, paid romantic advantage, or any implementation outside the C2 bounded Promise reliability persistence envelope.
 
 The C2 bounded Promise reliability readiness chain is accepted for docs-only foundation semantic scope:
 
@@ -166,13 +169,15 @@ The C2 bounded Promise reliability readiness chain is accepted for docs-only fou
 - `docs/readiness/c2_bounded_promise_reliability_mutation_prereqs.md`
 - `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate_readiness.md`
 - `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate.md`
+- `docs/readiness/c2_bounded_promise_reliability_implementation_handoff_gate.md`
 
 The accepted C2 gate records `bounded_promise_reliability` as the only positive Social Trust source-family candidate and accepts exact source facts and exact Social Trust mutation facts only as foundation semantic labels.
 Those labels are not runtime schema names, enum values, API names, migration names, module names, or test names.
-The C2 gate does not authorize runtime implementation, DDL, migrations, runtime tests, gate invocation, implementation handoff, numeric Social Trust weights, score deltas, public Social Trust display, projection refresh, discovery / recommendation use, room progression, settlement behavior, Promise runtime behavior, public API, mobile UI, or pi-musubi-core changes beyond this docs-only lock alignment.
+The C2 implementation handoff gate authorizes only categorical persistence of those accepted source and mutation facts in one later implementation-repo PR.
+Accepted source and mutation fact labels must remain categorical internal writer facts only; they must not become scores, weights, ranks, display levels, public status, projection refresh, discovery / recommendation inputs, room transitions, settlement progression, Promise runtime behavior, public API, mobile UI, or Relationship Depth behavior.
 
 Foundation PR #106 selected this repository and this file as the candidate downstream alignment scope after PR #104.
-PR #106 itself is a foundation-side scope record for this lock update; it does not add runtime implementation authority.
+Foundation PR #108 provides the narrow downstream implementation handoff authority for the C2 bounded Promise reliability persistence slice.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -330,12 +335,12 @@ The C1 Social Trust Intake Persistence Closeout Ledger is accepted as a docs-onl
 
 - `docs/readiness/c1_social_trust_intake_persistence_closeout_ledger.md`
 
-The runtime implementation gate result is now `NO-GO`.
-The prior `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR` has been consumed by `mt4110/pi-musubi-core` PR #82.
+The C1 runtime implementation gate result returned to `NO-GO` after the C1 intake allowance was consumed.
+The prior C1 `NARROW GO FOR ONE LATER IMPLEMENTATION-REPO PR` was consumed by `mt4110/pi-musubi-core` PR #82.
 The C1 intake persistence slice is closed.
 No remaining work may inherit permission from foundation PR #92 or implementation PR #82.
-Any next slice must be defined by a separate accepted foundation decision before implementation work proceeds.
-This lock update itself does not add runtime code, DDL, migrations, runtime tests, public API, mobile UI, projection refresh work, or Social Trust mutation behavior.
+The C2 bounded Promise reliability implementation handoff gate now provides a separate accepted narrow GO for one later implementation-repo PR only.
+That C2 allowance is limited to categorical Social Trust mutation fact persistence and excludes broad runtime code, public API, mobile UI, projection refresh, numeric Social Trust behavior, display, Relationship Depth, discovery, recommendation, room progression, settlement behavior, and Promise runtime behavior.
 
 ---
 
@@ -363,11 +368,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `cff85a6c55b9094cb5fcc223f3d0a7a918a29def` -> `00409c3b7384b3e2330d662bba1a481e09d3b3ec`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #104 (`docs: define C2 bounded Promise reliability mutation-fact gate`). Foundation PR #106 selected this downstream lock alignment scope.
-- New required docs: C1 to C2 Social Trust writer facts next-slice evaluation; C2 Social Trust source-family gate; C2 bounded Promise reliability mutation prerequisites; C2 bounded Promise reliability mutation-fact gate readiness; C2 bounded Promise reliability mutation-fact gate.
+- Updated from foundation SHA: `00409c3b7384b3e2330d662bba1a481e09d3b3ec` -> `86362a6bf1b6bf15abc1125fb2e5b90ad022ebfb`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #108 (`docs: define C2 bounded Promise reliability implementation handoff gate`).
+- New required docs: C2 bounded Promise reliability implementation handoff gate.
 - Removed docs: None.
-- Implementation impact: Docs-only lock alignment. The C2 gate accepts exact bounded Promise reliability source facts and exact Social Trust mutation facts only as foundation semantic labels. Runtime implementation remains NO-GO. Broad runtime implementation, pi-musubi-core changes beyond this lock alignment, DDL, migrations, runtime tests, gate invocation, implementation handoff, numeric Social Trust weights, score deltas, public display, projection refresh, Relationship Depth, proof-derived mutation paths outside the accepted gate, room progression, discovery, recommendation, settlement, Promise runtime behavior, public API, and mobile UI remain blocked.
+- Implementation impact: Narrow implementation handoff accepted for one later `pi-musubi-core` PR only. The allowed slice is C2 bounded Promise reliability categorical Social Trust mutation fact persistence, including additive `social_trust` schema persistence, backend-local domain / service code, and deterministic backend tests. Broad runtime implementation, numeric Social Trust weights, score deltas, ranks, public display, projection refresh, Relationship Depth, proof-derived mutation paths outside accepted source references, room progression, discovery, recommendation, settlement, Promise runtime behavior, public API, mobile UI, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---

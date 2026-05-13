@@ -14,6 +14,7 @@ Later milestone work has since added:
 - settlement-domain types and backend traits
 - orchestration runtime notes
 - Social Trust intake / no-authority domain contract
+- C2 bounded Promise reliability categorical Social Trust mutation fact persistence
 
 The backend still does not implement:
 - provider-specific adapters
@@ -102,6 +103,10 @@ Owns:
 - pure Social Trust proposed mutation attempt intake decisions
 - forbidden-source and unknown-source fail-closed checks
 - required writer source reference, reason fact, idempotency, evidence, reviewability, retention, and authority posture checks
+- pure C2 bounded Promise reliability source-to-mutation mapping decisions
+- exact accepted / rejected C2 bounded Promise reliability source fact categories
+- exact accepted C2 categorical Social Trust mutation fact categories
+- fail-closed C2 checks for projection-only authority, unresolved boundaries outside the exact freeze source path, missing idempotency, missing Consent / block / Withdrawal / Age Assurance / Legal Hold / Critical Harm / lifecycle / safety / evidence / retention / audit references, and source-mutation mismatches
 
 Must not own:
 - Social Trust scoring, weights, display levels, or recovery ceilings
@@ -122,6 +127,21 @@ Must not own:
 - Social Trust mutation facts, scoring, weights, ranks, display levels, narrowing, freeze, or recovery behavior
 - Relationship Depth, proof, room progression, discovery, recommendation, settlement, Promise, payment, Support, or operator-review behavior
 - projection refresh or projection-derived authority
+
+### `musubi_backend::services::social_trust_mutation`
+Owns:
+- backend-local persistence for C2 bounded Promise reliability accepted source references
+- backend-local persistence for accepted C2 categorical Social Trust mutation facts
+- database-enforced duplicate delivery and payload-drift checks for accepted C2 categorical facts
+- writer-first account reference checks for Ordinary Account subjects before new fact persistence
+- deterministic tests proving accepted mapping, rejected sources, projection-only authority, unresolved boundaries, replay, and idempotency drift fail closed
+
+Must not own:
+- HTTP handlers, public API routes, mobile UI, or app-state exposure
+- Social Trust scores, weights, ranks, public display levels, recovery ceilings, discovery boosts, recommendation priority, contact unlock, room transition, or settlement progression
+- Relationship Depth, proof runtime, room progression, discovery, recommendation, settlement, Promise runtime, payment, Support, or operator-review behavior
+- projection refresh or projection-derived authority
+- raw PII, raw evidence payloads, provider callbacks, operator notes, support tickets, issue comments, popularity metrics, or engagement telemetry
 
 ### `musubi_orchestration`
 Owns:
