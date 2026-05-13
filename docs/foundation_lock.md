@@ -347,7 +347,7 @@ When updating:
 - New required docs: C1 Social Trust intake persistence closeout ledger.
 - Removed docs: None.
 - Implementation impact: Docs-only lock alignment. The prior PR #92 narrow allowance was consumed by `mt4110/pi-musubi-core` PR #82. Runtime implementation returns to NO-GO. Broad runtime implementation, pi-musubi-core changes beyond this lock alignment, DDL, migrations, runtime tests, actual Social Trust mutation facts, scoring, weighting, ranking, display, Relationship Depth, proof, room, discovery, recommendation, settlement, Promise, public API, mobile UI, and projection refresh work remain blocked.
-- Review completed by: TBD
+- Review completed by: Masaki Takemura
 
 ---
 
