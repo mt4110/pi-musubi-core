@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `64d6348`
+Status: Draft; aligned to accepted foundation commit `c3c0ae0`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,18 +26,21 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `64d634862df48d725c4a13097d52f9c0455f6cee`
-- Foundation commit title: `Merge pull request #124 from mt4110/feat/evaluate-post-c2-non-consumption-guard-handoff`
-- Foundation PR title: `docs: evaluate post-C2 non-consumption guard handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/124`
+- Foundation commit SHA: `c3c0ae0b3a0b9f09592b1056c7ca9997403e0830`
+- Foundation commit title: `Merge pull request #130 from mt4110/feat/evaluate-post-c2-categorical-fact-non-exposure-handoff`
+- Foundation PR title: `docs: evaluate post-C2 categorical fact non-exposure handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/130`
 - Date pinned: `2026-05-14`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/64d634862df48d725c4a13097d52f9c0455f6cee`
-- Previous pinned reference: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c3c0ae0b3a0b9f09592b1056c7ca9997403e0830`
+- Previous pinned reference: `64d6348` / `Merge pull request #124 from mt4110/feat/evaluate-post-c2-non-consumption-guard-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
 - Post-C2 non-consumption guard handoff source: `64d6348` / `Merge pull request #124 from mt4110/feat/evaluate-post-c2-non-consumption-guard-handoff`
+- Post-C2 non-consumption guard implementation closeout source: `7a2c8a0` / `Merge pull request #126 from mt4110/feat/close-post-c2-non-consumption-guard-handoff`
+- Post-C2 categorical fact projection API non-exposure evidence source: `fd4465e` / `Merge pull request #128 from mt4110/feat/post-c2-categorical-fact-non-exposure-evidence`
+- Post-C2 categorical fact projection API non-exposure handoff source: `c3c0ae0` / `Merge pull request #130 from mt4110/feat/evaluate-post-c2-categorical-fact-non-exposure-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -120,31 +123,34 @@ Before coding, read these upstream documents in order.
 62. `docs/readiness/post_c2_implementation_handoff_gate_decision.md`
 63. `docs/readiness/post_c2_implementation_handoff_evidence_package.md`
 64. `docs/readiness/post_c2_non_consumption_guard_handoff_gate_decision.md`
+65. `docs/readiness/post_c2_non_consumption_guard_implementation_closeout_ledger.md`
+66. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_evidence_package.md`
+67. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_handoff_gate_decision.md`
 
 ### Detail layer
-65. `docs/detail/accountability_matrix.md`
-66. `docs/detail/critical_incident_and_loss.md`
-67. `docs/detail/automated_decisioning_and_human_appeal.md`
-68. `docs/detail/youth_safety_and_age_assurance.md`
-69. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-70. `docs/detail/data_deletion_vs_legal_hold.md`
-71. `docs/detail/realm_model.md`
-72. `docs/detail/data_scope_model.md`
-73. `docs/detail/mobility_model.md`
-74. `docs/detail/settlement_model.md`
-75. `docs/detail/settlement_backend_trait.md`
-76. `docs/detail/proof_of_infrastructure.md`
-77. `docs/detail/protected_groups_and_translation_safety.md`
+68. `docs/detail/accountability_matrix.md`
+69. `docs/detail/critical_incident_and_loss.md`
+70. `docs/detail/automated_decisioning_and_human_appeal.md`
+71. `docs/detail/youth_safety_and_age_assurance.md`
+72. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+73. `docs/detail/data_deletion_vs_legal_hold.md`
+74. `docs/detail/realm_model.md`
+75. `docs/detail/data_scope_model.md`
+76. `docs/detail/mobility_model.md`
+77. `docs/detail/settlement_model.md`
+78. `docs/detail/settlement_backend_trait.md`
+79. `docs/detail/proof_of_infrastructure.md`
+80. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-78. `docs/whitepaper/01_executive_summary.md`
-79. `docs/whitepaper/02_realm_model.md`
-80. `docs/whitepaper/03_experience_model.md`
-81. `docs/whitepaper/04_dm_shield.md`
-82. `docs/whitepaper/05_trust_model.md`
-83. `docs/whitepaper/06_promise_protocol.md`
-84. `docs/whitepaper/07_realm_economy.md`
-85. `docs/whitepaper/08_unlock_engine.md`
+81. `docs/whitepaper/01_executive_summary.md`
+82. `docs/whitepaper/02_realm_model.md`
+83. `docs/whitepaper/03_experience_model.md`
+84. `docs/whitepaper/04_dm_shield.md`
+85. `docs/whitepaper/05_trust_model.md`
+86. `docs/whitepaper/06_promise_protocol.md`
+87. `docs/whitepaper/07_realm_economy.md`
+88. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -172,8 +178,9 @@ The C1 Social Trust Intake Persistence Closeout Ledger records that the one late
 The C2 bounded Promise reliability implementation handoff gate was accepted as a narrow GO for one later implementation-repo PR only.
 That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core` PR #88 and closed out by `docs/readiness/c2_bounded_promise_reliability_mutation_fact_persistence_closeout_ledger.md`.
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
-The current runtime implementation gate result is NO-GO.
-Runtime implementation remains blocked.
+The broad runtime implementation gate result remains NO-GO.
+Broad runtime implementation remains blocked.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 categorical Social Trust fact projection API non-exposure verification.
 
 The C2 bounded Promise reliability readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -192,6 +199,9 @@ The C2 bounded Promise reliability readiness and closeout chain is accepted for 
 - `docs/readiness/post_c2_implementation_handoff_gate_decision.md`
 - `docs/readiness/post_c2_implementation_handoff_evidence_package.md`
 - `docs/readiness/post_c2_non_consumption_guard_handoff_gate_decision.md`
+- `docs/readiness/post_c2_non_consumption_guard_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_evidence_package.md`
+- `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_handoff_gate_decision.md`
 
 The accepted C2 gate records `bounded_promise_reliability` as the only positive Social Trust source-family candidate and accepts exact source facts and exact Social Trust mutation facts only as foundation semantic labels.
 Those labels are not runtime schema names, enum values, API names, migration names, module names, or test names.
@@ -204,10 +214,13 @@ Foundation PR #116 provided the narrow downstream allowance for one docs-only fo
 That allowance was consumed by `mt4110/pi-musubi-core` PR #90 and closed out by foundation PR #118.
 Foundation PR #120 preserved implementation handoff NO-GO until exact slice evidence existed.
 Foundation PR #122 accepted the exact candidate implementation slice as the post-C2 Social Trust categorical fact non-consumption guard.
-Foundation PR #124 provides the current narrow downstream implementation handoff authority for one later implementation-repo PR only, limited to the post-C2 Social Trust categorical fact non-consumption guard.
+Foundation PR #124 provided the consumed narrow downstream implementation handoff authority for one later implementation-repo PR only, limited to the post-C2 Social Trust categorical fact non-consumption guard.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #92 and closed out by foundation PR #126.
+Foundation PR #128 accepted the exact candidate test-only slice as post-C2 categorical Social Trust fact projection API non-exposure verification.
+Foundation PR #130 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
-It does not authorize implementation outside the PR #124 envelope.
-It does not authorize new source facts, new mutation facts, DDL, migrations, backend README updates, public API, mobile UI, projection refresh, runtime orchestration, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+It does not authorize implementation outside the PR #130 envelope.
+It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -373,9 +386,12 @@ The C2 bounded Promise reliability implementation handoff gate provided a separa
 That C2 implementation allowance was consumed by `mt4110/pi-musubi-core` PR #88 and is closed.
 The post-C2 runtime handoff evidence package and gate decision preserved runtime NO-GO while allowing only one downstream docs-only foundation lock alignment PR in this repository.
 That post-C2 lock alignment allowance was consumed by `mt4110/pi-musubi-core` PR #90 and closed out by foundation PR #118.
-The post-C2 implementation handoff evidence package and handoff gate now authorize one later implementation-repo PR only for the post-C2 Social Trust categorical fact non-consumption guard.
-This implementation is limited to backend-local guard behavior and deterministic verification that already accepted C2 categorical Social Trust facts cannot be consumed as scores, weights, ranks, display, projection refresh, discovery / recommendation inputs, contact unlocks, room transitions, settlement progression, Promise runtime behavior, proof runtime behavior, public API, mobile UI, or Relationship Depth behavior.
-It does not authorize new source facts, new mutation facts, DDL, migrations, backend README updates, public API, mobile UI, projection refresh, runtime orchestration, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
+The post-C2 implementation handoff evidence package and handoff gate authorized one later implementation-repo PR only for the post-C2 Social Trust categorical fact non-consumption guard.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #92 and closed out by foundation PR #126.
+The post-C2 categorical fact projection API non-exposure evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
+This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_categorical_fact_projection_api_non_exposure.rs`.
+It may verify that already accepted C2 categorical Social Trust facts alone do not create projection rows, public API visibility, mobile UI state, scores, weights, ranks, display levels, discovery / recommendation inputs, contact unlocks, room transitions, settlement progression, Promise runtime behavior, proof runtime behavior, or Relationship Depth behavior.
+It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
 
 ---
 
@@ -403,11 +419,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `69b7aa49c3239780b8722c2f09f7e5213a0f6355` -> `64d634862df48d725c4a13097d52f9c0455f6cee`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #124 (`docs: evaluate post-C2 non-consumption guard handoff`).
-- New required docs: Post-C2 foundation lock alignment closeout ledger; post-C2 implementation handoff gate decision; post-C2 implementation handoff evidence package; post-C2 non-consumption guard handoff gate decision.
+- Updated from foundation SHA: `64d634862df48d725c4a13097d52f9c0455f6cee` -> `c3c0ae0b3a0b9f09592b1056c7ca9997403e0830`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #130 (`docs: evaluate post-C2 categorical fact non-exposure handoff`).
+- New required docs: Post-C2 non-consumption guard implementation closeout ledger; post-C2 categorical fact projection API non-exposure evidence package; post-C2 categorical fact projection API non-exposure handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #124 authorizes one later implementation-repo PR only for the post-C2 Social Trust categorical fact non-consumption guard. This PR may add backend-local guard behavior and deterministic verification inside the PR #124 envelope. New source facts, new mutation facts, DDL, migrations, backend README updates, public API, mobile UI, projection refresh, runtime orchestration, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
+- Implementation impact: PR #130 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving accepted C2 categorical Social Trust facts alone do not create projection rows or public projection API visibility. New source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
