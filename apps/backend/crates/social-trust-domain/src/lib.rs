@@ -587,6 +587,113 @@ impl C2BoundedPromiseReliabilityMutationDecision {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct C2CategoricalFactConsumptionAttempt {
+    pub source_fact: C2BoundedPromiseReliabilitySourceFact,
+    pub mutation_fact: C2BoundedPromiseReliabilityMutationFact,
+    pub target: C2CategoricalFactConsumptionTarget,
+    pub authority_posture: SocialTrustAuthorityPosture,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum C2CategoricalFactConsumptionTarget {
+    InternalWriterFactReference,
+    NumericSocialTrustScore,
+    SocialTrustScoreDelta,
+    SocialTrustWeight,
+    SocialTrustRank,
+    SocialTrustDisplayLevel,
+    SocialTrustPublicLevel,
+    PublicSocialTrustDisplay,
+    RecoveryCeiling,
+    DiscoveryPriority,
+    RecommendationBoost,
+    ContactUnlock,
+    RoomTransition,
+    SettlementProgression,
+    PromiseRuntimeOutcome,
+    ProofRuntimeOutcome,
+    RelationshipDepthFact,
+    ProjectionRefresh,
+    PublicApiResponse,
+    MobileUiState,
+}
+
+impl C2CategoricalFactConsumptionTarget {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InternalWriterFactReference => "internal_writer_fact_reference",
+            Self::NumericSocialTrustScore => "numeric_social_trust_score",
+            Self::SocialTrustScoreDelta => "social_trust_score_delta",
+            Self::SocialTrustWeight => "social_trust_weight",
+            Self::SocialTrustRank => "social_trust_rank",
+            Self::SocialTrustDisplayLevel => "social_trust_display_level",
+            Self::SocialTrustPublicLevel => "social_trust_public_level",
+            Self::PublicSocialTrustDisplay => "public_social_trust_display",
+            Self::RecoveryCeiling => "recovery_ceiling",
+            Self::DiscoveryPriority => "discovery_priority",
+            Self::RecommendationBoost => "recommendation_boost",
+            Self::ContactUnlock => "contact_unlock",
+            Self::RoomTransition => "room_transition",
+            Self::SettlementProgression => "settlement_progression",
+            Self::PromiseRuntimeOutcome => "promise_runtime_outcome",
+            Self::ProofRuntimeOutcome => "proof_runtime_outcome",
+            Self::RelationshipDepthFact => "relationship_depth_fact",
+            Self::ProjectionRefresh => "projection_refresh",
+            Self::PublicApiResponse => "public_api_response",
+            Self::MobileUiState => "mobile_ui_state",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum C2CategoricalFactConsumptionDecision {
+    AllowInternalWriterFactReference {
+        source_fact: C2BoundedPromiseReliabilitySourceFact,
+        mutation_fact: C2BoundedPromiseReliabilityMutationFact,
+    },
+    Reject(C2CategoricalFactConsumptionRejection),
+}
+
+impl C2CategoricalFactConsumptionDecision {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::AllowInternalWriterFactReference { .. } => "allow_internal_writer_fact_reference",
+            Self::Reject(_) => "rejected",
+        }
+    }
+
+    pub const fn rejection_reason_code(&self) -> Option<&'static str> {
+        match self {
+            Self::AllowInternalWriterFactReference { .. } => None,
+            Self::Reject(rejection) => Some(rejection.as_str()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum C2CategoricalFactConsumptionRejection {
+    SourceMutationMismatch {
+        source: C2BoundedPromiseReliabilitySourceFact,
+        requested: C2BoundedPromiseReliabilityMutationFact,
+        expected: C2BoundedPromiseReliabilityMutationFact,
+    },
+    ProjectionOnlyAuthority,
+    BlockedConsumptionTarget {
+        target: C2CategoricalFactConsumptionTarget,
+    },
+}
+
+impl C2CategoricalFactConsumptionRejection {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::SourceMutationMismatch { .. } => "source_mutation_mismatch",
+            Self::ProjectionOnlyAuthority => "projection_only_authority",
+            Self::BlockedConsumptionTarget { .. } => "blocked_consumption_target",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum C2BoundedPromiseReliabilityRejection {
     RejectedSourceFact {
@@ -1044,6 +1151,41 @@ pub fn decide_c2_bounded_promise_reliability_mutation(
         mutation_fact: requested_mutation,
         direction: requested_mutation.direction(),
         magnitude: requested_mutation.magnitude(),
+    }
+}
+
+#[must_use]
+pub fn decide_c2_categorical_fact_consumption(
+    attempt: &C2CategoricalFactConsumptionAttempt,
+) -> C2CategoricalFactConsumptionDecision {
+    let expected_mutation = attempt.source_fact.expected_mutation();
+    if attempt.mutation_fact != expected_mutation {
+        return C2CategoricalFactConsumptionDecision::Reject(
+            C2CategoricalFactConsumptionRejection::SourceMutationMismatch {
+                source: attempt.source_fact,
+                requested: attempt.mutation_fact,
+                expected: expected_mutation,
+            },
+        );
+    }
+
+    if attempt.authority_posture == SocialTrustAuthorityPosture::ProjectionOnly {
+        return C2CategoricalFactConsumptionDecision::Reject(
+            C2CategoricalFactConsumptionRejection::ProjectionOnlyAuthority,
+        );
+    }
+
+    if attempt.target != C2CategoricalFactConsumptionTarget::InternalWriterFactReference {
+        return C2CategoricalFactConsumptionDecision::Reject(
+            C2CategoricalFactConsumptionRejection::BlockedConsumptionTarget {
+                target: attempt.target,
+            },
+        );
+    }
+
+    C2CategoricalFactConsumptionDecision::AllowInternalWriterFactReference {
+        source_fact: attempt.source_fact,
+        mutation_fact: attempt.mutation_fact,
     }
 }
 
