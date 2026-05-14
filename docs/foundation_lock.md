@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `650c254`
+Status: Draft; aligned to accepted foundation commit `9910663`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `650c25456ff5a3536ff7731dc8d46e9dfcd4a634`
-- Foundation commit title: `Merge pull request #160 from mt4110/feat/evaluate-post-c2-categorical-fact-concurrent-idempotency-handoff`
-- Foundation PR title: `docs: evaluate post-C2 categorical fact concurrent idempotency handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/160`
+- Foundation commit SHA: `9910663b9a3f93fae55102db507d75ba578219b9`
+- Foundation commit title: `Merge pull request #166 from mt4110/feat/evaluate-post-c2-categorical-fact-subject-realm-idempotency-handoff`
+- Foundation PR title: `Evaluate post-C2 categorical fact subject and Realm idempotency handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/166`
 - Date pinned: `2026-05-14`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/650c25456ff5a3536ff7731dc8d46e9dfcd4a634`
-- Previous pinned reference: `37c17d2` / `Merge pull request #154 from mt4110/feat/evaluate-post-c2-categorical-fact-rejection-boundary-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/9910663b9a3f93fae55102db507d75ba578219b9`
+- Previous pinned reference: `650c254` / `Merge pull request #160 from mt4110/feat/evaluate-post-c2-categorical-fact-concurrent-idempotency-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -56,6 +56,9 @@ Pinned reference for implementation work:
 - Post-C2 categorical fact rejection boundary non-persistence implementation closeout source: `4106009` / `Merge pull request #156 from mt4110/feat/close-post-c2-categorical-fact-rejection-boundary-handoff`
 - Post-C2 categorical fact concurrent idempotency evidence source: `67a5ad6` / `Merge pull request #158 from mt4110/feat/post-c2-categorical-fact-concurrent-idempotency-evidence`
 - Post-C2 categorical fact concurrent idempotency handoff source: `650c254` / `Merge pull request #160 from mt4110/feat/evaluate-post-c2-categorical-fact-concurrent-idempotency-handoff`
+- Post-C2 categorical fact concurrent idempotency implementation closeout source: `aabbd36` / `Merge pull request #162 from mt4110/feat/close-post-c2-categorical-fact-concurrent-idempotency-handoff`
+- Post-C2 categorical fact subject and Realm idempotency scope evidence source: `a1027eb` / `Merge pull request #164 from mt4110/feat/post-c2-categorical-fact-subject-realm-idempotency-evidence`
+- Post-C2 categorical fact subject and Realm idempotency scope handoff source: `9910663` / `Merge pull request #166 from mt4110/feat/evaluate-post-c2-categorical-fact-subject-realm-idempotency-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -156,31 +159,34 @@ Before coding, read these upstream documents in order.
 80. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_implementation_closeout_ledger.md`
 81. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_evidence_package.md`
 82. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_handoff_gate_decision.md`
+83. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_implementation_closeout_ledger.md`
+84. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_evidence_package.md`
+85. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_handoff_gate_decision.md`
 
 ### Detail layer
-83. `docs/detail/accountability_matrix.md`
-84. `docs/detail/critical_incident_and_loss.md`
-85. `docs/detail/automated_decisioning_and_human_appeal.md`
-86. `docs/detail/youth_safety_and_age_assurance.md`
-87. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-88. `docs/detail/data_deletion_vs_legal_hold.md`
-89. `docs/detail/realm_model.md`
-90. `docs/detail/data_scope_model.md`
-91. `docs/detail/mobility_model.md`
-92. `docs/detail/settlement_model.md`
-93. `docs/detail/settlement_backend_trait.md`
-94. `docs/detail/proof_of_infrastructure.md`
-95. `docs/detail/protected_groups_and_translation_safety.md`
+86. `docs/detail/accountability_matrix.md`
+87. `docs/detail/critical_incident_and_loss.md`
+88. `docs/detail/automated_decisioning_and_human_appeal.md`
+89. `docs/detail/youth_safety_and_age_assurance.md`
+90. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+91. `docs/detail/data_deletion_vs_legal_hold.md`
+92. `docs/detail/realm_model.md`
+93. `docs/detail/data_scope_model.md`
+94. `docs/detail/mobility_model.md`
+95. `docs/detail/settlement_model.md`
+96. `docs/detail/settlement_backend_trait.md`
+97. `docs/detail/proof_of_infrastructure.md`
+98. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-96. `docs/whitepaper/01_executive_summary.md`
-97. `docs/whitepaper/02_realm_model.md`
-98. `docs/whitepaper/03_experience_model.md`
-99. `docs/whitepaper/04_dm_shield.md`
-100. `docs/whitepaper/05_trust_model.md`
-101. `docs/whitepaper/06_promise_protocol.md`
-102. `docs/whitepaper/07_realm_economy.md`
-103. `docs/whitepaper/08_unlock_engine.md`
+99. `docs/whitepaper/01_executive_summary.md`
+100. `docs/whitepaper/02_realm_model.md`
+101. `docs/whitepaper/03_experience_model.md`
+102. `docs/whitepaper/04_dm_shield.md`
+103. `docs/whitepaper/05_trust_model.md`
+104. `docs/whitepaper/06_promise_protocol.md`
+105. `docs/whitepaper/07_realm_economy.md`
+106. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -210,7 +216,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 categorical Social Trust fact concurrent idempotency / replay / payload-drift verification.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 categorical Social Trust fact subject and Realm idempotency scope verification.
 
 The C2 bounded Promise reliability readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -247,6 +253,9 @@ The C2 bounded Promise reliability readiness and closeout chain is accepted for 
 - `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_evidence_package.md`
 - `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_handoff_gate_decision.md`
+- `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_evidence_package.md`
+- `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_handoff_gate_decision.md`
 
 The accepted C2 gate records `bounded_promise_reliability` as the only positive Social Trust source-family candidate and accepts exact source facts and exact Social Trust mutation facts only as foundation semantic labels.
 Those labels are not runtime schema names, enum values, API names, migration names, module names, or test names.
@@ -277,9 +286,12 @@ Foundation PR #152 accepted the exact candidate test-only slice as post-C2 categ
 Foundation PR #154 provided the consumed narrow downstream test-only handoff authority for one later implementation-repo PR only, limited to post-C2 categorical Social Trust fact rejection boundary non-persistence verification.
 That allowance was consumed by `mt4110/pi-musubi-core` PR #102 and closed out by foundation PR #156.
 Foundation PR #158 accepted the exact candidate test-only slice as post-C2 categorical Social Trust fact concurrent idempotency / replay / payload-drift verification.
-Foundation PR #160 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #160 provided the consumed narrow downstream test-only handoff authority for one later implementation-repo PR only, limited to post-C2 categorical Social Trust fact concurrent idempotency / replay / payload-drift verification.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #104 and closed out by foundation PR #162.
+Foundation PR #164 accepted the exact candidate test-only slice as post-C2 categorical Social Trust fact subject and Realm idempotency scope verification.
+Foundation PR #166 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
-It does not authorize implementation outside the PR #160 envelope.
+It does not authorize implementation outside the PR #166 envelope.
 It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, retry workers, queues, outbox changes, inbox changes, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
@@ -450,9 +462,19 @@ The post-C2 implementation handoff evidence package and handoff gate authorized 
 That allowance was consumed by `mt4110/pi-musubi-core` PR #92 and closed out by foundation PR #126.
 The post-C2 categorical fact projection API non-exposure evidence package and handoff gate authorized one later implementation-repo test-only PR only.
 That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #94 and closed out by foundation PR #132.
-The post-C2 categorical fact PII retention non-leakage evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
-This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_categorical_fact_pii_retention_non_leakage.rs`.
-It may verify that already accepted C2 categorical Social Trust facts remain minimized, retention-classified, reviewable, writer-truth-only, and segregated from raw PII, raw evidence, coordination logs, archive rows, projection rows, public API visibility, mobile UI state, Social Trust score/display behavior, Relationship Depth behavior, and lifecycle-authority surfaces.
+The post-C2 categorical fact PII retention non-leakage evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #96 and closed out by foundation PR #138.
+The post-C2 categorical fact idempotency replay evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #98 and closed out by foundation PR #144.
+The post-C2 categorical fact lifecycle replay boundary evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #100 and closed out by foundation PR #150.
+The post-C2 categorical fact rejection boundary non-persistence evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #102 and closed out by foundation PR #156.
+The post-C2 categorical fact concurrent idempotency evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #104 and closed out by foundation PR #162.
+The post-C2 categorical fact subject and Realm idempotency scope evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
+This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_categorical_fact_subject_realm_idempotency_scope.rs`.
+It may verify that the already accepted `promise_reliability_outcome.completed_as_agreed` / `social_trust_mutation.bounded_promise_reliability_positive` C2 categorical Social Trust fact pair remains subject-scoped for duplicate fact idempotency keys, fails closed when Realm reference meaning drifts for the same subject and key, preserves later identical replay, and creates no projection, coordination, archive, public API, mobile UI, Social Trust score/display, Relationship Depth, discovery, recommendation, room, settlement, Promise runtime, proof runtime, lifecycle, retention, pruning, deletion, Legal Hold, key lifecycle, retry, queue, outbox, or inbox authority.
 It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
 
 ---
@@ -481,11 +503,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `c3c0ae0b3a0b9f09592b1056c7ca9997403e0830` -> `19ce6c602d883158409be4238339c761d6aa3e8a`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #136 (`docs: evaluate post-C2 categorical fact PII retention handoff`).
-- New required docs: Post-C2 categorical fact projection API non-exposure implementation closeout ledger; post-C2 categorical fact PII retention non-leakage evidence package; post-C2 categorical fact PII retention non-leakage handoff gate decision.
+- Updated from foundation SHA: `650c25456ff5a3536ff7731dc8d46e9dfcd4a634` -> `9910663b9a3f93fae55102db507d75ba578219b9`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #166 (`Evaluate post-C2 categorical fact subject and Realm idempotency handoff`).
+- New required docs: Post-C2 categorical fact concurrent idempotency implementation closeout ledger; post-C2 categorical fact subject and Realm idempotency scope evidence package; post-C2 categorical fact subject and Realm idempotency scope handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #136 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving accepted C2 categorical Social Trust facts remain minimized, retention-classified, reviewable, writer-truth-only, and segregated from raw PII, raw evidence, coordination logs, archive rows, projection rows, public API visibility, mobile UI state, Social Trust score/display behavior, Relationship Depth behavior, and lifecycle-authority surfaces. New source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
+- Implementation impact: PR #166 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving the accepted `promise_reliability_outcome.completed_as_agreed` / `social_trust_mutation.bounded_promise_reliability_positive` C2 categorical Social Trust fact pair remains subject-scoped for duplicate fact idempotency keys, fails closed when Realm reference meaning drifts for the same subject and key, preserves later identical replay, and does not create projection, coordination, archive, public API, mobile UI, Social Trust score/display, Relationship Depth, discovery, recommendation, room, settlement, Promise runtime, proof runtime, lifecycle, retention, pruning, deletion, Legal Hold, key lifecycle, retry, queue, outbox, or inbox authority. New source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
