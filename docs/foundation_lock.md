@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `2aced2a`
+Status: Draft; aligned to accepted foundation commit `f5e8576`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `2aced2a6dd57dbea96a959a2376c6305339e7d2d`
-- Foundation commit title: `Merge pull request #181 from mt4110/feat/post-c2-categorical-fact-controlled-exceptional-account-reclassification-replay-handoff`
-- Foundation PR title: `docs: evaluate post-C2 Controlled Exceptional Account reclassification replay handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/181`
-- Date pinned: `2026-05-15`
+- Foundation commit SHA: `f5e8576ce5be43455146f08e6f1871d4956ac2b5`
+- Foundation commit title: `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
+- Foundation PR title: `docs: evaluate post-C2 Controlled Exceptional Account promise participant exclusion handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/191`
+- Date pinned: `2026-05-18`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/2aced2a6dd57dbea96a959a2376c6305339e7d2d`
-- Previous pinned reference: `a171f24` / `Merge pull request #173 from mt4110/feat/evaluate-post-c2-controlled-exceptional-subject-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/f5e8576ce5be43455146f08e6f1871d4956ac2b5`
+- Previous pinned reference: `2aced2a` / `Merge pull request #181 from mt4110/feat/post-c2-categorical-fact-controlled-exceptional-account-reclassification-replay-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -66,6 +66,10 @@ Pinned reference for implementation work:
 - Post-C2 categorical fact Controlled Exceptional Account reclassification replay evidence source: `f0b3882` / `Merge pull request #177 from mt4110/feat/post-c2-controlled-exceptional-reclassification-evidence`
 - Readiness routine runner source: `5fa5bdf` / `Merge pull request #179 from mt4110/feat/readiness-routine-runner`
 - Post-C2 categorical fact Controlled Exceptional Account reclassification replay handoff source: `2aced2a` / `Merge pull request #181 from mt4110/feat/post-c2-categorical-fact-controlled-exceptional-account-reclassification-replay-handoff`
+- Post-C2 categorical fact Controlled Exceptional Account reclassification replay implementation closeout source: `777c4dc` / `Merge pull request #183 from mt4110/feat/close-post-c2-controlled-exceptional-account-reclassification-replay-handoff`
+- Post-C2 Controlled Exceptional Account Promise participant exclusion evidence source: `dd81d7f` / `Merge pull request #185 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-evidence`
+- RunAlways Stage 0 report-only runner source: `0a754ad` / `Merge pull request #189 from mt4110/feat/runalways-stage0-report-runner`
+- Post-C2 Controlled Exceptional Account Promise participant exclusion handoff source: `f5e8576` / `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -175,31 +179,38 @@ Before coding, read these upstream documents in order.
 89. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_implementation_closeout_ledger.md`
 90. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_evidence_package.md`
 91. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_handoff_gate_decision.md`
+92. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
+93. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
+94. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
+
+### Operations layer
+95. `docs/operations/runalways_readiness_orchestrator_design.md`
+96. `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 ### Detail layer
-92. `docs/detail/accountability_matrix.md`
-93. `docs/detail/critical_incident_and_loss.md`
-94. `docs/detail/automated_decisioning_and_human_appeal.md`
-95. `docs/detail/youth_safety_and_age_assurance.md`
-96. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-97. `docs/detail/data_deletion_vs_legal_hold.md`
-98. `docs/detail/realm_model.md`
-99. `docs/detail/data_scope_model.md`
-100. `docs/detail/mobility_model.md`
-101. `docs/detail/settlement_model.md`
-102. `docs/detail/settlement_backend_trait.md`
-103. `docs/detail/proof_of_infrastructure.md`
-104. `docs/detail/protected_groups_and_translation_safety.md`
+97. `docs/detail/accountability_matrix.md`
+98. `docs/detail/critical_incident_and_loss.md`
+99. `docs/detail/automated_decisioning_and_human_appeal.md`
+100. `docs/detail/youth_safety_and_age_assurance.md`
+101. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+102. `docs/detail/data_deletion_vs_legal_hold.md`
+103. `docs/detail/realm_model.md`
+104. `docs/detail/data_scope_model.md`
+105. `docs/detail/mobility_model.md`
+106. `docs/detail/settlement_model.md`
+107. `docs/detail/settlement_backend_trait.md`
+108. `docs/detail/proof_of_infrastructure.md`
+109. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-105. `docs/whitepaper/01_executive_summary.md`
-106. `docs/whitepaper/02_realm_model.md`
-107. `docs/whitepaper/03_experience_model.md`
-108. `docs/whitepaper/04_dm_shield.md`
-109. `docs/whitepaper/05_trust_model.md`
-110. `docs/whitepaper/06_promise_protocol.md`
-111. `docs/whitepaper/07_realm_economy.md`
-112. `docs/whitepaper/08_unlock_engine.md`
+110. `docs/whitepaper/01_executive_summary.md`
+111. `docs/whitepaper/02_realm_model.md`
+112. `docs/whitepaper/03_experience_model.md`
+113. `docs/whitepaper/04_dm_shield.md`
+114. `docs/whitepaper/05_trust_model.md`
+115. `docs/whitepaper/06_promise_protocol.md`
+116. `docs/whitepaper/07_realm_economy.md`
+117. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -229,7 +240,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 categorical Social Trust fact Controlled Exceptional Account reclassification replay boundary verification.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 Controlled Exceptional Account Promise participant exclusion verification.
 
 The C2 bounded Promise reliability readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -272,6 +283,14 @@ The C2 bounded Promise reliability readiness and closeout chain is accepted for 
 - `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_evidence_package.md`
 - `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_handoff_gate_decision.md`
+- `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_evidence_package.md`
+- `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_handoff_gate_decision.md`
+- `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
+- `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
+- `docs/operations/runalways_readiness_orchestrator_design.md`
+- `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 The accepted C2 gate records `bounded_promise_reliability` as the only positive Social Trust source-family candidate and accepts exact source facts and exact Social Trust mutation facts only as foundation semantic labels.
 Those labels are not runtime schema names, enum values, API names, migration names, module names, or test names.
@@ -312,10 +331,14 @@ Foundation PR #173 provided the consumed narrow downstream test-only handoff aut
 That allowance was consumed by `mt4110/pi-musubi-core` PR #108 and closed out by foundation PR #175.
 Foundation PR #177 accepted the exact candidate test-only slice as post-C2 categorical Social Trust fact Controlled Exceptional Account reclassification replay boundary verification.
 Foundation PR #179 added an advisory readiness routine runner and did not grant GO, implementation handoff, or implementation authority.
-Foundation PR #181 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #181 provided the consumed narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #110 and closed out by foundation PR #183.
+Foundation PR #185 accepted the exact candidate test-only slice as post-C2 Controlled Exceptional Account Promise participant exclusion verification.
+Foundation PR #189 added the Stage 0 report-only RunAlways runner and did not grant GO, implementation handoff, implementation authority, or automation authority.
+Foundation PR #191 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
-It does not authorize implementation outside the PR #181 envelope.
-It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, retry workers, queues, outbox changes, inbox changes, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+It does not authorize implementation outside the PR #191 envelope.
+It does not authorize new Promise types, new Social Trust source facts, new Social Trust mutation facts, Relationship Depth facts, discovery or recommendation signals, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, retry workers, queues, outbox changes, inbox changes, room, settlement, Promise runtime, proof runtime, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -499,10 +522,12 @@ The post-C2 categorical fact subject and Realm idempotency scope evidence packag
 That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #106 and closed out by foundation PR #168.
 The post-C2 categorical fact Controlled Exceptional Account subject evidence package and handoff gate authorized one later implementation-repo test-only PR only.
 That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #108 and closed out by foundation PR #175.
-The post-C2 categorical fact Controlled Exceptional Account reclassification replay evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
-This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay.rs`.
-It may verify that the already accepted `promise_reliability_outcome.completed_as_agreed` / `social_trust_mutation.bounded_promise_reliability_positive` C2 categorical Social Trust fact pair first accepted while the subject is an active Ordinary Account replays identically after that subject is later classified as a Controlled Exceptional Account, that a new post-classification fact fails closed because the subject is no longer an Ordinary Account, and that no duplicate categorical source reference, duplicate categorical mutation fact, projection, coordination, archive, public API, mobile UI, Social Trust score/display, Relationship Depth, discovery, recommendation, room, settlement, Promise runtime, proof runtime, lifecycle, retention, pruning, deletion, Legal Hold, key lifecycle, retry, queue, outbox, or inbox authority is created.
-It does not authorize new source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
+The post-C2 categorical fact Controlled Exceptional Account reclassification replay evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #110 and closed out by foundation PR #183.
+The post-C2 Controlled Exceptional Account Promise participant exclusion evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
+This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_controlled_exceptional_account_promise_participant_exclusion.rs`.
+It may add deterministic backend integration tests proving that an active Controlled Exceptional Account fails closed as a Promise initiating participant and as a Promise counterparty participant because the account is not an Ordinary Account, without creating Promise writer facts, settlement cases, room progression state, projection rows, public API-visible participant state, mobile UI state, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery demand, recommendation input, ordinary cohort evidence, retry authority, queue authority, outbox authority, inbox authority, coordination archive rows, score, weight, rank, display, public level, recovery ceiling, lifecycle authority, retention runtime behavior, pruning runtime behavior, archive runtime behavior, deletion runtime behavior, Legal Hold runtime behavior, key lifecycle behavior, settlement progression, Promise runtime behavior, or proof runtime behavior.
+It does not authorize new Promise types, new Social Trust source facts, new Social Trust mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
 
 ---
 
@@ -530,11 +555,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `a171f249b4daa279b6408b72747464dec297666b` -> `2aced2a6dd57dbea96a959a2376c6305339e7d2d`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #181 (`docs: evaluate post-C2 Controlled Exceptional Account reclassification replay handoff`).
-- New required docs: Post-C2 categorical fact Controlled Exceptional Account subject implementation closeout ledger; post-C2 categorical fact Controlled Exceptional Account reclassification replay evidence package; post-C2 categorical fact Controlled Exceptional Account reclassification replay handoff gate decision.
+- Updated from foundation SHA: `2aced2a6dd57dbea96a959a2376c6305339e7d2d` -> `f5e8576ce5be43455146f08e6f1871d4956ac2b5`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #191 (`docs: evaluate post-C2 Controlled Exceptional Account promise participant exclusion handoff`).
+- New required docs: Post-C2 categorical fact Controlled Exceptional Account reclassification replay implementation closeout ledger; Post-C2 Controlled Exceptional Account Promise participant exclusion evidence package; Post-C2 Controlled Exceptional Account Promise participant exclusion handoff gate decision; RunAlways readiness orchestrator design; RunAlways readiness orchestrator Stage 0 report-only runner.
 - Removed docs: None.
-- Implementation impact: PR #181 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving the accepted `promise_reliability_outcome.completed_as_agreed` / `social_trust_mutation.bounded_promise_reliability_positive` C2 categorical Social Trust fact pair first accepted while the subject is an active Ordinary Account replays identically after that subject is later classified as a Controlled Exceptional Account, and that a new post-classification fact fails closed because the subject is no longer an Ordinary Account, without creating duplicate categorical source references, duplicate categorical mutation facts, projection rows, coordination rows, archive rows, public API exposure, mobile UI state, Social Trust score/display behavior, Relationship Depth behavior, discovery behavior, recommendation behavior, room behavior, settlement behavior, Promise runtime behavior, proof runtime behavior, lifecycle authority, retention, pruning, deletion, Legal Hold, key lifecycle, retry, queue, outbox, or inbox authority. New source facts, new mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
+- Implementation impact: PR #191 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving that an active Controlled Exceptional Account fails closed as a Promise initiating participant and as a Promise counterparty participant because the account is not an Ordinary Account, without creating Promise writer facts, settlement cases, room progression state, projection rows, public API-visible participant state, mobile UI state, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery demand, recommendation input, ordinary cohort evidence, retry authority, queue authority, outbox authority, inbox authority, coordination archive rows, score, weight, rank, display, public level, recovery ceiling, lifecycle authority, retention runtime behavior, pruning runtime behavior, archive runtime behavior, deletion runtime behavior, Legal Hold runtime behavior, key lifecycle behavior, settlement progression, Promise runtime behavior, or proof runtime behavior. New Promise types, new Social Trust source facts, new Social Trust mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, broad runtime implementation, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
