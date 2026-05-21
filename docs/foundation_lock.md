@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `f5e8576`
+Status: Draft; aligned to accepted foundation commit `e8153a1`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `f5e8576ce5be43455146f08e6f1871d4956ac2b5`
-- Foundation commit title: `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
-- Foundation PR title: `docs: evaluate post-C2 Controlled Exceptional Account promise participant exclusion handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/191`
-- Date pinned: `2026-05-18`
+- Foundation commit SHA: `e8153a1580e93047a33301963a2b0acbfdcf7780`
+- Foundation commit title: `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
+- Foundation PR title: `docs: evaluate post-C2 Legal Hold writer fact downstream scope handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/205`
+- Date pinned: `2026-05-21`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/f5e8576ce5be43455146f08e6f1871d4956ac2b5`
-- Previous pinned reference: `2aced2a` / `Merge pull request #181 from mt4110/feat/post-c2-categorical-fact-controlled-exceptional-account-reclassification-replay-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e8153a1580e93047a33301963a2b0acbfdcf7780`
+- Previous pinned reference: `f5e8576` / `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -70,6 +70,13 @@ Pinned reference for implementation work:
 - Post-C2 Controlled Exceptional Account Promise participant exclusion evidence source: `dd81d7f` / `Merge pull request #185 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-evidence`
 - RunAlways Stage 0 report-only runner source: `0a754ad` / `Merge pull request #189 from mt4110/feat/runalways-stage0-report-runner`
 - Post-C2 Controlled Exceptional Account Promise participant exclusion handoff source: `f5e8576` / `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
+- Post-C2 Controlled Exceptional Account Promise participant exclusion implementation closeout source: `cf2c602` / `Merge pull request #193 from mt4110/feat/close-post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
+- Post-C2 Legal Hold writer fact boundary evidence source: `016ed1d` / `Merge pull request #195 from mt4110/feat/post-c2-legal-hold-writer-fact-boundary-evidence`
+- Post-C2 Legal Hold writer fact boundary handoff source: `b2938e9` / `Merge pull request #197 from mt4110/feat/post-c2-legal-hold-writer-fact-boundary-handoff`
+- Post-C2 Legal Hold writer fact shape evidence source: `8de4092` / `Merge pull request #199 from mt4110/feat/post-c2-legal-hold-writer-fact-shape-evidence`
+- Post-C2 Legal Hold writer fact shape handoff source: `db62383` / `Merge pull request #201 from mt4110/feat/post-c2-legal-hold-writer-fact-shape-handoff`
+- Post-C2 Legal Hold writer fact downstream scope evidence source: `4359c11` / `Merge pull request #203 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-evidence`
+- Post-C2 Legal Hold writer fact downstream scope handoff source: `e8153a1` / `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -182,35 +189,44 @@ Before coding, read these upstream documents in order.
 92. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
 93. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
 94. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
+95. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_implementation_closeout_ledger.md`
+96. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_evidence_package.md`
+97. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_handoff_gate_decision.md`
+98. `docs/readiness/post_c2_legal_hold_writer_fact_shape_evidence_package.md`
+99. `docs/readiness/post_c2_legal_hold_writer_fact_shape_handoff_gate_decision.md`
+100. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
+101. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
 
 ### Operations layer
-95. `docs/operations/runalways_readiness_orchestrator_design.md`
-96. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+102. `docs/operations/readiness_routine.md`
+103. `docs/operations/runalways_readiness_orchestrator_design.md`
+104. `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 ### Detail layer
-97. `docs/detail/accountability_matrix.md`
-98. `docs/detail/critical_incident_and_loss.md`
-99. `docs/detail/automated_decisioning_and_human_appeal.md`
-100. `docs/detail/youth_safety_and_age_assurance.md`
-101. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-102. `docs/detail/data_deletion_vs_legal_hold.md`
-103. `docs/detail/realm_model.md`
-104. `docs/detail/data_scope_model.md`
-105. `docs/detail/mobility_model.md`
-106. `docs/detail/settlement_model.md`
-107. `docs/detail/settlement_backend_trait.md`
-108. `docs/detail/proof_of_infrastructure.md`
-109. `docs/detail/protected_groups_and_translation_safety.md`
+105. `docs/detail/accountability_matrix.md`
+106. `docs/detail/critical_incident_and_loss.md`
+107. `docs/detail/automated_decisioning_and_human_appeal.md`
+108. `docs/detail/youth_safety_and_age_assurance.md`
+109. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+110. `docs/detail/data_deletion_vs_legal_hold.md`
+111. `docs/detail/security_and_autonomy_hardening.md`
+112. `docs/detail/realm_model.md`
+113. `docs/detail/data_scope_model.md`
+114. `docs/detail/mobility_model.md`
+115. `docs/detail/settlement_model.md`
+116. `docs/detail/settlement_backend_trait.md`
+117. `docs/detail/proof_of_infrastructure.md`
+118. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-110. `docs/whitepaper/01_executive_summary.md`
-111. `docs/whitepaper/02_realm_model.md`
-112. `docs/whitepaper/03_experience_model.md`
-113. `docs/whitepaper/04_dm_shield.md`
-114. `docs/whitepaper/05_trust_model.md`
-115. `docs/whitepaper/06_promise_protocol.md`
-116. `docs/whitepaper/07_realm_economy.md`
-117. `docs/whitepaper/08_unlock_engine.md`
+119. `docs/whitepaper/01_executive_summary.md`
+120. `docs/whitepaper/02_realm_model.md`
+121. `docs/whitepaper/03_experience_model.md`
+122. `docs/whitepaper/04_dm_shield.md`
+123. `docs/whitepaper/05_trust_model.md`
+124. `docs/whitepaper/06_promise_protocol.md`
+125. `docs/whitepaper/07_realm_economy.md`
+126. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -240,9 +256,9 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 Controlled Exceptional Account Promise participant exclusion verification.
+The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Legal Hold writer fact non-authority documentation.
 
-The C2 bounded Promise reliability readiness and closeout chain is accepted for docs-only foundation semantic scope:
+The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
 - `docs/readiness/c1_to_c2_social_trust_writer_facts_next_slice_evaluation.md`
 - `docs/readiness/c2_social_trust_source_family_gate.md`
@@ -289,6 +305,14 @@ The C2 bounded Promise reliability readiness and closeout chain is accepted for 
 - `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
 - `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
+- `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_boundary_evidence_package.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_boundary_handoff_gate_decision.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_shape_evidence_package.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_shape_handoff_gate_decision.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
+- `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
+- `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
@@ -335,10 +359,17 @@ Foundation PR #181 provided the consumed narrow downstream test-only handoff aut
 That allowance was consumed by `mt4110/pi-musubi-core` PR #110 and closed out by foundation PR #183.
 Foundation PR #185 accepted the exact candidate test-only slice as post-C2 Controlled Exceptional Account Promise participant exclusion verification.
 Foundation PR #189 added the Stage 0 report-only RunAlways runner and did not grant GO, implementation handoff, implementation authority, or automation authority.
-Foundation PR #191 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #191 provided the consumed narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #111 and closed out by foundation PR #193.
+Foundation PR #195 accepted the foundation-side Legal Hold writer fact boundary evidence package only and did not authorize `pi-musubi-core` changes.
+Foundation PR #197 kept the Legal Hold writer fact boundary handoff result at NO-GO and did not authorize foundation lock alignment or downstream work.
+Foundation PR #199 accepted the foundation-side Legal Hold writer fact shape evidence package only and did not authorize `pi-musubi-core` changes.
+Foundation PR #201 kept the Legal Hold writer fact shape handoff result at NO-GO and did not authorize foundation lock alignment or downstream work.
+Foundation PR #203 accepted the foundation-side Legal Hold writer fact downstream scope evidence package only and did not authorize `pi-musubi-core` changes.
+Foundation PR #205 provides the current narrow downstream docs-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
-It does not authorize implementation outside the PR #191 envelope.
-It does not authorize new Promise types, new Social Trust source facts, new Social Trust mutation facts, Relationship Depth facts, discovery or recommendation signals, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, retry workers, queues, outbox changes, inbox changes, room, settlement, Promise runtime, proof runtime, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+It authorizes only `docs/foundation_lock.md` and `apps/backend/docs/post_c2_legal_hold_writer_fact_non_authority_scope.md`.
+It does not authorize runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, evidence access runtime behavior, active Legal Hold writer fact creation, invalid Legal Hold rejection persistence, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -524,10 +555,14 @@ The post-C2 categorical fact Controlled Exceptional Account subject evidence pac
 That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #108 and closed out by foundation PR #175.
 The post-C2 categorical fact Controlled Exceptional Account reclassification replay evidence package and handoff gate authorized one later implementation-repo test-only PR only.
 That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #110 and closed out by foundation PR #183.
-The post-C2 Controlled Exceptional Account Promise participant exclusion evidence package and handoff gate now authorize one later implementation-repo test-only PR only.
-This test-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/tests/post_c2_controlled_exceptional_account_promise_participant_exclusion.rs`.
-It may add deterministic backend integration tests proving that an active Controlled Exceptional Account fails closed as a Promise initiating participant and as a Promise counterparty participant because the account is not an Ordinary Account, without creating Promise writer facts, settlement cases, room progression state, projection rows, public API-visible participant state, mobile UI state, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery demand, recommendation input, ordinary cohort evidence, retry authority, queue authority, outbox authority, inbox authority, coordination archive rows, score, weight, rank, display, public level, recovery ceiling, lifecycle authority, retention runtime behavior, pruning runtime behavior, archive runtime behavior, deletion runtime behavior, Legal Hold runtime behavior, key lifecycle behavior, settlement progression, Promise runtime behavior, or proof runtime behavior.
-It does not authorize new Promise types, new Social Trust source facts, new Social Trust mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Relationship Depth, Social Trust scoring, public trust display, or broad runtime implementation.
+The post-C2 Controlled Exceptional Account Promise participant exclusion evidence package and handoff gate authorized one later implementation-repo test-only PR only.
+That test-only allowance was consumed by `mt4110/pi-musubi-core` PR #111 and closed out by foundation PR #193.
+The post-C2 Legal Hold writer fact boundary and shape evidence / handoff sequence preserved downstream implementation NO-GO through foundation PR #203.
+The post-C2 Legal Hold writer fact downstream scope handoff gate now authorizes one later implementation-repo docs-only PR only.
+This docs-only allowance is limited to `docs/foundation_lock.md` and `apps/backend/docs/post_c2_legal_hold_writer_fact_non_authority_scope.md`.
+It may record that existing hold-like labels, review labels, settlement hold language, Social Trust boundary references, projection state, observability, provider callbacks, proof evidence, support tickets, issue comments, operator notes, client state, and frontend state are not ADR-0011 Legal Hold writer facts.
+It may record that `mt4110/pi-musubi-core#64` remains open and not implementation-ready.
+It does not authorize tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, evidence access runtime behavior, active Legal Hold writer fact creation, invalid Legal Hold rejection persistence, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room progression, settlement behavior, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or broad runtime implementation.
 
 ---
 
@@ -555,11 +590,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `2aced2a6dd57dbea96a959a2376c6305339e7d2d` -> `f5e8576ce5be43455146f08e6f1871d4956ac2b5`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #191 (`docs: evaluate post-C2 Controlled Exceptional Account promise participant exclusion handoff`).
-- New required docs: Post-C2 categorical fact Controlled Exceptional Account reclassification replay implementation closeout ledger; Post-C2 Controlled Exceptional Account Promise participant exclusion evidence package; Post-C2 Controlled Exceptional Account Promise participant exclusion handoff gate decision; RunAlways readiness orchestrator design; RunAlways readiness orchestrator Stage 0 report-only runner.
+- Updated from foundation SHA: `f5e8576ce5be43455146f08e6f1871d4956ac2b5` -> `e8153a1580e93047a33301963a2b0acbfdcf7780`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #205 (`docs: evaluate post-C2 Legal Hold writer fact downstream scope handoff`).
+- New required docs: Post-C2 Controlled Exceptional Account Promise participant exclusion implementation closeout ledger; Post-C2 Legal Hold writer fact boundary evidence package; Post-C2 Legal Hold writer fact boundary handoff gate decision; Post-C2 Legal Hold writer fact shape evidence package; Post-C2 Legal Hold writer fact shape handoff gate decision; Post-C2 Legal Hold writer fact downstream scope evidence package; Post-C2 Legal Hold writer fact downstream scope handoff gate decision; Readiness Routine Runner; Security and Autonomy Hardening Intake.
 - Removed docs: None.
-- Implementation impact: PR #191 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock and add deterministic backend integration tests proving that an active Controlled Exceptional Account fails closed as a Promise initiating participant and as a Promise counterparty participant because the account is not an Ordinary Account, without creating Promise writer facts, settlement cases, room progression state, projection rows, public API-visible participant state, mobile UI state, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery demand, recommendation input, ordinary cohort evidence, retry authority, queue authority, outbox authority, inbox authority, coordination archive rows, score, weight, rank, display, public level, recovery ceiling, lifecycle authority, retention runtime behavior, pruning runtime behavior, archive runtime behavior, deletion runtime behavior, Legal Hold runtime behavior, key lifecycle behavior, settlement progression, Promise runtime behavior, or proof runtime behavior. New Promise types, new Social Trust source facts, new Social Trust mutation facts, DDL, migrations, backend runtime code, backend README updates, backend docs updates, public API changes, mobile UI, projection refresh, runtime orchestration, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, Relationship Depth, proof runtime behavior, room progression, discovery, recommendation, settlement, Promise runtime behavior, Social Trust scoring, public trust display, broad runtime implementation, and paid romantic advantage remain blocked.
+- Implementation impact: PR #205 authorizes one later implementation-repo docs-only PR. This PR may update this foundation lock and add `apps/backend/docs/post_c2_legal_hold_writer_fact_non_authority_scope.md` to record that existing hold-like or review-like labels are not ADR-0011 Legal Hold writer facts and that `mt4110/pi-musubi-core#64` remains open and not implementation-ready. Runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, evidence access runtime behavior, active Legal Hold writer fact creation, invalid Legal Hold rejection persistence, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, broad runtime implementation, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
