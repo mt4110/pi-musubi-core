@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `c2ac9a7`
+Status: Draft; aligned to accepted foundation commit `feb4ebf`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `c2ac9a7b929aa3d865a1e0361b7dc5bddae1e796`
-- Foundation commit title: `Merge pull request #212 from mt4110/feat/master-submaster-writer-fact-lock-alignment-handoff`
-- Foundation PR title: `docs: authorize Master Submaster writer fact lock alignment`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/212`
+- Foundation commit SHA: `feb4ebfa5811517f5c93cff3eb77ee564bf89954`
+- Foundation commit title: `Merge pull request #213 from mt4110/feat/master-submaster-runtime-handoff-gate`
+- Foundation PR title: `docs: evaluate Master Submaster runtime handoff gate`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/213`
 - Date pinned: `2026-05-28`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c2ac9a7b929aa3d865a1e0361b7dc5bddae1e796`
-- Previous pinned reference: `e8153a1` / `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/feb4ebfa5811517f5c93cff3eb77ee564bf89954`
+- Previous pinned reference: `c2ac9a7` / `Merge pull request #212 from mt4110/feat/master-submaster-writer-fact-lock-alignment-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -83,6 +83,7 @@ Pinned reference for implementation work:
 - Post-C2 Master / Submaster canonical operator seat terms source: `0c5a40c` / `Merge pull request #210 from mt4110/feat/master-submaster-canonical-operator-seat-terms`
 - Post-C2 Master / Submaster operator seat writer fact ADR source: `05ac25c` / `Merge pull request #211 from mt4110/feat/master-submaster-operator-seat-writer-fact-boundary`
 - Post-C2 Master / Submaster operator seat writer fact lock alignment handoff source: `c2ac9a7` / `Merge pull request #212 from mt4110/feat/master-submaster-writer-fact-lock-alignment-handoff`
+- Post-C2 Master / Submaster operator seat runtime implementation handoff source: `feb4ebf` / `Merge pull request #213 from mt4110/feat/master-submaster-runtime-handoff-gate`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -204,37 +205,38 @@ Before coding, read these upstream documents in order.
 101. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
 102. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
 103. `docs/readiness/post_c2_master_submaster_operator_seat_writer_fact_lock_alignment_handoff_gate_decision.md`
+104. `docs/readiness/post_c2_master_submaster_operator_seat_runtime_implementation_handoff_gate_decision.md`
 
 ### Operations layer
-104. `docs/operations/readiness_routine.md`
-105. `docs/operations/runalways_readiness_orchestrator_design.md`
-106. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+105. `docs/operations/readiness_routine.md`
+106. `docs/operations/runalways_readiness_orchestrator_design.md`
+107. `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 ### Detail layer
-107. `docs/detail/accountability_matrix.md`
-108. `docs/detail/critical_incident_and_loss.md`
-109. `docs/detail/automated_decisioning_and_human_appeal.md`
-110. `docs/detail/youth_safety_and_age_assurance.md`
-111. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-112. `docs/detail/data_deletion_vs_legal_hold.md`
-113. `docs/detail/security_and_autonomy_hardening.md`
-114. `docs/detail/realm_model.md`
-115. `docs/detail/data_scope_model.md`
-116. `docs/detail/mobility_model.md`
-117. `docs/detail/settlement_model.md`
-118. `docs/detail/settlement_backend_trait.md`
-119. `docs/detail/proof_of_infrastructure.md`
-120. `docs/detail/protected_groups_and_translation_safety.md`
+108. `docs/detail/accountability_matrix.md`
+109. `docs/detail/critical_incident_and_loss.md`
+110. `docs/detail/automated_decisioning_and_human_appeal.md`
+111. `docs/detail/youth_safety_and_age_assurance.md`
+112. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+113. `docs/detail/data_deletion_vs_legal_hold.md`
+114. `docs/detail/security_and_autonomy_hardening.md`
+115. `docs/detail/realm_model.md`
+116. `docs/detail/data_scope_model.md`
+117. `docs/detail/mobility_model.md`
+118. `docs/detail/settlement_model.md`
+119. `docs/detail/settlement_backend_trait.md`
+120. `docs/detail/proof_of_infrastructure.md`
+121. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-121. `docs/whitepaper/01_executive_summary.md`
-122. `docs/whitepaper/02_realm_model.md`
-123. `docs/whitepaper/03_experience_model.md`
-124. `docs/whitepaper/04_dm_shield.md`
-125. `docs/whitepaper/05_trust_model.md`
-126. `docs/whitepaper/06_promise_protocol.md`
-127. `docs/whitepaper/07_realm_economy.md`
-128. `docs/whitepaper/08_unlock_engine.md`
+122. `docs/whitepaper/01_executive_summary.md`
+123. `docs/whitepaper/02_realm_model.md`
+124. `docs/whitepaper/03_experience_model.md`
+125. `docs/whitepaper/04_dm_shield.md`
+126. `docs/whitepaper/05_trust_model.md`
+127. `docs/whitepaper/06_promise_protocol.md`
+128. `docs/whitepaper/07_realm_economy.md`
+129. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -265,7 +267,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Master / Submaster operator-seat writer fact foundation lock alignment.
+The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Master / Submaster operator-seat runtime non-authority documentation.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -322,6 +324,7 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
 - `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
 - `docs/readiness/post_c2_master_submaster_operator_seat_writer_fact_lock_alignment_handoff_gate_decision.md`
+- `docs/readiness/post_c2_master_submaster_operator_seat_runtime_implementation_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -385,10 +388,14 @@ Foundation PR #208 accepted the foundation-side Master / Submaster operator seat
 Foundation PR #209 kept the Master / Submaster operator seat authority boundary handoff result at NO-GO and did not authorize foundation lock alignment or downstream work.
 Foundation PR #210 canonized Master and Submaster as internal backstage operator-seat terms and did not authorize runtime implementation or downstream work.
 Foundation PR #211 accepted ADR-0037 for the Master / Submaster operator-seat writer fact boundary and did not authorize runtime implementation or downstream work.
-Foundation PR #212 provides the current narrow downstream docs-only handoff authority for one later implementation-repo PR only.
+Foundation PR #212 provided the prior narrow downstream docs-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #113.
+That allowance authorized only `docs/foundation_lock.md`.
+It did not authorize runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, external counsel runtime behavior, court-facing workflow, legal-process intake, treasury behavior, compensation behavior, active Master / Submaster writer fact creation, active Legal Hold writer fact creation, evidence access grant or audit runtime creation, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+Foundation PR #213 provides the current narrow downstream docs-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
-It authorizes only `docs/foundation_lock.md`.
-It does not authorize runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, external counsel runtime behavior, court-facing workflow, legal-process intake, treasury behavior, compensation behavior, active Master / Submaster writer fact creation, active Legal Hold writer fact creation, evidence access grant or audit runtime creation, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+It authorizes only `docs/foundation_lock.md` and `apps/backend/docs/post_c2_master_submaster_operator_seat_runtime_non_authority_scope.md`.
+It does not authorize runtime tests, schema-only work, test-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, external counsel runtime behavior, court-facing workflow, legal-process intake, treasury behavior, compensation behavior, active Master / Submaster writer fact creation, Acting Master runtime behavior, active Legal Hold writer fact creation, evidence access grant or audit runtime creation, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -609,11 +616,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `f5e8576ce5be43455146f08e6f1871d4956ac2b5` -> `e8153a1580e93047a33301963a2b0acbfdcf7780`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #205 (`docs: evaluate post-C2 Legal Hold writer fact downstream scope handoff`).
-- New required docs: Post-C2 Controlled Exceptional Account Promise participant exclusion implementation closeout ledger; Post-C2 Legal Hold writer fact boundary evidence package; Post-C2 Legal Hold writer fact boundary handoff gate decision; Post-C2 Legal Hold writer fact shape evidence package; Post-C2 Legal Hold writer fact shape handoff gate decision; Post-C2 Legal Hold writer fact downstream scope evidence package; Post-C2 Legal Hold writer fact downstream scope handoff gate decision; `docs/operations/readiness_routine.md`; `docs/detail/security_and_autonomy_hardening.md`.
+- Updated from foundation SHA: `c2ac9a7b929aa3d865a1e0361b7dc5bddae1e796` -> `feb4ebfa5811517f5c93cff3eb77ee564bf89954`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #213 (`docs: evaluate Master Submaster runtime handoff gate`).
+- New required docs: Post-C2 Master / Submaster operator-seat runtime implementation handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #205 authorizes one later implementation-repo docs-only PR. This PR may update this foundation lock and add `apps/backend/docs/post_c2_legal_hold_writer_fact_non_authority_scope.md` to record that existing hold-like or review-like labels are not ADR-0011 Legal Hold writer facts and that `mt4110/pi-musubi-core#64` remains open and not implementation-ready. Runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, evidence access runtime behavior, active Legal Hold writer fact creation, invalid Legal Hold rejection persistence, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, broad runtime implementation, and paid romantic advantage remain blocked.
+- Implementation impact: PR #213 authorizes one later implementation-repo docs-only PR. This PR may update this foundation lock and add `apps/backend/docs/post_c2_master_submaster_operator_seat_runtime_non_authority_scope.md` to record that existing operator-review, evidence-review, role-assignment, account-class, projection, and implementation labels are not ADR-0037 Master / Submaster operator-seat runtime authority. Runtime tests, test-only work, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, active Master / Submaster writer fact creation, Acting Master runtime behavior, active Legal Hold writer fact creation, evidence access grant or audit runtime creation, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, broad runtime implementation, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
