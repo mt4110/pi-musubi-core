@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `e8153a1`
+Status: Draft; aligned to accepted foundation commit `c2ac9a7`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `e8153a1580e93047a33301963a2b0acbfdcf7780`
-- Foundation commit title: `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
-- Foundation PR title: `docs: evaluate post-C2 Legal Hold writer fact downstream scope handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/205`
-- Date pinned: `2026-05-21`
+- Foundation commit SHA: `c2ac9a7b929aa3d865a1e0361b7dc5bddae1e796`
+- Foundation commit title: `Merge pull request #212 from mt4110/feat/master-submaster-writer-fact-lock-alignment-handoff`
+- Foundation PR title: `docs: authorize Master Submaster writer fact lock alignment`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/212`
+- Date pinned: `2026-05-28`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e8153a1580e93047a33301963a2b0acbfdcf7780`
-- Previous pinned reference: `f5e8576` / `Merge pull request #191 from mt4110/feat/post-c2-controlled-exceptional-account-promise-participant-exclusion-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c2ac9a7b929aa3d865a1e0361b7dc5bddae1e796`
+- Previous pinned reference: `e8153a1` / `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -77,6 +77,12 @@ Pinned reference for implementation work:
 - Post-C2 Legal Hold writer fact shape handoff source: `db62383` / `Merge pull request #201 from mt4110/feat/post-c2-legal-hold-writer-fact-shape-handoff`
 - Post-C2 Legal Hold writer fact downstream scope evidence source: `4359c11` / `Merge pull request #203 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-evidence`
 - Post-C2 Legal Hold writer fact downstream scope handoff source: `e8153a1` / `Merge pull request #205 from mt4110/feat/post-c2-legal-hold-writer-fact-downstream-scope-handoff`
+- Post-C2 Legal Hold writer fact downstream scope closeout source: `d6047b8` / `Merge pull request #207 from mt4110/feat/close-post-c2-legal-hold-writer-fact-downstream-scope-handoff`
+- Post-C2 Master / Submaster operator seat authority boundary evidence source: `961d09b` / `Merge pull request #208 from mt4110/feat/post-c2-master-submaster-operator-seat-authority-boundary`
+- Post-C2 Master / Submaster operator seat authority boundary handoff source: `e4d5390` / `Merge pull request #209 from mt4110/feat/post-c2-master-submaster-operator-seat-authority-boundary-handoff`
+- Post-C2 Master / Submaster canonical operator seat terms source: `0c5a40c` / `Merge pull request #210 from mt4110/feat/master-submaster-canonical-operator-seat-terms`
+- Post-C2 Master / Submaster operator seat writer fact ADR source: `05ac25c` / `Merge pull request #211 from mt4110/feat/master-submaster-operator-seat-writer-fact-boundary`
+- Post-C2 Master / Submaster operator seat writer fact lock alignment handoff source: `c2ac9a7` / `Merge pull request #212 from mt4110/feat/master-submaster-writer-fact-lock-alignment-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -132,101 +138,103 @@ Before coding, read these upstream documents in order.
 37. `docs/adr/0034_forbidden_recommendation_signals_boundary.md` - Status: Accepted at `d8b09a8`
 38. `docs/adr/0035_controlled_exceptional_account_discovery_recommendation_exclusion_boundary.md` - Status: Accepted at `7bbc87a`
 39. `docs/adr/0036_recommendation_trust_depth_non_contamination_boundary.md` - Status: Accepted at `abe8c67`; replay facts clarified at `6f1150a`
+40. `docs/adr/0037_master_submaster_operator_seat_writer_fact_boundary.md` - Status: Accepted at `05ac25c`
 
 ### Runtime readiness layer
-40. `docs/readiness/runtime_handoff_gate_criteria.md`
-41. `docs/readiness/foundation_return_plan_closeout_ledger.md`
-42. `docs/readiness/runtime_handoff_gate_evidence_inventory.md`
-43. `docs/readiness/runtime_handoff_slice_selection_ledger.md`
-44. `docs/readiness/c1_runtime_gate_invocation_guard.md`
-45. `docs/readiness/c1_runtime_behavior_boundary.md`
-46. `docs/readiness/c1_runtime_handoff_evidence_package.md`
-47. `docs/readiness/c1_runtime_handoff_gate_decision.md`
-48. `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
-49. `docs/readiness/c1_social_trust_intake_persistence_closeout_ledger.md`
-50. `docs/readiness/c1_to_c2_social_trust_writer_facts_next_slice_evaluation.md`
-51. `docs/readiness/c2_social_trust_source_family_gate.md`
-52. `docs/readiness/c2_bounded_promise_reliability_mutation_prereqs.md`
-53. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate_readiness.md`
-54. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate.md`
-55. `docs/readiness/c2_bounded_promise_reliability_foundation_lock_alignment_scope.md`
-56. `docs/readiness/c2_bounded_promise_reliability_implementation_handoff_gate.md`
-57. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_persistence_closeout_ledger.md`
-58. `docs/readiness/post_c2_next_foundation_slice_evaluation.md`
-59. `docs/readiness/post_c2_runtime_handoff_evidence_package.md`
-60. `docs/readiness/post_c2_runtime_handoff_gate_decision.md`
-61. `docs/readiness/post_c2_foundation_lock_alignment_closeout_ledger.md`
-62. `docs/readiness/post_c2_implementation_handoff_gate_decision.md`
-63. `docs/readiness/post_c2_implementation_handoff_evidence_package.md`
-64. `docs/readiness/post_c2_non_consumption_guard_handoff_gate_decision.md`
-65. `docs/readiness/post_c2_non_consumption_guard_implementation_closeout_ledger.md`
-66. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_evidence_package.md`
-67. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_handoff_gate_decision.md`
-68. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_implementation_closeout_ledger.md`
-69. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_evidence_package.md`
-70. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_handoff_gate_decision.md`
-71. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_implementation_closeout_ledger.md`
-72. `docs/readiness/post_c2_categorical_fact_idempotency_replay_evidence_package.md`
-73. `docs/readiness/post_c2_categorical_fact_idempotency_replay_handoff_gate_decision.md`
-74. `docs/readiness/post_c2_categorical_fact_idempotency_replay_implementation_closeout_ledger.md`
-75. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_evidence_package.md`
-76. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_handoff_gate_decision.md`
-77. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_implementation_closeout_ledger.md`
-78. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_evidence_package.md`
-79. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_handoff_gate_decision.md`
-80. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_implementation_closeout_ledger.md`
-81. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_evidence_package.md`
-82. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_handoff_gate_decision.md`
-83. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_implementation_closeout_ledger.md`
-84. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_evidence_package.md`
-85. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_handoff_gate_decision.md`
-86. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_implementation_closeout_ledger.md`
-87. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_evidence_package.md`
-88. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_handoff_gate_decision.md`
-89. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_implementation_closeout_ledger.md`
-90. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_evidence_package.md`
-91. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_handoff_gate_decision.md`
-92. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
-93. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
-94. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
-95. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_implementation_closeout_ledger.md`
-96. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_evidence_package.md`
-97. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_handoff_gate_decision.md`
-98. `docs/readiness/post_c2_legal_hold_writer_fact_shape_evidence_package.md`
-99. `docs/readiness/post_c2_legal_hold_writer_fact_shape_handoff_gate_decision.md`
-100. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
-101. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
+41. `docs/readiness/runtime_handoff_gate_criteria.md`
+42. `docs/readiness/foundation_return_plan_closeout_ledger.md`
+43. `docs/readiness/runtime_handoff_gate_evidence_inventory.md`
+44. `docs/readiness/runtime_handoff_slice_selection_ledger.md`
+45. `docs/readiness/c1_runtime_gate_invocation_guard.md`
+46. `docs/readiness/c1_runtime_behavior_boundary.md`
+47. `docs/readiness/c1_runtime_handoff_evidence_package.md`
+48. `docs/readiness/c1_runtime_handoff_gate_decision.md`
+49. `docs/readiness/c1_social_trust_intake_handoff_gate_decision.md`
+50. `docs/readiness/c1_social_trust_intake_persistence_closeout_ledger.md`
+51. `docs/readiness/c1_to_c2_social_trust_writer_facts_next_slice_evaluation.md`
+52. `docs/readiness/c2_social_trust_source_family_gate.md`
+53. `docs/readiness/c2_bounded_promise_reliability_mutation_prereqs.md`
+54. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate_readiness.md`
+55. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_gate.md`
+56. `docs/readiness/c2_bounded_promise_reliability_foundation_lock_alignment_scope.md`
+57. `docs/readiness/c2_bounded_promise_reliability_implementation_handoff_gate.md`
+58. `docs/readiness/c2_bounded_promise_reliability_mutation_fact_persistence_closeout_ledger.md`
+59. `docs/readiness/post_c2_next_foundation_slice_evaluation.md`
+60. `docs/readiness/post_c2_runtime_handoff_evidence_package.md`
+61. `docs/readiness/post_c2_runtime_handoff_gate_decision.md`
+62. `docs/readiness/post_c2_foundation_lock_alignment_closeout_ledger.md`
+63. `docs/readiness/post_c2_implementation_handoff_gate_decision.md`
+64. `docs/readiness/post_c2_implementation_handoff_evidence_package.md`
+65. `docs/readiness/post_c2_non_consumption_guard_handoff_gate_decision.md`
+66. `docs/readiness/post_c2_non_consumption_guard_implementation_closeout_ledger.md`
+67. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_evidence_package.md`
+68. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_handoff_gate_decision.md`
+69. `docs/readiness/post_c2_categorical_fact_projection_api_non_exposure_implementation_closeout_ledger.md`
+70. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_evidence_package.md`
+71. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_handoff_gate_decision.md`
+72. `docs/readiness/post_c2_categorical_fact_pii_retention_non_leakage_implementation_closeout_ledger.md`
+73. `docs/readiness/post_c2_categorical_fact_idempotency_replay_evidence_package.md`
+74. `docs/readiness/post_c2_categorical_fact_idempotency_replay_handoff_gate_decision.md`
+75. `docs/readiness/post_c2_categorical_fact_idempotency_replay_implementation_closeout_ledger.md`
+76. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_evidence_package.md`
+77. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_handoff_gate_decision.md`
+78. `docs/readiness/post_c2_categorical_fact_lifecycle_replay_boundary_implementation_closeout_ledger.md`
+79. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_evidence_package.md`
+80. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_handoff_gate_decision.md`
+81. `docs/readiness/post_c2_categorical_fact_rejection_boundary_non_persistence_implementation_closeout_ledger.md`
+82. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_evidence_package.md`
+83. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_handoff_gate_decision.md`
+84. `docs/readiness/post_c2_categorical_fact_concurrent_idempotency_implementation_closeout_ledger.md`
+85. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_evidence_package.md`
+86. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_handoff_gate_decision.md`
+87. `docs/readiness/post_c2_categorical_fact_subject_realm_idempotency_scope_implementation_closeout_ledger.md`
+88. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_evidence_package.md`
+89. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_handoff_gate_decision.md`
+90. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_subject_implementation_closeout_ledger.md`
+91. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_evidence_package.md`
+92. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_handoff_gate_decision.md`
+93. `docs/readiness/post_c2_categorical_fact_controlled_exceptional_account_reclassification_replay_implementation_closeout_ledger.md`
+94. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_evidence_package.md`
+95. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_handoff_gate_decision.md`
+96. `docs/readiness/post_c2_controlled_exceptional_account_promise_participant_exclusion_implementation_closeout_ledger.md`
+97. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_evidence_package.md`
+98. `docs/readiness/post_c2_legal_hold_writer_fact_boundary_handoff_gate_decision.md`
+99. `docs/readiness/post_c2_legal_hold_writer_fact_shape_evidence_package.md`
+100. `docs/readiness/post_c2_legal_hold_writer_fact_shape_handoff_gate_decision.md`
+101. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
+102. `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
+103. `docs/readiness/post_c2_master_submaster_operator_seat_writer_fact_lock_alignment_handoff_gate_decision.md`
 
 ### Operations layer
-102. `docs/operations/readiness_routine.md`
-103. `docs/operations/runalways_readiness_orchestrator_design.md`
-104. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+104. `docs/operations/readiness_routine.md`
+105. `docs/operations/runalways_readiness_orchestrator_design.md`
+106. `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 ### Detail layer
-105. `docs/detail/accountability_matrix.md`
-106. `docs/detail/critical_incident_and_loss.md`
-107. `docs/detail/automated_decisioning_and_human_appeal.md`
-108. `docs/detail/youth_safety_and_age_assurance.md`
-109. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-110. `docs/detail/data_deletion_vs_legal_hold.md`
-111. `docs/detail/security_and_autonomy_hardening.md`
-112. `docs/detail/realm_model.md`
-113. `docs/detail/data_scope_model.md`
-114. `docs/detail/mobility_model.md`
-115. `docs/detail/settlement_model.md`
-116. `docs/detail/settlement_backend_trait.md`
-117. `docs/detail/proof_of_infrastructure.md`
-118. `docs/detail/protected_groups_and_translation_safety.md`
+107. `docs/detail/accountability_matrix.md`
+108. `docs/detail/critical_incident_and_loss.md`
+109. `docs/detail/automated_decisioning_and_human_appeal.md`
+110. `docs/detail/youth_safety_and_age_assurance.md`
+111. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+112. `docs/detail/data_deletion_vs_legal_hold.md`
+113. `docs/detail/security_and_autonomy_hardening.md`
+114. `docs/detail/realm_model.md`
+115. `docs/detail/data_scope_model.md`
+116. `docs/detail/mobility_model.md`
+117. `docs/detail/settlement_model.md`
+118. `docs/detail/settlement_backend_trait.md`
+119. `docs/detail/proof_of_infrastructure.md`
+120. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-119. `docs/whitepaper/01_executive_summary.md`
-120. `docs/whitepaper/02_realm_model.md`
-121. `docs/whitepaper/03_experience_model.md`
-122. `docs/whitepaper/04_dm_shield.md`
-123. `docs/whitepaper/05_trust_model.md`
-124. `docs/whitepaper/06_promise_protocol.md`
-125. `docs/whitepaper/07_realm_economy.md`
-126. `docs/whitepaper/08_unlock_engine.md`
+121. `docs/whitepaper/01_executive_summary.md`
+122. `docs/whitepaper/02_realm_model.md`
+123. `docs/whitepaper/03_experience_model.md`
+124. `docs/whitepaper/04_dm_shield.md`
+125. `docs/whitepaper/05_trust_model.md`
+126. `docs/whitepaper/06_promise_protocol.md`
+127. `docs/whitepaper/07_realm_economy.md`
+128. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -238,13 +246,14 @@ They are not implementation authority unless converted into an accepted foundati
 `docs/adr_drafts/*` files remain draft records only.
 They are not implementation authority unless converted into an accepted foundation ADR and locked here.
 
-Accepted ADR-0006 through ADR-0036 are implementation-authorizing only within their stated scope.
+Accepted ADR-0006 through ADR-0037 are implementation-authorizing only within their stated scope.
 ADR-0011 through ADR-0014 complete the Data Lifecycle foundation tranche for foundation scope only.
 ADR-0015 through ADR-0018 complete the Account Lifecycle foundation tranche for accepted foundation scope only.
 ADR-0019 through ADR-0022 complete the Trust / Depth foundation tranche for accepted foundation scope only.
 ADR-0023 through ADR-0026 complete the Proof / Evidence foundation tranche for accepted foundation scope only.
 ADR-0027 through ADR-0031 complete the Server / Citadel / Authority Lease / Realm Relocation / Pool foundation tranche for accepted foundation scope only.
 ADR-0032 through ADR-0036 complete the Discovery / Recommendation foundation tranche for accepted foundation scope only.
+ADR-0037 accepts the Master / Submaster operator-seat writer fact boundary for accepted foundation scope only.
 Runtime implementation is not complete.
 Prompt 3 implementation is not globally unblocked.
 Prompt 3 implementation may proceed only where all applicable foundation ADRs and dependencies are Accepted.
@@ -256,7 +265,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Legal Hold writer fact non-authority documentation.
+The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Master / Submaster operator-seat writer fact foundation lock alignment.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -312,6 +321,7 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_legal_hold_writer_fact_shape_handoff_gate_decision.md`
 - `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_evidence_package.md`
 - `docs/readiness/post_c2_legal_hold_writer_fact_downstream_scope_handoff_gate_decision.md`
+- `docs/readiness/post_c2_master_submaster_operator_seat_writer_fact_lock_alignment_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -366,10 +376,19 @@ Foundation PR #197 kept the Legal Hold writer fact boundary handoff result at NO
 Foundation PR #199 accepted the foundation-side Legal Hold writer fact shape evidence package only and did not authorize `pi-musubi-core` changes.
 Foundation PR #201 kept the Legal Hold writer fact shape handoff result at NO-GO and did not authorize foundation lock alignment or downstream work.
 Foundation PR #203 accepted the foundation-side Legal Hold writer fact downstream scope evidence package only and did not authorize `pi-musubi-core` changes.
-Foundation PR #205 provides the current narrow downstream docs-only handoff authority for one later implementation-repo PR only.
+Foundation PR #205 provided the prior narrow downstream docs-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
 It authorizes only `docs/foundation_lock.md` and `apps/backend/docs/post_c2_legal_hold_writer_fact_non_authority_scope.md`.
 It does not authorize runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, key lifecycle behavior, evidence access runtime behavior, active Legal Hold writer fact creation, invalid Legal Hold rejection persistence, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #112 and closed out by foundation PR #207.
+Foundation PR #208 accepted the foundation-side Master / Submaster operator seat authority boundary evidence package only and did not authorize `pi-musubi-core` changes.
+Foundation PR #209 kept the Master / Submaster operator seat authority boundary handoff result at NO-GO and did not authorize foundation lock alignment or downstream work.
+Foundation PR #210 canonized Master and Submaster as internal backstage operator-seat terms and did not authorize runtime implementation or downstream work.
+Foundation PR #211 accepted ADR-0037 for the Master / Submaster operator-seat writer fact boundary and did not authorize runtime implementation or downstream work.
+Foundation PR #212 provides the current narrow downstream docs-only handoff authority for one later implementation-repo PR only.
+This update is the required lock pin for that one-use allowance.
+It authorizes only `docs/foundation_lock.md`.
+It does not authorize runtime tests, schema-only work, DDL, migrations, backend runtime code, backend README updates, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, external counsel runtime behavior, court-facing workflow, legal-process intake, treasury behavior, compensation behavior, active Master / Submaster writer fact creation, active Legal Hold writer fact creation, evidence access grant or audit runtime creation, Social Trust source facts, Social Trust mutation facts, Relationship Depth facts, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -506,9 +525,9 @@ The Account Lifecycle foundation tranche is a FULL FOUNDATION PASS for accepted 
 This does not implement Natural Person uniqueness runtime behavior, Anti-Abuse Continuity Marker runtime behavior, Age Assurance runtime behavior, account deletion reset runtime behavior, re-entry after deletion, Deletion Request runtime behavior, or Subject Tombstone runtime behavior.
 Prompt 3 remains not globally unblocked.
 
-The Trust / Depth, Proof / Evidence, Server / Realm / Citadel / Pool, Discovery, and Recommendation foundation tranches are FULL FOUNDATION PASS records for accepted foundation scope through ADR-0036.
+The Trust / Depth, Proof / Evidence, Server / Realm / Citadel / Pool, Discovery, Recommendation, and Master / Submaster operator-seat foundation tranches are FULL FOUNDATION PASS records for accepted foundation scope through ADR-0037.
 
-This does not implement Social Trust runtime behavior, Relationship Depth runtime behavior, proof writer runtime behavior, Server alias runtime behavior, Citadel binding runtime behavior, Authority Lease runtime behavior, Realm relocation runtime behavior, Pool attribution runtime behavior, discovery runtime behavior, recommendation runtime behavior, or trust/depth contamination guards.
+This does not implement Social Trust runtime behavior, Relationship Depth runtime behavior, proof writer runtime behavior, Server alias runtime behavior, Citadel binding runtime behavior, Authority Lease runtime behavior, Realm relocation runtime behavior, Pool attribution runtime behavior, discovery runtime behavior, recommendation runtime behavior, trust/depth contamination guards, Master / Submaster runtime behavior, active Master / Submaster writer fact creation, Legal Hold runtime behavior, or evidence access runtime behavior.
 
 The C1 Runtime Handoff Gate package remains accepted as implementation-repo intake evidence only:
 
