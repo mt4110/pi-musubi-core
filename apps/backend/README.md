@@ -146,6 +146,23 @@ cargo test -p musubi_orchestration
 
 ### Run the backend checks
 
+For the full local backend verification path, including local Postgres/Redis,
+environment key validation, DB bootstrap, migrations, migration status, and
+the Rust test workspace:
+
+```bash
+cd apps/backend
+make verify-local
+```
+
+`make verify-local` checks that `.env` contains the keys currently required by
+`.env.example` before running DB commands. If `.env` is stale, copy the missing
+defaults from `.env.example` and rerun the target.
+The Makefile auto-detects `docker compose` first and falls back to
+`docker-compose`. If your local Docker setup needs a specific command, run
+`DOCKER_COMPOSE="docker-compose" make verify-local` or
+`DOCKER_COMPOSE="docker compose" make verify-local`.
+
 ```bash
 cd apps/backend
 cargo check
