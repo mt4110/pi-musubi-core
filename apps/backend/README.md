@@ -163,6 +163,18 @@ The Makefile auto-detects `docker compose` first and falls back to
 `DOCKER_COMPOSE="docker-compose" make verify-local` or
 `DOCKER_COMPOSE="docker compose" make verify-local`.
 
+To exercise the local Day 1 backend over HTTP after `make verify-local`, run:
+
+```bash
+cd apps/backend
+make http-smoke
+```
+
+`make http-smoke` starts the debug backend on `127.0.0.1:18088`, then checks
+`/health`, `/api/launch/posture`, `/api/internal/ops/health`, and
+`/api/internal/ops/readiness`. The internal ops calls rely on the local debug
+internal gate and do not add or widen any public API route.
+
 ```bash
 cd apps/backend
 cargo check
