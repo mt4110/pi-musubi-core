@@ -128,9 +128,13 @@ run_sweep() {
 run_self_test() {
   local temp_dir
   temp_dir="$(mktemp -d)"
-  trap 'rm -rf "$temp_dir"' RETURN
 
   if ! (
+    cleanup_self_test() {
+      rm -rf "$temp_dir"
+    }
+    trap cleanup_self_test EXIT
+
     cd "$temp_dir"
     git init -q
 
