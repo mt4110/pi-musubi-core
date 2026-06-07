@@ -10,6 +10,8 @@ FLOAT_MONEY_PATTERN='\b(f32|f64)\b|double[[:space:]]+precision|\breal\b|\bfloat[
 NETWORK_CLIENT_PATTERN='\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc)\b|curl::'
 RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\b(?:tokio_postgres::)?Transaction<'[A-Za-z_][A-Za-z0-9_]*>"
 RAW_TRANSACTION_INVENTORY_PATH='apps/backend/docs/raw_transaction_inventory.txt'
+PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:]]+SettlementBackend[[:space:]]+for\b|\bstruct[[:space:]]+[A-Za-z0-9_]*(SettlementBackend|ProviderClient|ProviderConfig)\b|\b(derive_provider_idempotency_key|verify_receipt_impl|submit_action_impl|reconcile_submission_impl|normalize_callback_impl)\b'
+PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -89,6 +91,16 @@ raw_transaction_inventory() {
     sort -k2,2
 }
 
+provider_adapter_inventory() {
+  local source_paths=(apps/backend/src apps/backend/crates/*/src)
+
+  grep_matches \
+    "$PROVIDER_ADAPTER_PATTERN" \
+    "${source_paths[@]}" |
+    awk -F: '{ count[$1]++ } END { for (path in count) printf "%d %s\n", count[path], path }' |
+    sort -k2,2
+}
+
 check_raw_transaction_inventory() {
   local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
   local actual_path
@@ -105,6 +117,27 @@ check_raw_transaction_inventory() {
     echo "ok: raw transaction inventory matches the reviewed baseline"
   else
     report_failure "raw transaction inventory changed; review DB transaction surface before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
+check_provider_adapter_inventory() {
+  local expected_path="$repo_root/$PROVIDER_ADAPTER_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "provider adapter inventory file is missing"
+    return
+  fi
+
+  provider_adapter_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: provider adapter inventory matches the reviewed baseline"
+  else
+    report_failure "provider adapter inventory changed; review settlement/provider boundary surface before updating baseline"
   fi
 
   rm -f "$actual_path"
@@ -155,6 +188,7 @@ run_sweep() {
     apps/backend/crates
 
   check_raw_transaction_inventory
+  check_provider_adapter_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -175,6 +209,7 @@ run_self_test() {
     mkdir -p \
       .codex \
       apps/backend/src \
+      apps/backend/crates/settlement-domain/src \
       apps/backend/crates/orchestration/src \
       apps/backend/crates/orchestration/tests \
       apps/backend/tests \
@@ -186,6 +221,8 @@ run_self_test() {
     printf 'let client = reqwest::Client::new();\n' > apps/backend/src/reqwest_client.rs
     printf 'let client = curl::easy::Easy::new();\n' > apps/backend/src/curl_client.rs
     printf 'let tx = client.transaction().await?;\n' > apps/backend/src/raw_transaction.rs
+    printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
+    printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
     printf "tx: &Transaction<'txn>,\n" > apps/backend/tests/raw_transaction_imported_ref.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/replica_leak.rs
@@ -221,6 +258,13 @@ run_self_test() {
     else
       raw_transaction_inventory >&2
       report_failure "self-test builds the raw transaction inventory"
+    fi
+
+    if [ "$(provider_adapter_inventory)" = "$(printf '1 apps/backend/crates/settlement-domain/src/backend.rs\n2 apps/backend/src/provider_adapter.rs')" ]; then
+      echo "ok: self-test builds the provider adapter inventory"
+    else
+      provider_adapter_inventory >&2
+      report_failure "self-test builds the provider adapter inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then

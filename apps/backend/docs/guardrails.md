@@ -15,6 +15,7 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - floating-point money primitives;
 - direct external network client usage outside an explicit reviewed boundary;
 - raw `tokio_postgres` transaction surface drift from the reviewed inventory;
+- settlement/provider adapter surface drift from the reviewed inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
 - tracked `.codex` files or a missing `.codex/` ignore rule.
@@ -29,6 +30,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - word-boundary network clients such as `reqwest`;
 - namespace-style network clients such as `curl::`;
 - raw transaction inventory construction;
+- provider adapter inventory construction;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
 
@@ -95,10 +97,18 @@ What still remains review-sensitive:
 - future service or adapter code that bypasses orchestration helpers entirely
 
 `apps/backend/docs/raw_transaction_inventory.txt` now fixes the current raw
-transaction surface by file and occurrence count. New or moved raw transaction
-usage must either remove an existing site or update that inventory deliberately
-after review. This is not a proof that existing transaction bodies are safe; it
-is a CI tripwire against silent surface growth.
+transaction surface by file and matching-line count. New or moved raw
+transaction usage must either remove an existing site or update that inventory
+deliberately after review. This is not a proof that existing transaction bodies
+are safe; it is a CI tripwire against silent surface growth.
+
+`apps/backend/docs/provider_adapter_inventory.txt` fixes the current
+settlement/provider adapter surface by file and matching-line count. It
+currently allows only the `SettlementBackend` seam and the sandbox Pi adapter in
+the happy-route service. New provider adapter types, implementations, or hook
+methods must update that inventory deliberately after review. This prevents
+silent provider-boundary growth; it does not prove adapter correctness or
+provider guarantee semantics.
 
 So the rule is still:
 - keep authoritative transaction code database-only
@@ -156,7 +166,7 @@ Product and later domain flows must not describe this as complete anti-spoofing.
 The next meaningful upgrades would be:
 - add integration tests around real PostgreSQL writer/claim/persist flows as the happy route grows
 - add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
-- keep new settlement/provider code inside orchestration and settlement boundaries rather than ad hoc service methods
+- turn the provider adapter inventory into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line
 
