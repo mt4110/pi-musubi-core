@@ -273,6 +273,14 @@ cargo check
 cargo test
 ```
 
+To run the deterministic backend architecture tripwires without starting local
+infra, run:
+
+```bash
+cd apps/backend
+make guardrail-sweep
+```
+
 ## Database skeleton
 
 Issue #3 adds plain SQL migration scaffolding under `migrations/`.
