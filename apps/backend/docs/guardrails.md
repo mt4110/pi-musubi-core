@@ -21,6 +21,18 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 This sweep is intentionally narrow. It is a tripwire for known high-risk drift,
 not a complete static proof of architectural correctness.
 
+`make guardrail-sweep-self-test` creates a temporary Git repository with
+representative forbidden fixtures and verifies that the sweep patterns detect:
+
+- floating-point money primitives;
+- word-boundary network clients such as `reqwest`;
+- namespace-style network clients such as `curl::`;
+- `WriterReadSource::ReadReplica` outside its allowlist;
+- tracked `.codex` files and `.codex/` ignore-rule detection.
+
+The self-test does not scan production source. It proves that the tripwire
+itself has not silently lost detection coverage before the real sweep runs.
+
 ### 1. Writer-first state-changing reads
 
 The orchestration boundary encodes writer-only progression through `WriterReadSource`.
