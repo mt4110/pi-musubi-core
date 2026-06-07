@@ -81,6 +81,9 @@ The intended flow is:
 2. a manual or scheduled runner archives summary data
 3. the hot coordination row is pruned
 
+The current happy-route drain follows that same shape for its app-level
+coordination cleanup, including manual-review terminal outbox rows.
+
 This keeps dedupe and replay evidence long enough to be useful without letting coordination tables become eternal truth.
 
 ## Writer-first invariant
