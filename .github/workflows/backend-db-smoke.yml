@@ -33,6 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Backend guardrail sweep self-test
+        working-directory: apps/backend
+        run: make guardrail-sweep-self-test
       - name: Backend guardrail sweep
         working-directory: apps/backend
         run: make guardrail-sweep

@@ -1,6 +1,6 @@
 BACKEND_DIR ?= apps/backend
 
-.PHONY: verify-local verify-local-http guardrail-sweep http-day1-smoke http-day1-smoke-existing-infra http-smoke http-happy-route-smoke http-funded-happy-route-smoke http-funded-replay-smoke http-funded-duplicate-receipt-smoke
+.PHONY: verify-local verify-local-http guardrail-sweep guardrail-sweep-self-test http-day1-smoke http-day1-smoke-existing-infra http-smoke http-happy-route-smoke http-funded-happy-route-smoke http-funded-replay-smoke http-funded-duplicate-receipt-smoke
 
 verify-local:
 	@$(MAKE) -C $(BACKEND_DIR) verify-local
@@ -10,6 +10,9 @@ verify-local-http:
 
 guardrail-sweep:
 	@$(MAKE) -C $(BACKEND_DIR) guardrail-sweep
+
+guardrail-sweep-self-test:
+	@$(MAKE) -C $(BACKEND_DIR) guardrail-sweep-self-test
 
 http-day1-smoke:
 	@$(MAKE) -C $(BACKEND_DIR) http-day1-smoke

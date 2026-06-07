@@ -281,6 +281,13 @@ cd apps/backend
 make guardrail-sweep
 ```
 
+To verify that the sweep catches representative forbidden fixtures, run:
+
+```bash
+cd apps/backend
+make guardrail-sweep-self-test
+```
+
 ## Database skeleton
 
 Issue #3 adds plain SQL migration scaffolding under `migrations/`.

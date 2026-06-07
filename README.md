@@ -79,6 +79,13 @@ make verify-local-http
 どちらも backend 側の Makefile に委譲します。Rust workspace の root は引き続き
 `apps/backend` です。
 
+backend の architecture tripwire だけを infra なしで確認する場合は、こちらを使います。
+
+```bash
+make guardrail-sweep
+make guardrail-sweep-self-test
+```
+
 ## Foundation alignment
 
 This repo is the canonical implementation repo for MUSUBI Day 1.
