@@ -175,6 +175,20 @@ make http-smoke
 `/api/internal/ops/readiness`. The internal ops calls rely on the local debug
 internal gate and do not add or widen any public API route.
 
+To exercise the first pilot-gated product write path over HTTP, run:
+
+```bash
+cd apps/backend
+make http-happy-route-smoke
+```
+
+`make http-happy-route-smoke` starts the debug backend on `127.0.0.1:18089`
+with a local pilot allowlist, signs in two Pi identities, and creates one
+Promise intent through `POST /api/promise/intents`. It checks the immediate
+`pending_funding` response only; provider submission, callbacks, ledger
+funding, projection rebuild, and orchestration drain stay outside this smoke
+target.
+
 ```bash
 cd apps/backend
 cargo check
