@@ -18,7 +18,7 @@ check_no_matches() {
   shift 2
 
   local matches
-  matches="$(git grep -n -E "$pattern" -- "$@" || true)"
+  matches="$(git grep -n --perl-regexp "$pattern" -- "$@" || true)"
   if [ -n "$matches" ]; then
     echo "$matches" >&2
     report_failure "$description"
@@ -36,7 +36,7 @@ check_no_matches \
 
 check_no_matches \
   "backend source must not introduce direct external network clients outside an explicit reviewed boundary" \
-  '\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc|curl::)\b' \
+  '\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc)\b|curl::' \
   apps/backend/Cargo.toml \
   apps/backend/crates/*/Cargo.toml \
   apps/backend/src \
