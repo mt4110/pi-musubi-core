@@ -1,0 +1,11 @@
+1 apps/backend/crates/db-runtime/src/migrations.rs
+4 apps/backend/crates/orchestration/src/postgres.rs
+3 apps/backend/crates/orchestration/tests/postgres_contract.rs
+35 apps/backend/src/services/happy_route/repository.rs
+6 apps/backend/src/services/operator_review/repository.rs
+7 apps/backend/src/services/realm_bootstrap/repository.rs
+4 apps/backend/src/services/room_progression/repository.rs
+1 apps/backend/src/services/social_trust_intake/repository.rs
+1 apps/backend/src/services/social_trust_mutation/repository.rs
+4 apps/backend/tests/happy_route.rs
+2 apps/backend/tests/realm_bootstrap.rs

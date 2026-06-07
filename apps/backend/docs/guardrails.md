@@ -14,6 +14,7 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 
 - floating-point money primitives;
 - direct external network client usage outside an explicit reviewed boundary;
+- raw `tokio_postgres` transaction surface drift from the reviewed inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
 - tracked `.codex` files or a missing `.codex/` ignore rule.
@@ -27,6 +28,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - floating-point money primitives;
 - word-boundary network clients such as `reqwest`;
 - namespace-style network clients such as `curl::`;
+- raw transaction inventory construction;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
 
@@ -89,8 +91,14 @@ It now accepts only declarative SQL commands plus the outbox message, and it rej
 That removes the easiest place to smuggle remote `await` into a live authoritative transaction and also prevents "outbox only" use through that helper.
 
 What still remains review-sensitive:
-- code that takes a raw `tokio_postgres::Transaction<'_>` directly
+- code inside the existing reviewed raw transaction inventory
 - future service or adapter code that bypasses orchestration helpers entirely
+
+`apps/backend/docs/raw_transaction_inventory.txt` now fixes the current raw
+transaction surface by file and occurrence count. New or moved raw transaction
+usage must either remove an existing site or update that inventory deliberately
+after review. This is not a proof that existing transaction bodies are safe; it
+is a CI tripwire against silent surface growth.
 
 So the rule is still:
 - keep authoritative transaction code database-only
