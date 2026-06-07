@@ -8,8 +8,20 @@ HTTP_HAPPY_ROUTE_SMOKE_HOST ?= 127.0.0.1
 HTTP_HAPPY_ROUTE_SMOKE_PORT ?= 18089
 HTTP_HAPPY_ROUTE_SMOKE_BASE_URL ?= http://$(HTTP_HAPPY_ROUTE_SMOKE_HOST):$(HTTP_HAPPY_ROUTE_SMOKE_PORT)
 HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
+HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST ?= 127.0.0.1
+HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT ?= 18090
+HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL ?= http://$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST):$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT)
+HTTP_FUNDED_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
+HTTP_FUNDED_REPLAY_SMOKE_HOST ?= 127.0.0.1
+HTTP_FUNDED_REPLAY_SMOKE_PORT ?= 18091
+HTTP_FUNDED_REPLAY_SMOKE_BASE_URL ?= http://$(HTTP_FUNDED_REPLAY_SMOKE_HOST):$(HTTP_FUNDED_REPLAY_SMOKE_PORT)
+HTTP_FUNDED_REPLAY_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
+HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_HOST ?= 127.0.0.1
+HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_PORT ?= 18092
+HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_BASE_URL ?= http://$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_HOST):$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_PORT)
+HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
 
-.PHONY: dev check test env-check infra-up verify-local http-smoke http-happy-route-smoke db-bootstrap db-migrate db-status db-reset-local docker-up docker-down
+.PHONY: dev check test env-check infra-up verify-local verify-local-http http-day1-smoke http-smoke http-happy-route-smoke http-funded-happy-route-smoke http-funded-replay-smoke http-funded-duplicate-receipt-smoke db-bootstrap db-migrate db-status db-reset-local docker-up docker-down
 
 dev: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo run -p musubi_backend
@@ -50,6 +62,24 @@ infra-up: env-check
 	exit 1
 
 verify-local: infra-up db-bootstrap db-migrate db-status test
+
+verify-local-http: verify-local
+	@$(MAKE) http-smoke
+	@$(MAKE) http-happy-route-smoke
+	@$(MAKE) http-funded-happy-route-smoke
+	@$(MAKE) http-funded-replay-smoke
+	@$(MAKE) http-funded-duplicate-receipt-smoke
+
+http-day1-smoke:
+	@$(MAKE) infra-up
+	@$(MAKE) db-bootstrap
+	@$(MAKE) db-migrate
+	@$(MAKE) db-status
+	@$(MAKE) http-smoke
+	@$(MAKE) http-happy-route-smoke
+	@$(MAKE) http-funded-happy-route-smoke
+	@$(MAKE) http-funded-replay-smoke
+	@$(MAKE) http-funded-duplicate-receipt-smoke
 
 http-smoke: env-check
 	@command -v curl >/dev/null 2>&1 || { echo "curl is required for http-smoke"; exit 1; }
@@ -106,6 +136,38 @@ http-happy-route-smoke: env-check
 	HTTP_HAPPY_ROUTE_SMOKE_BASE_URL="$(HTTP_HAPPY_ROUTE_SMOKE_BASE_URL)" \
 	HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS="$(HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS)" \
 	./scripts/http_happy_route_smoke.sh
+
+http-funded-happy-route-smoke: env-check
+	@ENV_FILE="$(ENV_FILE)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST="$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT="$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL="$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS="$(HTTP_FUNDED_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS)" \
+	./scripts/http_funded_happy_route_smoke.sh
+
+http-funded-replay-smoke: env-check
+	@ENV_FILE="$(ENV_FILE)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST="$(HTTP_FUNDED_REPLAY_SMOKE_HOST)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT="$(HTTP_FUNDED_REPLAY_SMOKE_PORT)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL="$(HTTP_FUNDED_REPLAY_SMOKE_BASE_URL)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS="$(HTTP_FUNDED_REPLAY_SMOKE_STARTUP_TIMEOUT_SECONDS)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_INITIATOR_PI_UID="http-funded-replay-smoke-initiator" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_COUNTERPARTY_PI_UID="http-funded-replay-smoke-counterparty" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_REALM_ID="realm-http-funded-replay-smoke" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_VERIFY_REPLAY=true \
+	./scripts/http_funded_happy_route_smoke.sh
+
+http-funded-duplicate-receipt-smoke: env-check
+	@ENV_FILE="$(ENV_FILE)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST="$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_HOST)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT="$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_PORT)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL="$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_BASE_URL)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS="$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_STARTUP_TIMEOUT_SECONDS)" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_INITIATOR_PI_UID="http-funded-duplicate-receipt-smoke-initiator" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_COUNTERPARTY_PI_UID="http-funded-duplicate-receipt-smoke-counterparty" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_REALM_ID="realm-http-funded-duplicate-receipt-smoke" \
+	HTTP_FUNDED_HAPPY_ROUTE_SMOKE_VERIFY_DUPLICATE_RECEIPT=true \
+	./scripts/http_funded_happy_route_smoke.sh
 
 db-bootstrap: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo run -p musubi-ops -- db bootstrap
