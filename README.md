@@ -63,6 +63,13 @@ repo root から Day 1 HTTP smoke suite を一発で実行できます。
 make http-day1-smoke
 ```
 
+CI など、PostgreSQL service container などの既存 infra を使う場合は、
+Compose / `.env` を読まない target を使います。
+
+```bash
+make http-day1-smoke-existing-infra
+```
+
 backend の Rust test も含めて全部確認したい場合は、こちらを使います。
 
 ```bash

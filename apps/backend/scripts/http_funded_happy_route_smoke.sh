@@ -10,6 +10,7 @@ new_smoke_run_id() {
 }
 
 ENV_FILE="${ENV_FILE:-.env}"
+LOAD_ENV_FILE="${HTTP_FUNDED_HAPPY_ROUTE_SMOKE_LOAD_ENV_FILE:-true}"
 HOST="${HTTP_FUNDED_HAPPY_ROUTE_SMOKE_HOST:-127.0.0.1}"
 PORT="${HTTP_FUNDED_HAPPY_ROUTE_SMOKE_PORT:-18090}"
 BASE_URL="${HTTP_FUNDED_HAPPY_ROUTE_SMOKE_BASE_URL:-http://${HOST}:${PORT}}"
@@ -33,6 +34,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required for http-funded-happy-ro
 backend_log=""
 body_file=""
 backend_pid=""
+dotenv_skip_flag=false
 
 cleanup() {
   status=$?
@@ -74,9 +76,20 @@ trap cleanup EXIT INT TERM
 backend_log="$(mktemp -t musubi-backend-http-funded-happy-route-log.XXXXXX)"
 body_file="$(mktemp -t musubi-backend-http-funded-happy-route-body.XXXXXX)"
 
-set -a
-. "./${ENV_FILE}"
-set +a
+case "$LOAD_ENV_FILE" in
+  true)
+    set -a
+    . "./${ENV_FILE}"
+    set +a
+    ;;
+  false)
+    dotenv_skip_flag=true
+    ;;
+  *)
+    echo "HTTP_FUNDED_HAPPY_ROUTE_SMOKE_LOAD_ENV_FILE must be true or false"
+    exit 1
+    ;;
+esac
 
 cargo build -p musubi_backend
 
@@ -89,6 +102,7 @@ fi
 echo "starting backend for HTTP funded happy-route smoke at ${BASE_URL}"
 APP_HOST="$HOST" \
 PORT="$PORT" \
+MUSUBI_SKIP_DOTENV="$dotenv_skip_flag" \
 PROVIDER_MODE=sandbox \
 MUSUBI_LAUNCH_MODE=pilot \
 MUSUBI_LAUNCH_ALLOWLIST_PI_UIDS="${INITIATOR_PI_UID},${COUNTERPARTY_PI_UID}" \

@@ -2,12 +2,24 @@ use musubi_db_runtime::{DbConfig, LocalResetConfirmation, MigrationRunner, Migra
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
+    if !env_flag_enabled("MUSUBI_SKIP_DOTENV") {
+        dotenvy::dotenv().ok();
+    }
 
     if let Err(error) = run().await {
         eprintln!("{error}");
         std::process::exit(1);
     }
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        })
+        .unwrap_or(false)
 }
 
 async fn run() -> Result<(), OpsError> {

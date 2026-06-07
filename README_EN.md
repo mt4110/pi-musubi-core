@@ -25,6 +25,13 @@ From the repository root, run the Day 1 HTTP smoke suite with:
 make http-day1-smoke
 ```
 
+For CI or another environment that already provides PostgreSQL, use the
+existing-infra target. It does not start Docker Compose or load `.env`.
+
+```bash
+make http-day1-smoke-existing-infra
+```
+
 For the full local backend verification plus the HTTP suite, run:
 
 ```bash

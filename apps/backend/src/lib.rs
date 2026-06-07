@@ -426,6 +426,9 @@ fn env_flag_enabled(name: &str) -> bool {
 }
 
 fn load_env_files() {
+    if env_flag_enabled("MUSUBI_SKIP_DOTENV") {
+        return;
+    }
     dotenvy::dotenv().ok();
     dotenvy::from_path("apps/backend/.env").ok();
 }
