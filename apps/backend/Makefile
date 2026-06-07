@@ -63,7 +63,12 @@ infra-up: env-check
 
 verify-local: infra-up db-bootstrap db-migrate db-status test
 
-verify-local-http: verify-local http-day1-smoke
+verify-local-http: verify-local
+	@$(MAKE) http-smoke
+	@$(MAKE) http-happy-route-smoke
+	@$(MAKE) http-funded-happy-route-smoke
+	@$(MAKE) http-funded-replay-smoke
+	@$(MAKE) http-funded-duplicate-receipt-smoke
 
 http-day1-smoke:
 	@$(MAKE) infra-up

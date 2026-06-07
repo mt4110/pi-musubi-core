@@ -30,32 +30,49 @@ SMOKE_LOCK_DIR="${HTTP_FUNDED_HAPPY_ROUTE_SMOKE_LOCK_DIR:-${TMPDIR:-/tmp}/musubi
 command -v curl >/dev/null 2>&1 || { echo "curl is required for http-funded-happy-route-smoke"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required for http-funded-happy-route-smoke"; exit 1; }
 
-if ! mkdir "$SMOKE_LOCK_DIR" 2>/dev/null; then
-  echo "another HTTP funded happy-route smoke is already running; run funded smoke targets one at a time"
-  exit 1
-fi
-
-backend_log="$(mktemp -t musubi-backend-http-funded-happy-route-log.XXXXXX)"
-body_file="$(mktemp -t musubi-backend-http-funded-happy-route-body.XXXXXX)"
+backend_log=""
+body_file=""
 backend_pid=""
 
 cleanup() {
   status=$?
+  trap - EXIT INT TERM
   if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
     kill "$backend_pid" >/dev/null 2>&1 || true
     wait "$backend_pid" 2>/dev/null || true
   fi
   if [ "$status" -ne 0 ]; then
     echo "HTTP funded happy-route smoke failed; last response body:" >&2
-    cat "$body_file" >&2 || true
+    if [ -n "$body_file" ] && [ -f "$body_file" ]; then
+      cat "$body_file" >&2 || true
+    else
+      echo "(no response body captured)" >&2
+    fi
     echo "HTTP funded happy-route smoke failed; backend log (tail):" >&2
-    tail -n 200 "$backend_log" >&2 || true
+    if [ -n "$backend_log" ] && [ -f "$backend_log" ]; then
+      tail -n 200 "$backend_log" >&2 || true
+    else
+      echo "(no backend log captured)" >&2
+    fi
   fi
   rmdir "$SMOKE_LOCK_DIR" >/dev/null 2>&1 || true
-  rm -f "$backend_log" "$body_file"
+  if [ -n "$backend_log" ]; then
+    rm -f "$backend_log"
+  fi
+  if [ -n "$body_file" ]; then
+    rm -f "$body_file"
+  fi
   exit "$status"
 }
+
+if ! mkdir "$SMOKE_LOCK_DIR" 2>/dev/null; then
+  echo "another HTTP funded happy-route smoke is already running; run funded smoke targets one at a time"
+  exit 1
+fi
 trap cleanup EXIT INT TERM
+
+backend_log="$(mktemp -t musubi-backend-http-funded-happy-route-log.XXXXXX)"
+body_file="$(mktemp -t musubi-backend-http-funded-happy-route-body.XXXXXX)"
 
 set -a
 . "./${ENV_FILE}"
