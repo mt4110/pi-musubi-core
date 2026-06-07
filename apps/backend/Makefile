@@ -22,7 +22,7 @@ HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_PORT ?= 18092
 HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_BASE_URL ?= http://$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_HOST):$(HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_PORT)
 HTTP_FUNDED_DUPLICATE_RECEIPT_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
 
-.PHONY: dev check test env-check infra-up verify-local verify-local-http http-day1-smoke http-day1-smoke-existing-infra http-smoke http-smoke-existing-infra http-smoke-run http-happy-route-smoke http-happy-route-smoke-existing-infra http-funded-happy-route-smoke http-funded-happy-route-smoke-existing-infra http-funded-replay-smoke http-funded-replay-smoke-existing-infra http-funded-duplicate-receipt-smoke http-funded-duplicate-receipt-smoke-existing-infra db-bootstrap db-bootstrap-existing-infra db-migrate db-migrate-existing-infra db-status db-status-existing-infra db-reset-local docker-up docker-down
+.PHONY: dev check test guardrail-sweep env-check infra-up verify-local verify-local-http http-day1-smoke http-day1-smoke-existing-infra http-smoke http-smoke-existing-infra http-smoke-run http-happy-route-smoke http-happy-route-smoke-existing-infra http-funded-happy-route-smoke http-funded-happy-route-smoke-existing-infra http-funded-replay-smoke http-funded-replay-smoke-existing-infra http-funded-duplicate-receipt-smoke http-funded-duplicate-receipt-smoke-existing-infra db-bootstrap db-bootstrap-existing-infra db-migrate db-migrate-existing-infra db-status db-status-existing-infra db-reset-local docker-up docker-down
 
 dev: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo run -p musubi_backend
@@ -32,6 +32,9 @@ check:
 
 test: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo test --workspace
+
+guardrail-sweep:
+	@bash ./scripts/guardrail_sweep.sh
 
 env-check:
 	@if [ ! -f $(ENV_FILE) ]; then cp .env.example $(ENV_FILE); fi

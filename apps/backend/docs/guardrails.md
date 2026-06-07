@@ -7,6 +7,20 @@ The goal is to make the most failure-prone MUSUBI laws mechanically harder to vi
 
 ## Mechanically enforced now
 
+### 0. CI guardrail sweep
+
+`make guardrail-sweep` runs a deterministic source scan before DB-backed CI
+checks. It fails if backend source, backend crates, or migrations introduce:
+
+- floating-point money primitives;
+- direct external network client usage outside an explicit reviewed boundary;
+- `WriterReadSource::ReadReplica` usage outside the orchestration rejection
+  implementation and its tests;
+- tracked `.codex` files or a missing `.codex/` ignore rule.
+
+This sweep is intentionally narrow. It is a tripwire for known high-risk drift,
+not a complete static proof of architectural correctness.
+
 ### 1. Writer-first state-changing reads
 
 The orchestration boundary encodes writer-only progression through `WriterReadSource`.
