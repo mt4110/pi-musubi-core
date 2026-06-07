@@ -4,8 +4,12 @@ HTTP_SMOKE_HOST ?= 127.0.0.1
 HTTP_SMOKE_PORT ?= 18088
 HTTP_SMOKE_BASE_URL ?= http://$(HTTP_SMOKE_HOST):$(HTTP_SMOKE_PORT)
 HTTP_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
+HTTP_HAPPY_ROUTE_SMOKE_HOST ?= 127.0.0.1
+HTTP_HAPPY_ROUTE_SMOKE_PORT ?= 18089
+HTTP_HAPPY_ROUTE_SMOKE_BASE_URL ?= http://$(HTTP_HAPPY_ROUTE_SMOKE_HOST):$(HTTP_HAPPY_ROUTE_SMOKE_PORT)
+HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS ?= 120
 
-.PHONY: dev check test env-check infra-up verify-local http-smoke db-bootstrap db-migrate db-status db-reset-local docker-up docker-down
+.PHONY: dev check test env-check infra-up verify-local http-smoke http-happy-route-smoke db-bootstrap db-migrate db-status db-reset-local docker-up docker-down
 
 dev: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo run -p musubi_backend
@@ -94,6 +98,14 @@ http-smoke: env-check
 	grep -q '"status":"ready"' "$$body_file" || { echo "/api/internal/ops/readiness did not report ready"; cat "$$body_file"; exit 1; }; \
 	grep -q '"pending_count":0' "$$body_file" || { echo "/api/internal/ops/readiness did not report zero pending migrations"; cat "$$body_file"; exit 1; }; \
 	echo "HTTP smoke passed at $(HTTP_SMOKE_BASE_URL)"
+
+http-happy-route-smoke: env-check
+	@ENV_FILE="$(ENV_FILE)" \
+	HTTP_HAPPY_ROUTE_SMOKE_HOST="$(HTTP_HAPPY_ROUTE_SMOKE_HOST)" \
+	HTTP_HAPPY_ROUTE_SMOKE_PORT="$(HTTP_HAPPY_ROUTE_SMOKE_PORT)" \
+	HTTP_HAPPY_ROUTE_SMOKE_BASE_URL="$(HTTP_HAPPY_ROUTE_SMOKE_BASE_URL)" \
+	HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS="$(HTTP_HAPPY_ROUTE_SMOKE_STARTUP_TIMEOUT_SECONDS)" \
+	./scripts/http_happy_route_smoke.sh
 
 db-bootstrap: env-check
 	@set -a; . ./$(ENV_FILE); set +a; cargo run -p musubi-ops -- db bootstrap
