@@ -8,6 +8,8 @@ failures=0
 
 FLOAT_MONEY_PATTERN='\b(f32|f64)\b|double[[:space:]]+precision|\breal\b|\bfloat[0-9]*\b'
 NETWORK_CLIENT_PATTERN='\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc)\b|curl::'
+RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\bTransaction<'_>|tokio_postgres::Transaction<'_>"
+RAW_TRANSACTION_INVENTORY_PATH='apps/backend/docs/raw_transaction_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -77,6 +79,37 @@ check_read_replica_boundary() {
   fi
 }
 
+raw_transaction_inventory() {
+  grep_matches \
+    "$RAW_TRANSACTION_PATTERN" \
+    apps/backend/src \
+    apps/backend/crates \
+    apps/backend/tests |
+    awk -F: '{ count[$1]++ } END { for (path in count) printf "%d %s\n", count[path], path }' |
+    sort -k2,2
+}
+
+check_raw_transaction_inventory() {
+  local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "raw transaction inventory file is missing"
+    return
+  fi
+
+  raw_transaction_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: raw transaction inventory matches the reviewed baseline"
+  else
+    report_failure "raw transaction inventory changed; review DB transaction surface before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 read_replica_boundary_matches() {
   git grep -n "$READ_REPLICA_TOKEN" -- \
     apps/backend/src \
@@ -121,6 +154,7 @@ run_sweep() {
     apps/backend/src \
     apps/backend/crates
 
+  check_raw_transaction_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -143,6 +177,7 @@ run_self_test() {
       apps/backend/src \
       apps/backend/crates/orchestration/src \
       apps/backend/crates/orchestration/tests \
+      apps/backend/tests \
       apps/backend/migrations
 
     printf '.codex/\n' > .gitignore
@@ -150,6 +185,8 @@ run_self_test() {
     printf 'let label = "really reality token";\n' > apps/backend/src/word_boundary_safe.rs
     printf 'let client = reqwest::Client::new();\n' > apps/backend/src/reqwest_client.rs
     printf 'let client = curl::easy::Easy::new();\n' > apps/backend/src/curl_client.rs
+    printf 'let tx = client.transaction().await?;\n' > apps/backend/src/raw_transaction.rs
+    printf "tx: &tokio_postgres::Transaction<'_>,\n" > apps/backend/tests/raw_transaction_ref.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/replica_leak.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/store.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/tests/runtime_contract.rs
@@ -177,6 +214,13 @@ run_self_test() {
       "self-test catches curl namespace clients" \
       "$NETWORK_CLIENT_PATTERN" \
       apps/backend/src/curl_client.rs
+
+    if [ "$(raw_transaction_inventory)" = "$(printf '1 apps/backend/src/raw_transaction.rs\n1 apps/backend/tests/raw_transaction_ref.rs')" ]; then
+      echo "ok: self-test builds the raw transaction inventory"
+    else
+      raw_transaction_inventory >&2
+      report_failure "self-test builds the raw transaction inventory"
+    fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then
       echo "ok: self-test catches ReadReplica outside the allowlist"
