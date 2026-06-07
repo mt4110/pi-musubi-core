@@ -8,7 +8,7 @@ failures=0
 
 FLOAT_MONEY_PATTERN='\b(f32|f64)\b|double[[:space:]]+precision|\breal\b|\bfloat[0-9]*\b'
 NETWORK_CLIENT_PATTERN='\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc)\b|curl::'
-RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\bTransaction<'_>|tokio_postgres::Transaction<'_>"
+RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\b(?:tokio_postgres::)?Transaction<'[A-Za-z_][A-Za-z0-9_]*>"
 RAW_TRANSACTION_INVENTORY_PATH='apps/backend/docs/raw_transaction_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
@@ -186,7 +186,8 @@ run_self_test() {
     printf 'let client = reqwest::Client::new();\n' > apps/backend/src/reqwest_client.rs
     printf 'let client = curl::easy::Easy::new();\n' > apps/backend/src/curl_client.rs
     printf 'let tx = client.transaction().await?;\n' > apps/backend/src/raw_transaction.rs
-    printf "tx: &tokio_postgres::Transaction<'_>,\n" > apps/backend/tests/raw_transaction_ref.rs
+    printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
+    printf "tx: &Transaction<'txn>,\n" > apps/backend/tests/raw_transaction_imported_ref.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/replica_leak.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/store.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/tests/runtime_contract.rs
@@ -215,7 +216,7 @@ run_self_test() {
       "$NETWORK_CLIENT_PATTERN" \
       apps/backend/src/curl_client.rs
 
-    if [ "$(raw_transaction_inventory)" = "$(printf '1 apps/backend/src/raw_transaction.rs\n1 apps/backend/tests/raw_transaction_ref.rs')" ]; then
+    if [ "$(raw_transaction_inventory)" = "$(printf '1 apps/backend/src/raw_transaction.rs\n1 apps/backend/tests/raw_transaction_imported_ref.rs\n1 apps/backend/tests/raw_transaction_ref.rs')" ]; then
       echo "ok: self-test builds the raw transaction inventory"
     else
       raw_transaction_inventory >&2
