@@ -31,7 +31,7 @@ jobs:
       REQUIRE_LATEST_SCHEMA: "true"
       MIGRATIONS_DIR: ./migrations
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Bootstrap and migrate
         working-directory: apps/backend
