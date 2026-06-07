@@ -175,6 +175,25 @@ make http-smoke
 `/api/internal/ops/readiness`. The internal ops calls rely on the local debug
 internal gate and do not add or widen any public API route.
 
+To run the local Day 1 HTTP smoke suite in one command, run:
+
+```bash
+cd apps/backend
+make http-day1-smoke
+```
+
+`make http-day1-smoke` brings up local infra, bootstraps and migrates the
+writer DB, checks migration status, then runs the HTTP health/readiness,
+pilot-gated Promise intent, funded happy-route, exact callback replay, and
+duplicate-receipt smoke targets in a fixed sequence.
+
+For the full local check plus the HTTP suite, run:
+
+```bash
+cd apps/backend
+make verify-local-http
+```
+
 To exercise the first pilot-gated product write path over HTTP, run:
 
 ```bash
@@ -188,6 +207,53 @@ Promise intent through `POST /api/promise/intents`. It checks the immediate
 `pending_funding` response only; provider submission, callbacks, ledger
 funding, projection rebuild, and orchestration drain stay outside this smoke
 target.
+
+To exercise the funded local happy route over HTTP, run:
+
+```bash
+cd apps/backend
+make http-funded-happy-route-smoke
+```
+
+`make http-funded-happy-route-smoke` starts the debug backend on
+`127.0.0.1:18090` with a local pilot allowlist, creates the Promise intent,
+drains `OPEN_HOLD_INTENT` through the sandbox provider submission boundary,
+accepts a raw `POST /api/payment/callback`, drains callback ingestion plus
+projection refresh, and verifies `GET /api/projection/settlement-views/{id}`
+reports `funded` with the expected integer minor-unit amount and ledger journal
+reference.
+
+To exercise exact callback replay idempotency over HTTP, run:
+
+```bash
+cd apps/backend
+make http-funded-replay-smoke
+```
+
+`make http-funded-replay-smoke` starts the debug backend on `127.0.0.1:18091`,
+runs the funded local happy route, submits the exact same raw callback again,
+drains callback ingestion, and verifies the settlement view remains `funded`
+without a second funded amount or a new latest journal reference.
+
+To exercise duplicate receipt idempotency with a distinct raw callback over
+HTTP, run:
+
+```bash
+cd apps/backend
+make http-funded-duplicate-receipt-smoke
+```
+
+`make http-funded-duplicate-receipt-smoke` starts the debug backend on
+`127.0.0.1:18092`, runs the funded local happy route, submits a second callback
+with the same provider payment id and a different `txid`, drains callback
+ingestion, and verifies the settlement view remains `funded` without a second
+funded amount or a new latest journal reference.
+
+The funded HTTP smoke targets share the local writer DB and internal outbox
+drain, so the script rejects concurrent funded-smoke runs instead of letting
+them race one another.
+
+For focused Rust checks while iterating on backend code, run:
 
 ```bash
 cd apps/backend

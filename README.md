@@ -55,6 +55,23 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8088
 
 `REQUIRE_LATEST_SCHEMA=true` の場合、backend は pending / failed / checksum drift に加えて、DB 側にだけ存在する applied migration がある状態では起動しません。
 
+## ローカル検証
+
+repo root から Day 1 HTTP smoke suite を一発で実行できます。
+
+```bash
+make http-day1-smoke
+```
+
+backend の Rust test も含めて全部確認したい場合は、こちらを使います。
+
+```bash
+make verify-local-http
+```
+
+どちらも backend 側の Makefile に委譲します。Rust workspace の root は引き続き
+`apps/backend` です。
+
 ## Foundation alignment
 
 This repo is the canonical implementation repo for MUSUBI Day 1.
