@@ -44,3 +44,6 @@ jobs:
         run: |
           cargo test -p musubi_db_runtime
           cargo test -p musubi_backend
+      - name: HTTP Day 1 smoke
+        working-directory: apps/backend
+        run: make http-day1-smoke-existing-infra

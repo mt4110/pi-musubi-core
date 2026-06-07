@@ -187,6 +187,18 @@ writer DB, checks migration status, then runs the HTTP health/readiness,
 pilot-gated Promise intent, funded happy-route, exact callback replay, and
 duplicate-receipt smoke targets in a fixed sequence.
 
+In CI or another environment that already provides PostgreSQL through the
+current process environment, use:
+
+```bash
+cd apps/backend
+make http-day1-smoke-existing-infra
+```
+
+This target bootstraps and migrates the existing writer DB, checks migration
+status, and runs the same HTTP suite without starting Docker Compose or loading
+`.env`.
+
 For the full local check plus the HTTP suite, run:
 
 ```bash
