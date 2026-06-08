@@ -158,6 +158,9 @@ Outbox rows are explicit `OutboxMessageRecord` values with:
 
 Rows live in `outbox.events`.
 Consumer idempotency lives in `outbox.command_inbox`, with completed rows bounded by retain/prune metadata.
+When the happy-route drain prunes expired terminal coordination rows, it writes
+the terminal event or command summary to the outbox archive tables before
+removing the hot coordination row.
 
 ### Evidence observation
 

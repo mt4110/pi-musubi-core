@@ -3923,6 +3923,27 @@ async fn drain_outbox_quarantines_invalid_payloads_and_continues() {
         .expect("invalid outbox row count must be queryable")
         .get("count");
     assert_eq!(pruned_count, 0);
+
+    let archive_row = client
+        .query_one(
+            "
+            SELECT final_status, last_error_class, last_error_detail
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&invalid_event_id],
+        )
+        .await
+        .expect("pruned quarantined event must be archived");
+    assert_eq!(archive_row.get::<_, String>("final_status"), "quarantined");
+    assert_eq!(
+        archive_row.get::<_, Option<String>>("last_error_class"),
+        Some("permanent".to_owned())
+    );
+    assert_eq!(
+        archive_row.get::<_, Option<String>>("last_error_detail"),
+        Some("outbox payload for OPEN_HOLD_INTENT is missing settlement_case_id".to_owned())
+    );
 }
 
 #[tokio::test]
@@ -4021,6 +4042,18 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
     client
         .execute(
             "
+            UPDATE outbox.events
+            SET retain_until = CURRENT_TIMESTAMP - interval '1 minute'
+            WHERE event_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("expired manual-review outbox row must be updateable");
+
+    client
+        .execute(
+            "
             UPDATE outbox.command_inbox
             SET retain_until = CURRENT_TIMESTAMP - interval '1 minute'
             WHERE consumer_name = 'provider-callback-consumer'
@@ -4050,6 +4083,35 @@ async fn oversized_callback_amount_is_retained_as_raw_evidence() {
         .expect("terminal command row count must be queryable")
         .get("count");
     assert_eq!(pruned_count, 0);
+
+    let archived_event_status = client
+        .query_one(
+            "
+            SELECT final_status
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("manual-review outbox event must be archived before pruning")
+        .get::<_, String>("final_status");
+    assert_eq!(archived_event_status, "manual_review");
+
+    let archived_command_status = client
+        .query_one(
+            "
+            SELECT status
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = 'provider-callback-consumer'
+              AND command_id = $1
+            ",
+            &[&callback_event_id],
+        )
+        .await
+        .expect("quarantined command inbox row must be archived before pruning")
+        .get::<_, String>("status");
+    assert_eq!(archived_command_status, "quarantined");
 }
 
 #[tokio::test]
@@ -4095,6 +4157,12 @@ async fn drain_outbox_prunes_expired_published_events() {
         .get::<_, i64>("count");
     assert!(before > 0);
 
+    let archive_cutoff = client
+        .query_one("SELECT CURRENT_TIMESTAMP AS archive_cutoff", &[])
+        .await
+        .expect("archive cutoff timestamp")
+        .get::<_, chrono::DateTime<chrono::Utc>>("archive_cutoff");
+
     let outcome = happy_route::drain_outbox(&test_state.state)
         .await
         .expect("drain should prune expired published rows");
@@ -4106,6 +4174,21 @@ async fn drain_outbox_prunes_expired_published_events() {
         .expect("outbox count after prune")
         .get::<_, i64>("count");
     assert_eq!(after, 0);
+
+    let archived = client
+        .query_one(
+            "
+            SELECT count(*) AS count
+            FROM outbox.outbox_event_archive
+            WHERE final_status = 'published'
+              AND archived_at >= $1
+            ",
+            &[&archive_cutoff],
+        )
+        .await
+        .expect("published outbox archive count")
+        .get::<_, i64>("count");
+    assert_eq!(archived, before);
 }
 
 #[tokio::test]

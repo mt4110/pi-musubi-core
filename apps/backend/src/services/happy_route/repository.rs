@@ -872,40 +872,210 @@ impl HappyRouteStore {
     }
 
     pub(super) async fn prune_processed_command_inbox(&self) -> Result<(), HappyRouteError> {
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "
-                DELETE FROM outbox.command_inbox
-                WHERE status IN ('completed', 'quarantined')
-                  AND retain_until IS NOT NULL
-                  AND retain_until < CURRENT_TIMESTAMP
-                ",
-                &[],
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+
+        tx.execute(
+            "
+            INSERT INTO outbox.command_inbox_archive (
+                consumer_name,
+                command_id,
+                source_event_id,
+                archived_at,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                processed_at,
+                completed_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                result_type,
+                result_json,
+                retain_until
             )
-            .await
-            .map_err(db_error)?;
+            SELECT
+                consumer_name,
+                command_id,
+                source_event_id,
+                CURRENT_TIMESTAMP,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                processed_at,
+                completed_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                result_type,
+                result_json,
+                retain_until
+            FROM outbox.command_inbox
+            WHERE status IN ('completed', 'quarantined')
+              AND retain_until IS NOT NULL
+              AND retain_until < CURRENT_TIMESTAMP
+            ON CONFLICT (consumer_name, command_id) DO NOTHING
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.execute(
+            "
+            DELETE FROM outbox.command_inbox
+            WHERE status IN ('completed', 'quarantined')
+              AND retain_until IS NOT NULL
+              AND retain_until < CURRENT_TIMESTAMP
+            ",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.commit().await.map_err(db_error)?;
         Ok(())
     }
 
     pub(super) async fn prune_terminal_outbox_events(&self) -> Result<(), HappyRouteError> {
-        let client = self.client.lock().await;
-        client
-            .execute(
-                "
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await.map_err(db_error)?;
+
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_event_archive (
+                event_id,
+                archived_at,
+                stream_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                final_status,
+                attempt_count,
+                causal_order,
+                available_at,
+                created_at,
+                published_at,
+                quarantined_at,
+                last_attempt_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                retain_until,
+                published_external_idempotency_key
+            )
+            SELECT
+                event_id,
+                CURRENT_TIMESTAMP,
+                stream_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                delivery_status,
+                attempt_count,
+                causal_order,
+                available_at,
+                created_at,
+                published_at,
+                quarantined_at,
+                last_attempt_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                retain_until,
+                published_external_idempotency_key
+            FROM outbox.events
+            WHERE delivery_status IN ($1, $2, $3)
+              AND retain_until IS NOT NULL
+              AND retain_until < CURRENT_TIMESTAMP
+            ON CONFLICT (event_id) DO NOTHING
+            ",
+            &[
+                &OUTBOX_PUBLISHED,
+                &OUTBOX_QUARANTINED,
+                &OUTBOX_MANUAL_REVIEW,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_attempt_archive (
+                event_id,
+                attempt_number,
+                archived_at,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            )
+            SELECT
+                attempts.event_id,
+                attempts.attempt_number,
+                CURRENT_TIMESTAMP,
+                attempts.relay_name,
+                attempts.claimed_at,
+                attempts.claimed_until,
+                attempts.finished_at,
+                attempts.failure_class,
+                attempts.failure_code,
+                attempts.failure_detail,
+                attempts.external_idempotency_key
+            FROM outbox.outbox_attempts AS attempts
+            JOIN outbox.events AS events
+              ON events.event_id = attempts.event_id
+            WHERE events.delivery_status IN ($1, $2, $3)
+              AND events.retain_until IS NOT NULL
+              AND events.retain_until < CURRENT_TIMESTAMP
+            ON CONFLICT (event_id, attempt_number) DO NOTHING
+            ",
+            &[
+                &OUTBOX_PUBLISHED,
+                &OUTBOX_QUARANTINED,
+                &OUTBOX_MANUAL_REVIEW,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.execute(
+            "
                 DELETE FROM outbox.events
                 WHERE delivery_status IN ($1, $2, $3)
                   AND retain_until IS NOT NULL
                   AND retain_until < CURRENT_TIMESTAMP
                 ",
-                &[
-                    &OUTBOX_PUBLISHED,
-                    &OUTBOX_QUARANTINED,
-                    &OUTBOX_MANUAL_REVIEW,
-                ],
-            )
-            .await
-            .map_err(db_error)?;
+            &[
+                &OUTBOX_PUBLISHED,
+                &OUTBOX_QUARANTINED,
+                &OUTBOX_MANUAL_REVIEW,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+
+        tx.commit().await.map_err(db_error)?;
         Ok(())
     }
 
