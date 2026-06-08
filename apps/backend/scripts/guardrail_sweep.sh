@@ -15,6 +15,8 @@ COORDINATION_PRUNE_INVENTORY_PATH='apps/backend/docs/coordination_prune_inventor
 PRODUCTION_SOURCE_PATTERN='^apps/backend/(src/|crates/[^/]+/src/)'
 PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:]]+SettlementBackend[[:space:]]+for\b|\bstruct[[:space:]]+[A-Za-z0-9_]*(SettlementBackend|ProviderClient|ProviderConfig)\b|\b(derive_provider_idempotency_key|verify_receipt_impl|submit_action_impl|reconcile_submission_impl|normalize_callback_impl)\b'
 PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
+PROVIDER_CALLSITE_PATTERN='(?:\.[[:space:]]*|(?:(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*(?:::[[:space:]]*<[^;{}]*>)?|<[^;{}]*[[:space:]]+as[[:space:]]+(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*>)[[:space:]]*::[[:space:]]*)(submit_action|verify_receipt|reconcile_submission|normalize_callback)[[:space:]]*\('
+PROVIDER_CALLSITE_INVENTORY_PATH='apps/backend/docs/provider_callsite_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -161,6 +163,25 @@ provider_adapter_inventory() {
     sort -k2,2
 }
 
+provider_callsite_inventory() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      local match_count
+      match_count="$(
+        PROVIDER_CALLSITE_PATTERN="$PROVIDER_CALLSITE_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{PROVIDER_CALLSITE_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+      if [ "$match_count" -gt 0 ]; then
+        printf "%d %s\n" "$match_count" "$path"
+      fi
+    done |
+    sort -k2,2
+}
+
 check_raw_transaction_inventory() {
   local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
   local actual_path
@@ -235,6 +256,27 @@ check_provider_adapter_inventory() {
   rm -f "$actual_path"
 }
 
+check_provider_callsite_inventory() {
+  local expected_path="$repo_root/$PROVIDER_CALLSITE_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "provider callsite inventory file is missing"
+    return
+  fi
+
+  provider_callsite_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: provider callsite inventory matches the reviewed baseline"
+  else
+    report_failure "provider callsite inventory changed; review provider I/O boundary and no-Tx-across-await shape before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 read_replica_boundary_matches() {
   git grep -n "$READ_REPLICA_TOKEN" -- \
     apps/backend/src \
@@ -283,6 +325,7 @@ run_sweep() {
   check_coordination_prune_inventory
   check_archive_before_prune
   check_provider_adapter_inventory
+  check_provider_callsite_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -319,6 +362,7 @@ run_self_test() {
     printf 'delete FROM outbox.events WHERE retain_until < CURRENT_TIMESTAMP;\nDeLeTe\nfrom outbox.command_inbox WHERE retain_until < CURRENT_TIMESTAMP;\n' > apps/backend/src/coordination_prune_without_archive.rs
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
+    printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
     printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
     printf "tx: &Transaction<'txn>,\n" > apps/backend/tests/raw_transaction_imported_ref.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/replica_leak.rs
@@ -375,6 +419,13 @@ run_self_test() {
     else
       provider_adapter_inventory >&2
       report_failure "self-test builds the provider adapter inventory"
+    fi
+
+    if [ "$(provider_callsite_inventory)" = "$(printf '9 apps/backend/src/provider_callsite.rs')" ]; then
+      echo "ok: self-test builds the provider callsite inventory"
+    else
+      provider_callsite_inventory >&2
+      report_failure "self-test builds the provider callsite inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then

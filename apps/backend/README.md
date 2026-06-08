@@ -283,9 +283,10 @@ make guardrail-sweep
 
 The sweep checks high-risk backend drift, including floating-point money
 primitives, direct network clients, raw transaction inventory drift, provider
-adapter inventory drift, coordination hot-table prune/delete inventory drift,
-production archive-before-prune drift for coordination hot tables,
-`ReadReplica` boundary leaks, and `.codex/` hygiene.
+adapter inventory drift, provider callsite inventory drift, coordination
+hot-table prune/delete inventory drift, production archive-before-prune drift
+for coordination hot tables, `ReadReplica` boundary leaks, and `.codex/`
+hygiene.
 
 To verify that the sweep catches representative forbidden fixtures, run:
 
