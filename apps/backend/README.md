@@ -284,8 +284,9 @@ make guardrail-sweep
 The sweep checks high-risk backend drift, including floating-point money
 primitives, direct network clients, raw transaction inventory drift, provider
 adapter inventory drift, provider callsite inventory drift, internal HTTP route
-and method surface drift, raw-string or split-prefix internal route literals,
-nested internal route-prefix composition, coordination hot-table prune/delete
+and method surface drift, public HTTP route and method surface drift,
+raw-string public/internal route literals, nested/split-prefix route
+composition, coordination hot-table prune/delete
 inventory drift, production archive-before-prune drift for coordination hot
 tables, `ReadReplica` boundary leaks, and `.codex/` hygiene.
 
