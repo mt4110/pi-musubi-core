@@ -17,6 +17,8 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - raw `tokio_postgres` transaction surface drift from the reviewed inventory;
 - direct outbox / command-inbox hot-table prune/delete surface drift from the
   reviewed inventory;
+- production outbox / command-inbox hot-table pruning that deletes before the
+  required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
@@ -33,6 +35,8 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - namespace-style network clients such as `curl::`;
 - raw transaction inventory construction;
 - coordination hot-table prune/delete inventory construction;
+- production archive-before-prune detection for outbox and command-inbox hot
+  tables;
 - provider adapter inventory construction;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
@@ -109,8 +113,21 @@ are safe; it is a CI tripwire against silent surface growth.
 `DELETE FROM outbox.events` and `DELETE FROM outbox.command_inbox` surface by
 file and matching-line count. New or moved hot-table pruning must update that
 inventory deliberately after review. This prevents silent growth of direct
-coordination pruning surfaces after archive-before-prune landed; it does not
-prove that each allowed site still archives before deleting.
+coordination pruning surfaces after archive-before-prune landed.
+
+The sweep also checks production source under `apps/backend/src` and
+`apps/backend/crates/*/src` for archive-before-prune sequencing on those hot
+tables. A production `DELETE FROM outbox.events` must be preceded by inserts
+into both `outbox.outbox_event_archive` and `outbox.outbox_attempt_archive`
+since the previous event hot-table delete in that file. A production
+`DELETE FROM outbox.command_inbox` must be preceded by an insert into
+`outbox.command_inbox_archive` since the previous command-inbox hot-table delete
+in that file.
+
+This is still a source tripwire, not a SQL parser or proof of semantic
+equivalence. Intentional test fixtures that delete outbox rows to simulate PITR
+gaps remain covered by the inventory baseline but are not subject to the
+production archive-before-prune sequencing check.
 
 `apps/backend/docs/provider_adapter_inventory.txt` fixes the current
 settlement/provider adapter surface by file and matching-line count. It
@@ -176,8 +193,8 @@ Product and later domain flows must not describe this as complete anti-spoofing.
 The next meaningful upgrades would be:
 - add integration tests around real PostgreSQL writer/claim/persist flows as the happy route grows
 - add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
-- add a deeper archive-before-delete lint once the coordination lifecycle worker
-  shape is pinned
+- turn the archive-before-prune source tripwire into a syntax-aware lifecycle
+  lint once coordination lifecycle shapes grow beyond the current SQL helpers
 - turn the provider adapter inventory into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line

@@ -12,6 +12,7 @@ RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\b(?:tokio_postgres::)?Transaction<'
 RAW_TRANSACTION_INVENTORY_PATH='apps/backend/docs/raw_transaction_inventory.txt'
 COORDINATION_PRUNE_PATTERN='(?i)delete[[:space:]]+from[[:space:]]+outbox\.(events|command_inbox)\b'
 COORDINATION_PRUNE_INVENTORY_PATH='apps/backend/docs/coordination_prune_inventory.txt'
+PRODUCTION_SOURCE_PATTERN='^apps/backend/(src/|crates/[^/]+/src/)'
 PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:]]+SettlementBackend[[:space:]]+for\b|\bstruct[[:space:]]+[A-Za-z0-9_]*(SettlementBackend|ProviderClient|ProviderConfig)\b|\b(derive_provider_idempotency_key|verify_receipt_impl|submit_action_impl|reconcile_submission_impl|normalize_callback_impl)\b'
 PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
@@ -115,6 +116,41 @@ coordination_prune_inventory() {
     sort -k2,2
 }
 
+archive_before_prune_violations() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      ARCHIVE_BEFORE_PRUNE_PATH="$path" perl -0ne '
+        my $path = $ENV{ARCHIVE_BEFORE_PRUNE_PATH};
+        while (/(?i)delete[[:space:]]+from[[:space:]]+outbox\.(events|command_inbox)\b/g) {
+          my $table = lc($1);
+          my $delete_start = $-[0];
+          my $line = 1 + (() = substr($_, 0, $delete_start) =~ /\n/g);
+
+          my $prefix = substr($_, 0, $delete_start);
+          my $last_same_delete_end = 0;
+          my $same_delete_pattern = qr/(?i)delete[[:space:]]+from[[:space:]]+outbox\.\Q$table\E\b/;
+          while ($prefix =~ /$same_delete_pattern/g) {
+            $last_same_delete_end = $+[0];
+          }
+
+          my $segment = substr($prefix, $last_same_delete_end);
+          my @required_archives =
+            $table eq "events"
+              ? ("outbox.outbox_event_archive", "outbox.outbox_attempt_archive")
+              : ("outbox.command_inbox_archive");
+
+          for my $archive (@required_archives) {
+            my $archive_pattern = qr/(?i)insert[[:space:]]+into[[:space:]]+\Q$archive\E\b/;
+            if ($segment !~ /$archive_pattern/) {
+              print "$path:$line: DELETE FROM outbox.$table must be preceded by INSERT INTO $archive before pruning\n";
+            }
+          }
+        }
+      ' "$path"
+    done
+}
+
 provider_adapter_inventory() {
   local source_paths=(apps/backend/src apps/backend/crates/*/src)
 
@@ -165,6 +201,17 @@ check_coordination_prune_inventory() {
   fi
 
   rm -f "$actual_path"
+}
+
+check_archive_before_prune() {
+  local matches
+  matches="$(archive_before_prune_violations)"
+  if [ -n "$matches" ]; then
+    echo "$matches" >&2
+    report_failure "production coordination hot-table pruning must archive before deleting"
+  else
+    echo "ok: production coordination hot-table pruning archives before deleting"
+  fi
 }
 
 check_provider_adapter_inventory() {
@@ -234,6 +281,7 @@ run_sweep() {
 
   check_raw_transaction_inventory
   check_coordination_prune_inventory
+  check_archive_before_prune
   check_provider_adapter_inventory
   check_read_replica_boundary
   check_codex_hygiene
@@ -267,7 +315,8 @@ run_self_test() {
     printf 'let client = reqwest::Client::new();\n' > apps/backend/src/reqwest_client.rs
     printf 'let client = curl::easy::Easy::new();\n' > apps/backend/src/curl_client.rs
     printf 'let tx = client.transaction().await?;\n' > apps/backend/src/raw_transaction.rs
-    printf 'delete FROM outbox.events WHERE retain_until < CURRENT_TIMESTAMP;\nDeLeTe\nfrom outbox.command_inbox WHERE retain_until < CURRENT_TIMESTAMP;\n' > apps/backend/src/coordination_prune.rs
+    printf 'INSERT INTO outbox.outbox_event_archive SELECT event_id FROM outbox.events;\nINSERT INTO outbox.outbox_attempt_archive SELECT event_id FROM outbox.outbox_attempts;\ndelete FROM outbox.events WHERE retain_until < CURRENT_TIMESTAMP;\nINSERT INTO outbox.command_inbox_archive SELECT command_id FROM outbox.command_inbox;\nDeLeTe\nfrom outbox.command_inbox WHERE retain_until < CURRENT_TIMESTAMP;\n' > apps/backend/src/coordination_prune.rs
+    printf 'delete FROM outbox.events WHERE retain_until < CURRENT_TIMESTAMP;\nDeLeTe\nfrom outbox.command_inbox WHERE retain_until < CURRENT_TIMESTAMP;\n' > apps/backend/src/coordination_prune_without_archive.rs
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
@@ -307,11 +356,18 @@ run_self_test() {
       report_failure "self-test builds the raw transaction inventory"
     fi
 
-    if [ "$(coordination_prune_inventory)" = "$(printf '2 apps/backend/src/coordination_prune.rs')" ]; then
+    if [ "$(coordination_prune_inventory)" = "$(printf '2 apps/backend/src/coordination_prune.rs\n2 apps/backend/src/coordination_prune_without_archive.rs')" ]; then
       echo "ok: self-test builds the coordination prune inventory"
     else
       coordination_prune_inventory >&2
       report_failure "self-test builds the coordination prune inventory"
+    fi
+
+    if [ "$(archive_before_prune_violations)" = "$(printf 'apps/backend/src/coordination_prune_without_archive.rs:1: DELETE FROM outbox.events must be preceded by INSERT INTO outbox.outbox_event_archive before pruning\napps/backend/src/coordination_prune_without_archive.rs:1: DELETE FROM outbox.events must be preceded by INSERT INTO outbox.outbox_attempt_archive before pruning\napps/backend/src/coordination_prune_without_archive.rs:2: DELETE FROM outbox.command_inbox must be preceded by INSERT INTO outbox.command_inbox_archive before pruning')" ]; then
+      echo "ok: self-test catches production pruning without archives"
+    else
+      archive_before_prune_violations >&2
+      report_failure "self-test catches production pruning without archives"
     fi
 
     if [ "$(provider_adapter_inventory)" = "$(printf '1 apps/backend/crates/settlement-domain/src/backend.rs\n2 apps/backend/src/provider_adapter.rs')" ]; then
