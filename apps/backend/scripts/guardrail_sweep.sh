@@ -10,6 +10,8 @@ FLOAT_MONEY_PATTERN='\b(f32|f64)\b|double[[:space:]]+precision|\breal\b|\bfloat[
 NETWORK_CLIENT_PATTERN='\b(reqwest|ureq|surf|hyper::Client|awc::Client|TcpStream|tokio::net::TcpStream|isahc)\b|curl::'
 RAW_TRANSACTION_PATTERN="\\.transaction\\(|\\b(?:tokio_postgres::)?Transaction<'[A-Za-z_][A-Za-z0-9_]*>"
 RAW_TRANSACTION_INVENTORY_PATH='apps/backend/docs/raw_transaction_inventory.txt'
+COORDINATION_PRUNE_PATTERN='(?i)delete[[:space:]]+from[[:space:]]+outbox\.(events|command_inbox)\b'
+COORDINATION_PRUNE_INVENTORY_PATH='apps/backend/docs/coordination_prune_inventory.txt'
 PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:]]+SettlementBackend[[:space:]]+for\b|\bstruct[[:space:]]+[A-Za-z0-9_]*(SettlementBackend|ProviderClient|ProviderConfig)\b|\b(derive_provider_idempotency_key|verify_receipt_impl|submit_action_impl|reconcile_submission_impl|normalize_callback_impl)\b'
 PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
@@ -91,6 +93,28 @@ raw_transaction_inventory() {
     sort -k2,2
 }
 
+coordination_prune_inventory() {
+  git ls-files -- \
+    apps/backend/src \
+    apps/backend/crates \
+    apps/backend/tests \
+    apps/backend/migrations |
+    while IFS= read -r path; do
+      local match_count
+      match_count="$(
+        COORDINATION_PRUNE_PATTERN="$COORDINATION_PRUNE_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{COORDINATION_PRUNE_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+      if [ "$match_count" -gt 0 ]; then
+        printf "%d %s\n" "$match_count" "$path"
+      fi
+    done |
+    sort -k2,2
+}
+
 provider_adapter_inventory() {
   local source_paths=(apps/backend/src apps/backend/crates/*/src)
 
@@ -117,6 +141,27 @@ check_raw_transaction_inventory() {
     echo "ok: raw transaction inventory matches the reviewed baseline"
   else
     report_failure "raw transaction inventory changed; review DB transaction surface before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
+check_coordination_prune_inventory() {
+  local expected_path="$repo_root/$COORDINATION_PRUNE_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "coordination prune inventory file is missing"
+    return
+  fi
+
+  coordination_prune_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: coordination prune inventory matches the reviewed baseline"
+  else
+    report_failure "coordination hot-table prune/delete surface changed; review archive-before-prune behavior before updating baseline"
   fi
 
   rm -f "$actual_path"
@@ -188,6 +233,7 @@ run_sweep() {
     apps/backend/crates
 
   check_raw_transaction_inventory
+  check_coordination_prune_inventory
   check_provider_adapter_inventory
   check_read_replica_boundary
   check_codex_hygiene
@@ -221,6 +267,7 @@ run_self_test() {
     printf 'let client = reqwest::Client::new();\n' > apps/backend/src/reqwest_client.rs
     printf 'let client = curl::easy::Easy::new();\n' > apps/backend/src/curl_client.rs
     printf 'let tx = client.transaction().await?;\n' > apps/backend/src/raw_transaction.rs
+    printf 'delete FROM outbox.events WHERE retain_until < CURRENT_TIMESTAMP;\nDeLeTe\nfrom outbox.command_inbox WHERE retain_until < CURRENT_TIMESTAMP;\n' > apps/backend/src/coordination_prune.rs
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
@@ -258,6 +305,13 @@ run_self_test() {
     else
       raw_transaction_inventory >&2
       report_failure "self-test builds the raw transaction inventory"
+    fi
+
+    if [ "$(coordination_prune_inventory)" = "$(printf '2 apps/backend/src/coordination_prune.rs')" ]; then
+      echo "ok: self-test builds the coordination prune inventory"
+    else
+      coordination_prune_inventory >&2
+      report_failure "self-test builds the coordination prune inventory"
     fi
 
     if [ "$(provider_adapter_inventory)" = "$(printf '1 apps/backend/crates/settlement-domain/src/backend.rs\n2 apps/backend/src/provider_adapter.rs')" ]; then
