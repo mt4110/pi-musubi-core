@@ -15,6 +15,8 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - floating-point money primitives;
 - direct external network client usage outside an explicit reviewed boundary;
 - raw `tokio_postgres` transaction surface drift from the reviewed inventory;
+- direct outbox / command-inbox hot-table prune/delete surface drift from the
+  reviewed inventory;
 - settlement/provider adapter surface drift from the reviewed inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
@@ -30,6 +32,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - word-boundary network clients such as `reqwest`;
 - namespace-style network clients such as `curl::`;
 - raw transaction inventory construction;
+- coordination hot-table prune/delete inventory construction;
 - provider adapter inventory construction;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
@@ -102,6 +105,13 @@ transaction usage must either remove an existing site or update that inventory
 deliberately after review. This is not a proof that existing transaction bodies
 are safe; it is a CI tripwire against silent surface growth.
 
+`apps/backend/docs/coordination_prune_inventory.txt` fixes the current direct
+`DELETE FROM outbox.events` and `DELETE FROM outbox.command_inbox` surface by
+file and matching-line count. New or moved hot-table pruning must update that
+inventory deliberately after review. This prevents silent growth of direct
+coordination pruning surfaces after archive-before-prune landed; it does not
+prove that each allowed site still archives before deleting.
+
 `apps/backend/docs/provider_adapter_inventory.txt` fixes the current
 settlement/provider adapter surface by file and matching-line count. It
 currently allows only the `SettlementBackend` seam and the sandbox Pi adapter in
@@ -166,6 +176,8 @@ Product and later domain flows must not describe this as complete anti-spoofing.
 The next meaningful upgrades would be:
 - add integration tests around real PostgreSQL writer/claim/persist flows as the happy route grows
 - add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
+- add a deeper archive-before-delete lint once the coordination lifecycle worker
+  shape is pinned
 - turn the provider adapter inventory into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line
