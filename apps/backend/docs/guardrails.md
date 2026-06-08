@@ -20,6 +20,7 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - production outbox / command-inbox hot-table pruning that deletes before the
   required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
+- settlement/provider callsite surface drift from the reviewed inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
 - tracked `.codex` files or a missing `.codex/` ignore rule.
@@ -38,6 +39,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - production archive-before-prune detection for outbox and command-inbox hot
   tables;
 - provider adapter inventory construction;
+- provider callsite inventory construction;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
 
@@ -137,6 +139,17 @@ methods must update that inventory deliberately after review. This prevents
 silent provider-boundary growth; it does not prove adapter correctness or
 provider guarantee semantics.
 
+`apps/backend/docs/provider_callsite_inventory.txt` fixes the current
+production provider callsite surface by file and matching-call count for
+method-call and UFCS-style calls to `submit_action`, `verify_receipt`,
+`reconcile_submission`, and `normalize_callback`. Same-line calls count
+separately, and the UFCS matcher is method-name based so imported trait aliases
+do not silently bypass the inventory. New or moved provider callsites must
+update that inventory deliberately after review. This prevents silent growth of
+external-I/O-shaped provider calls outside the reviewed happy-route boundaries;
+it does not prove that an allowed callsite is outside a live database
+transaction.
+
 So the rule is still:
 - keep authoritative transaction code database-only
 - perform provider/network I/O only after that transaction is committed or dropped
@@ -195,7 +208,7 @@ The next meaningful upgrades would be:
 - add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
 - turn the archive-before-prune source tripwire into a syntax-aware lifecycle
   lint once coordination lifecycle shapes grow beyond the current SQL helpers
-- turn the provider adapter inventory into a richer boundary lint once production Pi networking is pinned
+- turn the provider adapter and callsite inventories into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line
 
