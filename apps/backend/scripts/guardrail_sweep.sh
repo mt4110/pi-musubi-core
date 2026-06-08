@@ -214,23 +214,30 @@ public_route_inventory() {
           if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
             $segment = substr($segment, 0, $-[0]);
           }
-          my %seen_methods;
-          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(/g) {
-            $seen_methods{uc($1)} = 1;
+          my %seen_handlers;
+          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(\s*([^,\)\s]+)/g) {
+            my $method = uc($1);
+            my $handler = $2;
+            if ($handler !~ /^[A-Za-z_][A-Za-z0-9_:]*$/ || $handler =~ /^(async|move)$/) {
+              $handler = "UNKNOWN_HANDLER";
+            }
+            $seen_handlers{$method}{$handler} = 1;
+            if ($method eq "GET") {
+              $seen_handlers{HEAD}{$handler} = 1;
+            }
           }
-          if ($seen_methods{GET}) {
-            $seen_methods{HEAD} = 1;
+          if (!%seen_handlers) {
+            $seen_handlers{UNKNOWN_METHOD}{UNKNOWN_HANDLER} = 1;
           }
-          if (!%seen_methods) {
-            $seen_methods{UNKNOWN_METHOD} = 1;
-          }
-          for my $method (sort keys %seen_methods) {
-            print "$ENV{PUBLIC_ROUTE_SOURCE_PATH} $route $method\n";
+          for my $method (sort keys %seen_handlers) {
+            for my $handler (sort keys %{ $seen_handlers{$method} }) {
+              print "$ENV{PUBLIC_ROUTE_SOURCE_PATH} $route $method $handler\n";
+            }
           }
         }
       ' "$path"
     done |
-    sort -k1,1 -k2,2 -k3,3
+    sort -k1,1 -k2,2 -k3,3 -k4,4
 }
 
 internal_route_inventory() {
@@ -244,23 +251,30 @@ internal_route_inventory() {
           if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
             $segment = substr($segment, 0, $-[0]);
           }
-          my %seen_methods;
-          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(/g) {
-            $seen_methods{uc($1)} = 1;
+          my %seen_handlers;
+          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(\s*([^,\)\s]+)/g) {
+            my $method = uc($1);
+            my $handler = $2;
+            if ($handler !~ /^[A-Za-z_][A-Za-z0-9_:]*$/ || $handler =~ /^(async|move)$/) {
+              $handler = "UNKNOWN_HANDLER";
+            }
+            $seen_handlers{$method}{$handler} = 1;
+            if ($method eq "GET") {
+              $seen_handlers{HEAD}{$handler} = 1;
+            }
           }
-          if ($seen_methods{GET}) {
-            $seen_methods{HEAD} = 1;
+          if (!%seen_handlers) {
+            $seen_handlers{UNKNOWN_METHOD}{UNKNOWN_HANDLER} = 1;
           }
-          if (!%seen_methods) {
-            $seen_methods{UNKNOWN_METHOD} = 1;
-          }
-          for my $method (sort keys %seen_methods) {
-            print "$ENV{INTERNAL_ROUTE_SOURCE_PATH} $route $method\n";
+          for my $method (sort keys %seen_handlers) {
+            for my $handler (sort keys %{ $seen_handlers{$method} }) {
+              print "$ENV{INTERNAL_ROUTE_SOURCE_PATH} $route $method $handler\n";
+            }
           }
         }
       ' "$path"
     done |
-    sort -k1,1 -k2,2 -k3,3
+    sort -k1,1 -k2,2 -k3,3 -k4,4
 }
 
 check_raw_transaction_inventory() {
@@ -384,7 +398,7 @@ check_public_route_inventory() {
   if diff -u "$expected_path" "$actual_path"; then
     echo "ok: public route inventory matches the reviewed baseline"
   else
-    report_failure "public HTTP route surface changed; review launch, consent, body limits, and user-facing exposure before updating baseline"
+    report_failure "public HTTP route/method/handler surface changed; review launch, consent, body limits, and user-facing exposure before updating baseline"
   fi
 
   rm -f "$actual_path"
@@ -405,7 +419,7 @@ check_internal_route_inventory() {
   if diff -u "$expected_path" "$actual_path"; then
     echo "ok: internal route inventory matches the reviewed baseline"
   else
-    report_failure "internal HTTP route surface changed; review gate, auth, and operator-only semantics before updating baseline"
+    report_failure "internal HTTP route/method/handler surface changed; review gate, auth, and operator-only semantics before updating baseline"
   fi
 
   rm -f "$actual_path"
@@ -604,7 +618,7 @@ run_self_test() {
       "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
       apps/backend/src/public_route_raw.rs
 
-    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST\napps/backend/src/public_routes.rs /health GET\napps/backend/src/public_routes.rs /health HEAD')" ]; then
+    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST auth\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create\napps/backend/src/public_routes.rs /health GET health\napps/backend/src/public_routes.rs /health HEAD health')" ]; then
       echo "ok: self-test builds the public route inventory"
     else
       public_route_inventory >&2
@@ -651,7 +665,7 @@ run_self_test() {
       "$ROUTE_SPLIT_RAW_STRING_PATTERN" \
       apps/backend/src/internal_route_split_raw.rs
 
-    if [ "$(internal_route_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} HEAD\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST')" ]; then
+    if [ "$(internal_route_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET read\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} HEAD read\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST write\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST handler')" ]; then
       echo "ok: self-test builds the internal route inventory"
     else
       internal_route_inventory >&2
