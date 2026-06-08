@@ -1,31 +1,31 @@
-apps/backend/src/lib.rs /api/auth/pi POST
-apps/backend/src/lib.rs /api/launch/posture GET
-apps/backend/src/lib.rs /api/launch/posture HEAD
-apps/backend/src/lib.rs /api/payment/callback POST
-apps/backend/src/lib.rs /api/projection/promise-views/{promise_intent_id} GET
-apps/backend/src/lib.rs /api/projection/promise-views/{promise_intent_id} HEAD
-apps/backend/src/lib.rs /api/projection/realm-trust-snapshots/{realm_id}/{account_id} GET
-apps/backend/src/lib.rs /api/projection/realm-trust-snapshots/{realm_id}/{account_id} HEAD
-apps/backend/src/lib.rs /api/projection/realms/{realm_id}/bootstrap-summary GET
-apps/backend/src/lib.rs /api/projection/realms/{realm_id}/bootstrap-summary HEAD
-apps/backend/src/lib.rs /api/projection/room-progression-views/{room_progression_id} GET
-apps/backend/src/lib.rs /api/projection/room-progression-views/{room_progression_id} HEAD
-apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id} GET
-apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id} HEAD
-apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/expanded GET
-apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/expanded HEAD
-apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} GET
-apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} HEAD
-apps/backend/src/lib.rs /api/promise/intents POST
-apps/backend/src/lib.rs /api/proof/challenges POST
-apps/backend/src/lib.rs /api/proof/submissions POST
-apps/backend/src/lib.rs /api/realms/requests POST
-apps/backend/src/lib.rs /api/realms/requests/{realm_request_id} GET
-apps/backend/src/lib.rs /api/realms/requests/{realm_request_id} HEAD
-apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals GET
-apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals HEAD
-apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals POST
-apps/backend/src/lib.rs /api/review-cases/{review_case_id}/status GET
-apps/backend/src/lib.rs /api/review-cases/{review_case_id}/status HEAD
-apps/backend/src/lib.rs /health GET
-apps/backend/src/lib.rs /health HEAD
+apps/backend/src/lib.rs /api/auth/pi POST handlers::auth::authenticate_pi
+apps/backend/src/lib.rs /api/launch/posture GET handlers::launch_posture::get_public_launch_posture
+apps/backend/src/lib.rs /api/launch/posture HEAD handlers::launch_posture::get_public_launch_posture
+apps/backend/src/lib.rs /api/payment/callback POST handlers::payments::payment_callback
+apps/backend/src/lib.rs /api/projection/promise-views/{promise_intent_id} GET handlers::projection::get_promise_projection
+apps/backend/src/lib.rs /api/projection/promise-views/{promise_intent_id} HEAD handlers::projection::get_promise_projection
+apps/backend/src/lib.rs /api/projection/realm-trust-snapshots/{realm_id}/{account_id} GET handlers::projection::get_realm_trust_snapshot
+apps/backend/src/lib.rs /api/projection/realm-trust-snapshots/{realm_id}/{account_id} HEAD handlers::projection::get_realm_trust_snapshot
+apps/backend/src/lib.rs /api/projection/realms/{realm_id}/bootstrap-summary GET handlers::realm_bootstrap::get_bootstrap_summary
+apps/backend/src/lib.rs /api/projection/realms/{realm_id}/bootstrap-summary HEAD handlers::realm_bootstrap::get_bootstrap_summary
+apps/backend/src/lib.rs /api/projection/room-progression-views/{room_progression_id} GET handlers::room_progression::get_room_progression_view
+apps/backend/src/lib.rs /api/projection/room-progression-views/{room_progression_id} HEAD handlers::room_progression::get_room_progression_view
+apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id} GET handlers::projection::get_settlement_view
+apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id} HEAD handlers::projection::get_settlement_view
+apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/expanded GET handlers::projection::get_expanded_settlement_view
+apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/expanded HEAD handlers::projection::get_expanded_settlement_view
+apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} GET handlers::projection::get_trust_snapshot
+apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} HEAD handlers::projection::get_trust_snapshot
+apps/backend/src/lib.rs /api/promise/intents POST handlers::promise_intents::create_promise_intent
+apps/backend/src/lib.rs /api/proof/challenges POST handlers::proof::start_proof_challenge
+apps/backend/src/lib.rs /api/proof/submissions POST handlers::proof::submit_proof_envelope
+apps/backend/src/lib.rs /api/realms/requests POST handlers::realm_bootstrap::create_realm_request
+apps/backend/src/lib.rs /api/realms/requests/{realm_request_id} GET handlers::realm_bootstrap::get_realm_request
+apps/backend/src/lib.rs /api/realms/requests/{realm_request_id} HEAD handlers::realm_bootstrap::get_realm_request
+apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals GET handlers::operator_review::list_appeal_cases
+apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals HEAD handlers::operator_review::list_appeal_cases
+apps/backend/src/lib.rs /api/review-cases/{review_case_id}/appeals POST handlers::operator_review::create_appeal_case
+apps/backend/src/lib.rs /api/review-cases/{review_case_id}/status GET handlers::operator_review::get_review_status
+apps/backend/src/lib.rs /api/review-cases/{review_case_id}/status HEAD handlers::operator_review::get_review_status
+apps/backend/src/lib.rs /health GET health
+apps/backend/src/lib.rs /health HEAD health

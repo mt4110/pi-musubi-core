@@ -21,10 +21,10 @@ checks. It fails if backend source, backend crates, or migrations introduce:
   required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
 - settlement/provider callsite surface drift from the reviewed inventory;
-- public HTTP route and method surface drift from the reviewed inventory;
+- public HTTP route, method, and handler surface drift from the reviewed inventory;
 - Rust raw-string public route literals that would bypass the ordinary-literal
   inventory scanner;
-- internal HTTP route and method surface drift from the reviewed inventory;
+- internal HTTP route, method, and handler surface drift from the reviewed inventory;
 - Rust raw-string `/api/internal/...` route literals that would bypass the
   ordinary-literal inventory scanner;
 - nested route/service or split `/api` route-prefix composition that would
@@ -50,11 +50,11 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
   tables;
 - provider adapter inventory construction;
 - provider callsite inventory construction;
-- method-aware public HTTP route inventory construction;
+- method- and handler-aware public HTTP route inventory construction;
 - raw-string public route literal detection;
 - nested public route/service-prefix detection;
 - split public route-prefix detection;
-- method-aware internal HTTP route inventory construction;
+- method- and handler-aware internal HTTP route inventory construction;
 - raw-string internal route literal detection;
 - split internal route-prefix detection;
 - nested internal route-prefix detection;
@@ -169,30 +169,34 @@ it does not prove that an allowed callsite is outside a live database
 transaction.
 
 `apps/backend/docs/public_route_inventory.txt` fixes the current production
-public HTTP route surface by source file, route literal, and HTTP method for
-`/health` and non-internal `/api/...` routes. New, removed, moved, or
-method-expanded public routes must update that inventory deliberately after
-review. Because Axum `get(...)` also exposes `HEAD`, the inventory records
-implicit `HEAD` alongside `GET`. If the scanner cannot infer a method, it
-records `UNKNOWN_METHOD` instead of silently ignoring the route. This prevents
-silent growth of user-facing launch, auth, Promise, proof, projection, review,
-realm, payment, and health surfaces; it does not prove that an allowed public
-route has the right launch gate, consent gate, body limit, redaction behavior,
-or writer-truth semantics. The sweep also forbids production source from
-composing Rust raw-string public route literals or nested route/service and
-split `/api` route-prefix literals, so public routes must remain visible as
-ordinary full route literals in the inventory.
+public HTTP route surface by source file, route literal, HTTP method, and
+handler path for `/health` and non-internal `/api/...` routes. New, removed,
+moved, method-expanded, or handler-changed public routes must update that
+inventory deliberately after review. Because Axum `get(...)` also exposes
+`HEAD`, the inventory records implicit `HEAD` alongside `GET` with the same
+handler. If the scanner cannot infer a method, it records `UNKNOWN_METHOD`
+instead of silently ignoring the route. If it cannot infer a simple handler
+path, it records `UNKNOWN_HANDLER`. This prevents silent growth or same-surface
+handler replacement across user-facing launch, auth, Promise, proof,
+projection, review, realm, payment, and health surfaces; it does not prove that
+an allowed public route has the right launch gate, consent gate, body limit,
+redaction behavior, or writer-truth semantics. The sweep also forbids
+production source from composing Rust raw-string public route literals or
+nested route/service and split `/api` route-prefix literals, so public routes
+must remain visible as ordinary full route literals in the inventory.
 
 `apps/backend/docs/internal_route_inventory.txt` fixes the current production
-`/api/internal/...` HTTP route surface by source file, route literal, and HTTP
-method. New, removed, moved, or method-expanded internal routes must update
-that inventory deliberately after review. Because Axum `get(...)` also exposes
-`HEAD`, the inventory records implicit `HEAD` alongside `GET`. If the scanner
-cannot infer a method, it records `UNKNOWN_METHOD` instead of silently ignoring
-the route. This prevents silent growth of operator, repair, drain, rebuild, and
-observability surfaces; it does not prove that an allowed internal route has the
-right auth gate, release gate, body limit, redaction behavior, or writer-truth
-semantics.
+`/api/internal/...` HTTP route surface by source file, route literal, HTTP
+method, and handler path. New, removed, moved, method-expanded, or
+handler-changed internal routes must update that inventory deliberately after
+review. Because Axum `get(...)` also exposes `HEAD`, the inventory records
+implicit `HEAD` alongside `GET` with the same handler. If the scanner cannot
+infer a method, it records `UNKNOWN_METHOD` instead of silently ignoring the
+route. If it cannot infer a simple handler path, it records `UNKNOWN_HANDLER`.
+This prevents silent growth or same-surface handler replacement across
+operator, repair, drain, rebuild, and observability surfaces; it does not prove
+that an allowed internal route has the right auth gate, release gate, body
+limit, redaction behavior, or writer-truth semantics.
 The sweep also forbids production source from composing Rust raw-string internal
 route literals, an exact `"/api/internal"` nest prefix, or nested route/service
 and split `/api` route-prefix literals, so internal routes must remain visible

@@ -1,35 +1,35 @@
-apps/backend/src/lib.rs /api/internal/launch/posture GET
-apps/backend/src/lib.rs /api/internal/launch/posture HEAD
-apps/backend/src/lib.rs /api/internal/operator/realms/requests GET
-apps/backend/src/lib.rs /api/internal/operator/realms/requests HEAD
-apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id} GET
-apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id} HEAD
-apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id}/approve POST
-apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id}/reject POST
-apps/backend/src/lib.rs /api/internal/operator/realms/{realm_id}/review-summary GET
-apps/backend/src/lib.rs /api/internal/operator/realms/{realm_id}/review-summary HEAD
-apps/backend/src/lib.rs /api/internal/operator/review-cases GET
-apps/backend/src/lib.rs /api/internal/operator/review-cases HEAD
-apps/backend/src/lib.rs /api/internal/operator/review-cases POST
-apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id} GET
-apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id} HEAD
-apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/decisions POST
-apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/evidence-access-grants POST
-apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/evidence-bundles POST
-apps/backend/src/lib.rs /api/internal/ops/health GET
-apps/backend/src/lib.rs /api/internal/ops/health HEAD
-apps/backend/src/lib.rs /api/internal/ops/observability/slo GET
-apps/backend/src/lib.rs /api/internal/ops/observability/slo HEAD
-apps/backend/src/lib.rs /api/internal/ops/observability/snapshot GET
-apps/backend/src/lib.rs /api/internal/ops/observability/snapshot HEAD
-apps/backend/src/lib.rs /api/internal/ops/readiness GET
-apps/backend/src/lib.rs /api/internal/ops/readiness HEAD
-apps/backend/src/lib.rs /api/internal/orchestration/drain POST
-apps/backend/src/lib.rs /api/internal/orchestration/repair POST
-apps/backend/src/lib.rs /api/internal/projection/realms/rebuild POST
-apps/backend/src/lib.rs /api/internal/projection/rebuild POST
-apps/backend/src/lib.rs /api/internal/projection/room-progressions/rebuild POST
-apps/backend/src/lib.rs /api/internal/realms/{realm_id}/admissions POST
-apps/backend/src/lib.rs /api/internal/realms/{realm_id}/sponsor-records POST
-apps/backend/src/lib.rs /api/internal/room-progressions POST
-apps/backend/src/lib.rs /api/internal/room-progressions/{room_progression_id}/facts POST
+apps/backend/src/lib.rs /api/internal/launch/posture GET handlers::launch_posture::get_internal_launch_posture
+apps/backend/src/lib.rs /api/internal/launch/posture HEAD handlers::launch_posture::get_internal_launch_posture
+apps/backend/src/lib.rs /api/internal/operator/realms/requests GET handlers::realm_bootstrap::list_realm_requests
+apps/backend/src/lib.rs /api/internal/operator/realms/requests HEAD handlers::realm_bootstrap::list_realm_requests
+apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id} GET handlers::realm_bootstrap::read_realm_request
+apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id} HEAD handlers::realm_bootstrap::read_realm_request
+apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id}/approve POST handlers::realm_bootstrap::approve_realm_request
+apps/backend/src/lib.rs /api/internal/operator/realms/requests/{realm_request_id}/reject POST handlers::realm_bootstrap::reject_realm_request
+apps/backend/src/lib.rs /api/internal/operator/realms/{realm_id}/review-summary GET handlers::realm_bootstrap::get_review_summary
+apps/backend/src/lib.rs /api/internal/operator/realms/{realm_id}/review-summary HEAD handlers::realm_bootstrap::get_review_summary
+apps/backend/src/lib.rs /api/internal/operator/review-cases GET handlers::operator_review::list_review_cases
+apps/backend/src/lib.rs /api/internal/operator/review-cases HEAD handlers::operator_review::list_review_cases
+apps/backend/src/lib.rs /api/internal/operator/review-cases POST handlers::operator_review::create_review_case
+apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id} GET handlers::operator_review::read_review_case
+apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id} HEAD handlers::operator_review::read_review_case
+apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/decisions POST handlers::operator_review::record_operator_decision
+apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/evidence-access-grants POST handlers::operator_review::grant_evidence_access
+apps/backend/src/lib.rs /api/internal/operator/review-cases/{review_case_id}/evidence-bundles POST handlers::operator_review::attach_evidence_bundle
+apps/backend/src/lib.rs /api/internal/ops/health GET handlers::ops_observability::get_ops_health
+apps/backend/src/lib.rs /api/internal/ops/health HEAD handlers::ops_observability::get_ops_health
+apps/backend/src/lib.rs /api/internal/ops/observability/slo GET handlers::ops_observability::get_ops_slo
+apps/backend/src/lib.rs /api/internal/ops/observability/slo HEAD handlers::ops_observability::get_ops_slo
+apps/backend/src/lib.rs /api/internal/ops/observability/snapshot GET handlers::ops_observability::get_ops_snapshot
+apps/backend/src/lib.rs /api/internal/ops/observability/snapshot HEAD handlers::ops_observability::get_ops_snapshot
+apps/backend/src/lib.rs /api/internal/ops/readiness GET handlers::ops_observability::get_ops_readiness
+apps/backend/src/lib.rs /api/internal/ops/readiness HEAD handlers::ops_observability::get_ops_readiness
+apps/backend/src/lib.rs /api/internal/orchestration/drain POST handlers::orchestration::drain_outbox
+apps/backend/src/lib.rs /api/internal/orchestration/repair POST handlers::orchestration::repair_orchestration
+apps/backend/src/lib.rs /api/internal/projection/realms/rebuild POST handlers::realm_bootstrap::rebuild_realm_bootstrap_views
+apps/backend/src/lib.rs /api/internal/projection/rebuild POST handlers::projection::rebuild_projection_read_models
+apps/backend/src/lib.rs /api/internal/projection/room-progressions/rebuild POST handlers::room_progression::rebuild_room_progression_views
+apps/backend/src/lib.rs /api/internal/realms/{realm_id}/admissions POST handlers::realm_bootstrap::create_realm_admission
+apps/backend/src/lib.rs /api/internal/realms/{realm_id}/sponsor-records POST handlers::realm_bootstrap::create_realm_sponsor_record
+apps/backend/src/lib.rs /api/internal/room-progressions POST handlers::room_progression::create_room_progression
+apps/backend/src/lib.rs /api/internal/room-progressions/{room_progression_id}/facts POST handlers::room_progression::append_room_progression_fact
