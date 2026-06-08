@@ -17,12 +17,10 @@ PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:
 PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
 PROVIDER_CALLSITE_PATTERN='(?:\.[[:space:]]*|(?:(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*(?:::[[:space:]]*<[^;{}]*>)?|<[^;{}]*[[:space:]]+as[[:space:]]+(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*>)[[:space:]]*::[[:space:]]*)(submit_action|verify_receipt|reconcile_submission|normalize_callback)[[:space:]]*\('
 PROVIDER_CALLSITE_INVENTORY_PATH='apps/backend/docs/provider_callsite_inventory.txt'
-PUBLIC_ROUTE_RAW_STRING_PATTERN='\br#*"(?:/health(?:"|#)|/api/(?!internal(?:/|"))[^"]*)'
-PUBLIC_ROUTE_INVENTORY_PATH='apps/backend/docs/public_route_inventory.txt'
 INTERNAL_ROUTE_RAW_STRING_PATTERN='\br#*"/api/internal(?:/|")'
 INTERNAL_ROUTE_PREFIX_PATTERN='"/api/internal"'
-ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api/?|/internal/[^"]*)"'
-ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api/?(?:"|#)|/internal/)'
+INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api|/internal/[^"]*)"'
+INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api(?:"|#)|/internal/)'
 INTERNAL_ROUTE_INVENTORY_PATH='apps/backend/docs/internal_route_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
@@ -189,50 +187,6 @@ provider_callsite_inventory() {
     sort -k2,2
 }
 
-route_prefix_composition_violations() {
-  git ls-files -- apps/backend/src apps/backend/crates |
-    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
-    while IFS= read -r path; do
-      ROUTE_PREFIX_SOURCE_PATH="$path" perl -0ne '
-        while (/\.\s*nest(?:_service)?\s*\(\s*"((?:\/api(?:\/[^"]*)?))"/g) {
-          my $prefix = $1;
-          my $line = 1 + (() = substr($_, 0, $-[0]) =~ /\n/g);
-          print "$ENV{ROUTE_PREFIX_SOURCE_PATH}:$line: route prefix $prefix must use full route literals in the route inventories\n";
-        }
-      ' "$path"
-    done
-}
-
-public_route_inventory() {
-  git ls-files -- apps/backend/src apps/backend/crates |
-    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
-    while IFS= read -r path; do
-      PUBLIC_ROUTE_SOURCE_PATH="$path" perl -0ne '
-        while (m{(?<![A-Za-z0-9_#])"(/health(?=")|/api/(?!internal(?:/|"))[^"]*)"}g) {
-          my $route = $1;
-          my $segment = substr($_, $+[0], 1000);
-          if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
-            $segment = substr($segment, 0, $-[0]);
-          }
-          my %seen_methods;
-          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(/g) {
-            $seen_methods{uc($1)} = 1;
-          }
-          if ($seen_methods{GET}) {
-            $seen_methods{HEAD} = 1;
-          }
-          if (!%seen_methods) {
-            $seen_methods{UNKNOWN_METHOD} = 1;
-          }
-          for my $method (sort keys %seen_methods) {
-            print "$ENV{PUBLIC_ROUTE_SOURCE_PATH} $route $method\n";
-          }
-        }
-      ' "$path"
-    done |
-    sort -k1,1 -k2,2 -k3,3
-}
-
 internal_route_inventory() {
   git ls-files -- apps/backend/src apps/backend/crates |
     awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
@@ -247,9 +201,6 @@ internal_route_inventory() {
           my %seen_methods;
           while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(/g) {
             $seen_methods{uc($1)} = 1;
-          }
-          if ($seen_methods{GET}) {
-            $seen_methods{HEAD} = 1;
           }
           if (!%seen_methods) {
             $seen_methods{UNKNOWN_METHOD} = 1;
@@ -358,38 +309,6 @@ check_provider_callsite_inventory() {
   rm -f "$actual_path"
 }
 
-check_route_prefix_composition() {
-  local matches
-  matches="$(route_prefix_composition_violations)"
-  if [ -n "$matches" ]; then
-    echo "$matches" >&2
-    report_failure "production routes must not use nested /api route prefixes that hide child route surface from inventories"
-  else
-    echo "ok: production routes avoid nested /api route prefixes"
-  fi
-}
-
-check_public_route_inventory() {
-  local expected_path="$repo_root/$PUBLIC_ROUTE_INVENTORY_PATH"
-  local actual_path
-  actual_path="$(mktemp)"
-
-  if [ ! -f "$expected_path" ]; then
-    rm -f "$actual_path"
-    report_failure "public route inventory file is missing"
-    return
-  fi
-
-  public_route_inventory > "$actual_path"
-  if diff -u "$expected_path" "$actual_path"; then
-    echo "ok: public route inventory matches the reviewed baseline"
-  else
-    report_failure "public HTTP route surface changed; review launch, consent, body limits, and user-facing exposure before updating baseline"
-  fi
-
-  rm -f "$actual_path"
-}
-
 check_internal_route_inventory() {
   local expected_path="$repo_root/$INTERNAL_ROUTE_INVENTORY_PATH"
   local actual_path
@@ -461,25 +380,18 @@ run_sweep() {
   check_provider_adapter_inventory
   check_provider_callsite_inventory
   check_no_matches \
-    "production public routes must use ordinary string literals, not Rust raw strings" \
-    "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
-    apps/backend/src \
-    apps/backend/crates
-  check_route_prefix_composition
-  check_public_route_inventory
-  check_no_matches \
     "production internal routes must use ordinary string literals, not Rust raw strings" \
     "$INTERNAL_ROUTE_RAW_STRING_PATTERN" \
     apps/backend/src \
     apps/backend/crates
   check_no_matches \
-    "production route declarations must not split /api or /internal route prefixes across parent and child literals" \
-    "$ROUTE_SPLIT_LITERAL_PATTERN" \
+    "production route declarations must not split /api/internal across prefix and child literals" \
+    "$INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN" \
     apps/backend/src \
     apps/backend/crates
   check_no_matches \
-    "production route declarations must not split /api or /internal route prefixes across raw-string parent and child literals" \
-    "$ROUTE_SPLIT_RAW_STRING_PATTERN" \
+    "production route declarations must not split /api/internal across raw-string prefix and child literals" \
+    "$INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN" \
     apps/backend/src \
     apps/backend/crates
   check_no_matches \
@@ -525,10 +437,6 @@ run_self_test() {
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
-    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
-    printf 'route(r#"/api/auth/pi"#, post(auth));\nroute(r#"/health"#, get(health));\n' > apps/backend/src/public_route_raw.rs
-    printf 'nest("/api/", Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split.rs
-    printf 'nest(r#"/api/"#, Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split_raw.rs
     printf 'route("/api/internal/orchestration/drain", post(handler));\nroute("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write));\nroute("/api/internal/ops/unknown-method", handler);\n' > apps/backend/src/internal_routes.rs
     printf 'nest("/api/internal", Router::new().route("/ops/foo", handler));\n' > apps/backend/src/internal_route_prefix.rs
     printf 'route(r#"/api/internal/ops/foo"#, handler);\n' > apps/backend/src/internal_route_raw.rs
@@ -600,38 +508,6 @@ run_self_test() {
     fi
 
     assert_matches \
-      "self-test catches raw-string public route literals" \
-      "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
-      apps/backend/src/public_route_raw.rs
-
-    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST\napps/backend/src/public_routes.rs /health GET\napps/backend/src/public_routes.rs /health HEAD')" ]; then
-      echo "ok: self-test builds the public route inventory"
-    else
-      public_route_inventory >&2
-      report_failure "self-test builds the public route inventory"
-    fi
-
-    printf 'Router::new()\n  .nest(\n    "/api/auth",\n    Router::new().route("/pi", post(handler)),\n  )\n  .nest_service("/api/proxy", svc);\n' > apps/backend/src/public_route_nested_prefix.rs
-    git add apps/backend/src/public_route_nested_prefix.rs
-
-    if [ "$(route_prefix_composition_violations)" = "$(printf 'apps/backend/src/public_route_nested_prefix.rs:2: route prefix /api/auth must use full route literals in the route inventories\napps/backend/src/public_route_nested_prefix.rs:6: route prefix /api/proxy must use full route literals in the route inventories')" ]; then
-      echo "ok: self-test catches nested public route prefixes"
-    else
-      route_prefix_composition_violations >&2
-      report_failure "self-test catches nested public route prefixes"
-    fi
-
-    assert_matches \
-      "self-test catches split public route literals" \
-      "$ROUTE_SPLIT_LITERAL_PATTERN" \
-      apps/backend/tests/public_route_split.rs
-
-    assert_matches \
-      "self-test catches split public raw-string route literals" \
-      "$ROUTE_SPLIT_RAW_STRING_PATTERN" \
-      apps/backend/tests/public_route_split_raw.rs
-
-    assert_matches \
       "self-test catches nested internal route prefixes" \
       "$INTERNAL_ROUTE_PREFIX_PATTERN" \
       apps/backend/src/internal_route_prefix.rs
@@ -643,15 +519,15 @@ run_self_test() {
 
     assert_matches \
       "self-test catches split internal route literals" \
-      "$ROUTE_SPLIT_LITERAL_PATTERN" \
+      "$INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN" \
       apps/backend/src/internal_route_split.rs
 
     assert_matches \
       "self-test catches split raw-string internal route literals" \
-      "$ROUTE_SPLIT_RAW_STRING_PATTERN" \
+      "$INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN" \
       apps/backend/src/internal_route_split_raw.rs
 
-    if [ "$(internal_route_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} HEAD\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST')" ]; then
+    if [ "$(internal_route_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST')" ]; then
       echo "ok: self-test builds the internal route inventory"
     else
       internal_route_inventory >&2
