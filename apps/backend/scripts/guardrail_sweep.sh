@@ -17,6 +17,11 @@ PROVIDER_ADAPTER_PATTERN='\btrait[[:space:]]+SettlementBackend\b|\bimpl[[:space:
 PROVIDER_ADAPTER_INVENTORY_PATH='apps/backend/docs/provider_adapter_inventory.txt'
 PROVIDER_CALLSITE_PATTERN='(?:\.[[:space:]]*|(?:(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*(?:::[[:space:]]*<[^;{}]*>)?|<[^;{}]*[[:space:]]+as[[:space:]]+(?:::)?(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*>)[[:space:]]*::[[:space:]]*)(submit_action|verify_receipt|reconcile_submission|normalize_callback)[[:space:]]*\('
 PROVIDER_CALLSITE_INVENTORY_PATH='apps/backend/docs/provider_callsite_inventory.txt'
+INTERNAL_ROUTE_RAW_STRING_PATTERN='\br#*"/api/internal(?:/|")'
+INTERNAL_ROUTE_PREFIX_PATTERN='"/api/internal"'
+INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api|/internal/[^"]*)"'
+INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api(?:"|#)|/internal/)'
+INTERNAL_ROUTE_INVENTORY_PATH='apps/backend/docs/internal_route_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -182,6 +187,33 @@ provider_callsite_inventory() {
     sort -k2,2
 }
 
+internal_route_inventory() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      INTERNAL_ROUTE_SOURCE_PATH="$path" perl -0ne '
+        while (m{(?<![A-Za-z0-9_#])"(/api/internal/[^"]*)"}g) {
+          my $route = $1;
+          my $segment = substr($_, $+[0], 1000);
+          if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
+            $segment = substr($segment, 0, $-[0]);
+          }
+          my %seen_methods;
+          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(/g) {
+            $seen_methods{uc($1)} = 1;
+          }
+          if (!%seen_methods) {
+            $seen_methods{UNKNOWN_METHOD} = 1;
+          }
+          for my $method (sort keys %seen_methods) {
+            print "$ENV{INTERNAL_ROUTE_SOURCE_PATH} $route $method\n";
+          }
+        }
+      ' "$path"
+    done |
+    sort -k1,1 -k2,2 -k3,3
+}
+
 check_raw_transaction_inventory() {
   local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
   local actual_path
@@ -277,6 +309,27 @@ check_provider_callsite_inventory() {
   rm -f "$actual_path"
 }
 
+check_internal_route_inventory() {
+  local expected_path="$repo_root/$INTERNAL_ROUTE_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "internal route inventory file is missing"
+    return
+  fi
+
+  internal_route_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: internal route inventory matches the reviewed baseline"
+  else
+    report_failure "internal HTTP route surface changed; review gate, auth, and operator-only semantics before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 read_replica_boundary_matches() {
   git grep -n "$READ_REPLICA_TOKEN" -- \
     apps/backend/src \
@@ -326,6 +379,27 @@ run_sweep() {
   check_archive_before_prune
   check_provider_adapter_inventory
   check_provider_callsite_inventory
+  check_no_matches \
+    "production internal routes must use ordinary string literals, not Rust raw strings" \
+    "$INTERNAL_ROUTE_RAW_STRING_PATTERN" \
+    apps/backend/src \
+    apps/backend/crates
+  check_no_matches \
+    "production route declarations must not split /api/internal across prefix and child literals" \
+    "$INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN" \
+    apps/backend/src \
+    apps/backend/crates
+  check_no_matches \
+    "production route declarations must not split /api/internal across raw-string prefix and child literals" \
+    "$INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN" \
+    apps/backend/src \
+    apps/backend/crates
+  check_no_matches \
+    "production internal routes must use full /api/internal/... literals instead of nested prefix composition" \
+    "$INTERNAL_ROUTE_PREFIX_PATTERN" \
+    apps/backend/src \
+    apps/backend/crates
+  check_internal_route_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -363,6 +437,11 @@ run_self_test() {
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
+    printf 'route("/api/internal/orchestration/drain", post(handler));\nroute("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write));\nroute("/api/internal/ops/unknown-method", handler);\n' > apps/backend/src/internal_routes.rs
+    printf 'nest("/api/internal", Router::new().route("/ops/foo", handler));\n' > apps/backend/src/internal_route_prefix.rs
+    printf 'route(r#"/api/internal/ops/foo"#, handler);\n' > apps/backend/src/internal_route_raw.rs
+    printf 'nest("/api", Router::new().route("/internal/ops/foo", handler));\n' > apps/backend/src/internal_route_split.rs
+    printf 'nest(r#"/api"#, Router::new().route(r#"/internal/ops/foo"#, handler));\n' > apps/backend/src/internal_route_split_raw.rs
     printf "tx: &tokio_postgres::Transaction<'tx>,\n" > apps/backend/tests/raw_transaction_ref.rs
     printf "tx: &Transaction<'txn>,\n" > apps/backend/tests/raw_transaction_imported_ref.rs
     printf 'let source = WriterReadSource::ReadReplica;\n' > apps/backend/crates/orchestration/src/replica_leak.rs
@@ -426,6 +505,33 @@ run_self_test() {
     else
       provider_callsite_inventory >&2
       report_failure "self-test builds the provider callsite inventory"
+    fi
+
+    assert_matches \
+      "self-test catches nested internal route prefixes" \
+      "$INTERNAL_ROUTE_PREFIX_PATTERN" \
+      apps/backend/src/internal_route_prefix.rs
+
+    assert_matches \
+      "self-test catches raw-string internal route literals" \
+      "$INTERNAL_ROUTE_RAW_STRING_PATTERN" \
+      apps/backend/src/internal_route_raw.rs
+
+    assert_matches \
+      "self-test catches split internal route literals" \
+      "$INTERNAL_ROUTE_SPLIT_LITERAL_PATTERN" \
+      apps/backend/src/internal_route_split.rs
+
+    assert_matches \
+      "self-test catches split raw-string internal route literals" \
+      "$INTERNAL_ROUTE_SPLIT_RAW_STRING_PATTERN" \
+      apps/backend/src/internal_route_split_raw.rs
+
+    if [ "$(internal_route_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST')" ]; then
+      echo "ok: self-test builds the internal route inventory"
+    else
+      internal_route_inventory >&2
+      report_failure "self-test builds the internal route inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then

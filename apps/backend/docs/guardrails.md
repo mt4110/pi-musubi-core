@@ -21,6 +21,13 @@ checks. It fails if backend source, backend crates, or migrations introduce:
   required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
 - settlement/provider callsite surface drift from the reviewed inventory;
+- internal HTTP route and method surface drift from the reviewed inventory;
+- Rust raw-string `/api/internal/...` route literals that would bypass the
+  ordinary-literal inventory scanner;
+- split `/api` plus `/internal/...` route-prefix composition that would bypass
+  the internal route inventory;
+- nested `/api/internal` route-prefix composition that would bypass the
+  internal route inventory;
 - `WriterReadSource::ReadReplica` usage outside the orchestration rejection
   implementation and its tests;
 - tracked `.codex` files or a missing `.codex/` ignore rule.
@@ -40,6 +47,10 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
   tables;
 - provider adapter inventory construction;
 - provider callsite inventory construction;
+- method-aware internal HTTP route inventory construction;
+- raw-string internal route literal detection;
+- split internal route-prefix detection;
+- nested internal route-prefix detection;
 - `WriterReadSource::ReadReplica` outside its allowlist;
 - tracked `.codex` files and `.codex/` ignore-rule detection.
 
@@ -150,9 +161,24 @@ external-I/O-shaped provider calls outside the reviewed happy-route boundaries;
 it does not prove that an allowed callsite is outside a live database
 transaction.
 
+`apps/backend/docs/internal_route_inventory.txt` fixes the current production
+`/api/internal/...` HTTP route surface by source file, route literal, and HTTP
+method. New, removed, moved, or method-expanded internal routes must update
+that inventory deliberately after review. If the scanner cannot infer a method,
+it records `UNKNOWN_METHOD` instead of silently ignoring the route. This
+prevents silent growth of operator, repair, drain, rebuild, and observability
+surfaces; it does not prove that an allowed internal route has the right auth
+gate, release gate, body limit, redaction behavior, or writer-truth semantics.
+The sweep also forbids production source from composing Rust raw-string internal
+route literals, an exact `"/api/internal"` nest prefix, or split `"/api"` plus
+`"/internal/..."` route literals, so internal routes must remain visible as
+ordinary full `"/api/internal/..."` literals in the inventory.
+
 So the rule is still:
 - keep authoritative transaction code database-only
 - perform provider/network I/O only after that transaction is committed or dropped
+- treat every internal HTTP surface as an explicit operator/review boundary,
+  not a convenience route
 
 ### 2. Code outside the orchestration crate
 
@@ -208,6 +234,8 @@ The next meaningful upgrades would be:
 - add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
 - turn the archive-before-prune source tripwire into a syntax-aware lifecycle
   lint once coordination lifecycle shapes grow beyond the current SQL helpers
+- turn the internal route inventory into route-metadata linting once gate/auth
+  declarations are centralized
 - turn the provider adapter and callsite inventories into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line
