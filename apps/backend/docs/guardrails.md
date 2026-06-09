@@ -26,6 +26,7 @@ checks. It fails if backend source, backend crates, or migrations introduce:
   inventory scanner;
 - internal HTTP route, method, and handler surface drift from the reviewed inventory;
 - explicit HTTP route body limit drift from the reviewed inventory;
+- state-changing HTTP route body-limit gap drift from the reviewed inventory;
 - Rust raw-string `/api/internal/...` route literals that would bypass the
   ordinary-literal inventory scanner;
 - nested route/service or split `/api` route-prefix composition that would
@@ -57,6 +58,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - split public route-prefix detection;
 - method- and handler-aware internal HTTP route inventory construction;
 - explicit HTTP route body limit inventory construction;
+- state-changing HTTP route body limit gap inventory construction;
 - raw-string internal route literal detection;
 - split internal route-prefix detection;
 - nested internal route-prefix detection;
@@ -214,6 +216,16 @@ operator approval/rejection request surfaces. It does not prove that every
 body-bearing route has the right limit or that the limit is semantically
 sufficient; it only makes existing explicit request-size boundaries visible to
 CI review.
+
+`apps/backend/docs/route_body_limit_gap_inventory.txt` fixes the current
+state-changing route surface that does not have an explicit
+`DefaultBodyLimit::max(...)` entry by source file, route literal, HTTP method,
+and handler path. New, removed, moved, handler-changed, or newly bounded
+state-changing routes must update that inventory deliberately after review.
+This prevents silent growth of POST/PUT/PATCH/DELETE/ANY request surfaces that
+lack explicit request-size boundaries. It does not prove that the current gaps
+are safe, and it does not require every state-changing route to carry the same
+limit; it makes the current gaps visible to CI review.
 
 So the rule is still:
 - keep authoritative transaction code database-only
