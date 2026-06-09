@@ -25,6 +25,7 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - Rust raw-string public route literals that would bypass the ordinary-literal
   inventory scanner;
 - internal HTTP route, method, and handler surface drift from the reviewed inventory;
+- HTTP route release-gate surface drift from the reviewed inventory;
 - explicit HTTP route body limit drift from the reviewed inventory;
 - state-changing HTTP route body-limit gap drift from the reviewed inventory;
 - Rust raw-string `/api/internal/...` route literals that would bypass the
@@ -57,6 +58,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - nested public route/service-prefix detection;
 - split public route-prefix detection;
 - method- and handler-aware internal HTTP route inventory construction;
+- method-, handler-, and release-gate-aware HTTP route inventory construction;
 - explicit HTTP route body limit inventory construction;
 - state-changing HTTP route body limit gap inventory construction;
 - raw-string internal route literal detection;
@@ -205,6 +207,17 @@ The sweep also forbids production source from composing Rust raw-string internal
 route literals, an exact `"/api/internal"` nest prefix, or nested route/service
 and split `/api` route-prefix literals, so internal routes must remain visible
 as ordinary full `"/api/internal/..."` literals in the inventory.
+
+`apps/backend/docs/http_route_gate_inventory.txt` fixes the current production
+HTTP route release-gate surface by source file, route literal, HTTP method,
+handler path, and enclosing `let app = if *_enabled() { ... }` gate. Routes not
+inside one of those release gates are recorded as `ALWAYS`. New, removed,
+moved, handler-changed, method-expanded, or gate-moved routes must update that
+inventory deliberately after review. This prevents silent exposure drift such
+as moving the unauthenticated provider callback or internal repair / drain
+surfaces out of their reviewed gates. It does not prove authentication,
+authorization, launch-policy correctness, or route-level consent semantics; it
+only makes the current release-gate placement visible to CI review.
 
 `apps/backend/docs/route_body_limit_inventory.txt` fixes the current explicit
 `DefaultBodyLimit::max(...)` route surface by source file, route literal, HTTP
