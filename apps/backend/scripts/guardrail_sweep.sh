@@ -25,6 +25,7 @@ ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api/?|/internal/[^"]*)"'
 ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api/?(?:"|#)|/internal/)'
 INTERNAL_ROUTE_INVENTORY_PATH='apps/backend/docs/internal_route_inventory.txt'
 ROUTE_BODY_LIMIT_INVENTORY_PATH='apps/backend/docs/route_body_limit_inventory.txt'
+ROUTE_BODY_LIMIT_GAP_INVENTORY_PATH='apps/backend/docs/route_body_limit_gap_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -327,6 +328,32 @@ route_body_limit_inventory() {
     sort -k1,1 -k2,2 -k3,3 -k4,4 -k5,5
 }
 
+state_changing_route_inventory() {
+  {
+    public_route_inventory
+    internal_route_inventory
+  } |
+    awk '$3 ~ /^(POST|PUT|PATCH|DELETE|ANY)$/ { print }' |
+    sort -k1,1 -k2,2 -k3,3 -k4,4
+}
+
+route_body_limit_gap_inventory() {
+  local all_state_changing_path
+  local limited_state_changing_path
+
+  all_state_changing_path="$(mktemp)"
+  limited_state_changing_path="$(mktemp)"
+
+  state_changing_route_inventory > "$all_state_changing_path"
+  route_body_limit_inventory |
+    awk '$3 ~ /^(POST|PUT|PATCH|DELETE|ANY)$/ { print $1 " " $2 " " $3 " " $4 }' |
+    sort -k1,1 -k2,2 -k3,3 -k4,4 > "$limited_state_changing_path"
+
+  comm -23 "$all_state_changing_path" "$limited_state_changing_path"
+
+  rm -f "$all_state_changing_path" "$limited_state_changing_path"
+}
+
 check_raw_transaction_inventory() {
   local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
   local actual_path
@@ -496,6 +523,27 @@ check_route_body_limit_inventory() {
   rm -f "$actual_path"
 }
 
+check_route_body_limit_gap_inventory() {
+  local expected_path="$repo_root/$ROUTE_BODY_LIMIT_GAP_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "route body limit gap inventory file is missing"
+    return
+  fi
+
+  route_body_limit_gap_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: route body limit gap inventory matches the reviewed baseline"
+  else
+    report_failure "state-changing route body limit gap surface changed; review request-size boundaries before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 read_replica_boundary_matches() {
   git grep -n "$READ_REPLICA_TOKEN" -- \
     apps/backend/src \
@@ -574,6 +622,7 @@ run_sweep() {
     apps/backend/crates
   check_internal_route_inventory
   check_route_body_limit_inventory
+  check_route_body_limit_gap_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -611,7 +660,7 @@ run_self_test() {
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
-    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth).layer(DefaultBodyLimit::max(32 * 1024)));\nroute("/api/body-limits", post(create).layer(DefaultBodyLimit::max(8 * 1024)).put(update).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list).layer(DefaultBodyLimit::max(8 * 1024)));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
+    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth).layer(DefaultBodyLimit::max(32 * 1024)));\nroute("/api/body-limits", post(create).layer(DefaultBodyLimit::max(8 * 1024)).put(update).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/promise/intents", post(intent));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list).layer(DefaultBodyLimit::max(8 * 1024)));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
     printf 'route(r#"/api/auth/pi"#, post(auth));\nroute(r#"/health"#, get(health));\n' > apps/backend/src/public_route_raw.rs
     printf 'nest("/api/", Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split.rs
     printf 'nest(r#"/api/"#, Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split_raw.rs
@@ -690,7 +739,7 @@ run_self_test() {
       "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
       apps/backend/src/public_route_raw.rs
 
-    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST auth\napps/backend/src/public_routes.rs /api/body-limits POST create\napps/backend/src/public_routes.rs /api/body-limits PUT update\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create\napps/backend/src/public_routes.rs /health GET health\napps/backend/src/public_routes.rs /health HEAD health')" ]; then
+    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST auth\napps/backend/src/public_routes.rs /api/body-limits POST create\napps/backend/src/public_routes.rs /api/body-limits PUT update\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/public_routes.rs /api/promise/intents POST intent\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create\napps/backend/src/public_routes.rs /health GET health\napps/backend/src/public_routes.rs /health HEAD health')" ]; then
       echo "ok: self-test builds the public route inventory"
     else
       public_route_inventory >&2
@@ -749,6 +798,13 @@ run_self_test() {
     else
       route_body_limit_inventory >&2
       report_failure "self-test builds the route body limit inventory"
+    fi
+
+    if [ "$(route_body_limit_gap_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST write\napps/backend/src/public_routes.rs /api/promise/intents POST intent')" ]; then
+      echo "ok: self-test builds the route body limit gap inventory"
+    else
+      route_body_limit_gap_inventory >&2
+      report_failure "self-test builds the route body limit gap inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then
