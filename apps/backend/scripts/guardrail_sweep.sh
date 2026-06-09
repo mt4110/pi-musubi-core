@@ -192,6 +192,37 @@ provider_callsite_inventory() {
     sort -k2,2
 }
 
+transaction_provider_colocation_matches() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      local raw_transaction_count
+      raw_transaction_count="$(
+        RAW_TRANSACTION_PATTERN="$RAW_TRANSACTION_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{RAW_TRANSACTION_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+
+      local provider_callsite_count
+      provider_callsite_count="$(
+        PROVIDER_CALLSITE_PATTERN="$PROVIDER_CALLSITE_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{PROVIDER_CALLSITE_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+
+      if [ "$raw_transaction_count" -gt 0 ] && [ "$provider_callsite_count" -gt 0 ]; then
+        printf "%s:1: raw transaction surface (%s) and provider callsite surface (%s) are co-located\n" \
+          "$path" \
+          "$raw_transaction_count" \
+          "$provider_callsite_count"
+      fi
+    done
+}
+
 route_prefix_composition_violations() {
   git ls-files -- apps/backend/src apps/backend/crates |
     awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
@@ -510,6 +541,17 @@ check_provider_callsite_inventory() {
   rm -f "$actual_path"
 }
 
+check_transaction_provider_colocation() {
+  local matches
+  matches="$(transaction_provider_colocation_matches)"
+  if [ -n "$matches" ]; then
+    echo "$matches" >&2
+    report_failure "production files must not co-locate raw DB transaction surface with provider callsites"
+  else
+    echo "ok: production transaction and provider callsite surfaces stay separated by file"
+  fi
+}
+
 check_route_prefix_composition() {
   local matches
   matches="$(route_prefix_composition_violations)"
@@ -675,6 +717,7 @@ run_sweep() {
   check_archive_before_prune
   check_provider_adapter_inventory
   check_provider_callsite_inventory
+  check_transaction_provider_colocation
   check_no_matches \
     "production public routes must use ordinary string literals, not Rust raw strings" \
     "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
@@ -815,6 +858,16 @@ run_self_test() {
     else
       provider_callsite_inventory >&2
       report_failure "self-test builds the provider callsite inventory"
+    fi
+
+    printf 'let tx = client.transaction().await?;\nbackend.submit_action(cmd).await?;\n' > apps/backend/src/transaction_provider_colocation.rs
+    git add apps/backend/src/transaction_provider_colocation.rs
+
+    if [ "$(transaction_provider_colocation_matches)" = "$(printf 'apps/backend/src/transaction_provider_colocation.rs:1: raw transaction surface (1) and provider callsite surface (1) are co-located')" ]; then
+      echo "ok: self-test catches transaction and provider callsite co-location"
+    else
+      transaction_provider_colocation_matches >&2
+      report_failure "self-test catches transaction and provider callsite co-location"
     fi
 
     assert_matches \

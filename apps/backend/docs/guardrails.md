@@ -21,6 +21,8 @@ checks. It fails if backend source, backend crates, or migrations introduce:
   required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
 - settlement/provider callsite surface drift from the reviewed inventory;
+- production files that co-locate raw DB transaction surface with
+  settlement/provider callsites;
 - public HTTP route, method, and handler surface drift from the reviewed inventory;
 - Rust raw-string public route literals that would bypass the ordinary-literal
   inventory scanner;
@@ -53,6 +55,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
   tables;
 - provider adapter inventory construction;
 - provider callsite inventory construction;
+- transaction/provider callsite co-location detection;
 - method- and handler-aware public HTTP route inventory construction;
 - raw-string public route literal detection;
 - nested public route/service-prefix detection;
@@ -173,6 +176,14 @@ update that inventory deliberately after review. This prevents silent growth of
 external-I/O-shaped provider calls outside the reviewed happy-route boundaries;
 it does not prove that an allowed callsite is outside a live database
 transaction.
+
+The sweep also checks production source for files that contain both raw DB
+transaction surface and settlement/provider callsites. Today those surfaces are
+file-separated: transaction-heavy repository code owns PostgreSQL truth, while
+provider I/O-shaped calls live in the happy-route service boundary. If a future
+file contains both surfaces, CI fails so reviewers can inspect no-transaction-
+across-provider-await shape before the code lands. This is a deliberately coarse
+file-level tripwire, not a function-level async analysis.
 
 `apps/backend/docs/public_route_inventory.txt` fixes the current production
 public HTTP route surface by source file, route literal, HTTP method, and
@@ -297,7 +308,8 @@ Product and later domain flows must not describe this as complete anti-spoofing.
 
 The next meaningful upgrades would be:
 - add integration tests around real PostgreSQL writer/claim/persist flows as the happy route grows
-- add CI review hooks or linting that flag suspicious `Transaction` + remote client usage patterns
+- broaden the transaction/provider co-location tripwire into syntax-aware
+  linting that understands function-level await ordering
 - turn the archive-before-prune source tripwire into a syntax-aware lifecycle
   lint once coordination lifecycle shapes grow beyond the current SQL helpers
 - turn the internal route inventory into route-metadata linting once gate/auth
