@@ -24,6 +24,7 @@ INTERNAL_ROUTE_PREFIX_PATTERN='"/api/internal"'
 ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api/?|/internal/[^"]*)"'
 ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api/?(?:"|#)|/internal/)'
 INTERNAL_ROUTE_INVENTORY_PATH='apps/backend/docs/internal_route_inventory.txt'
+HTTP_ROUTE_GATE_INVENTORY_PATH='apps/backend/docs/http_route_gate_inventory.txt'
 ROUTE_BODY_LIMIT_INVENTORY_PATH='apps/backend/docs/route_body_limit_inventory.txt'
 ROUTE_BODY_LIMIT_GAP_INVENTORY_PATH='apps/backend/docs/route_body_limit_gap_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
@@ -279,6 +280,66 @@ internal_route_inventory() {
     sort -k1,1 -k2,2 -k3,3 -k4,4
 }
 
+http_route_gate_inventory() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      HTTP_ROUTE_GATE_SOURCE_PATH="$path" perl -0ne '
+        sub route_gate_for_position {
+          my ($source, $position) = @_;
+          my $gate = "ALWAYS";
+
+          while ($source =~ /let\s+app\s*=\s*if\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{/g) {
+            my $candidate_gate = $1;
+            my $gate_start = $+[0];
+            next if $gate_start > $position;
+
+            my $tail = substr($source, $gate_start);
+            if ($tail =~ /\n\s*\}\s*else\s*\{/) {
+              my $gate_end = $gate_start + $-[0];
+              if ($position >= $gate_start && $position < $gate_end) {
+                $gate = $candidate_gate;
+              }
+            }
+          }
+
+          return $gate;
+        }
+
+        while (m{(?<![A-Za-z0-9_#])"(/health(?=")|/api/[^"]*)"}g) {
+          my $route_start = $-[0];
+          my $route = $1;
+          my $gate = route_gate_for_position($_, $route_start);
+          my $segment = substr($_, $+[0], 1000);
+          if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
+            $segment = substr($segment, 0, $-[0]);
+          }
+          my %seen_handlers;
+          while ($segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(\s*([^,\)\s]+)/g) {
+            my $method = uc($1);
+            my $handler = $2;
+            if ($handler !~ /^[A-Za-z_][A-Za-z0-9_:]*$/ || $handler =~ /^(async|move)$/) {
+              $handler = "UNKNOWN_HANDLER";
+            }
+            $seen_handlers{$method}{$handler} = 1;
+            if ($method eq "GET") {
+              $seen_handlers{HEAD}{$handler} = 1;
+            }
+          }
+          if (!%seen_handlers) {
+            $seen_handlers{UNKNOWN_METHOD}{UNKNOWN_HANDLER} = 1;
+          }
+          for my $method (sort keys %seen_handlers) {
+            for my $handler (sort keys %{ $seen_handlers{$method} }) {
+              print "$ENV{HTTP_ROUTE_GATE_SOURCE_PATH} $route $method $handler $gate\n";
+            }
+          }
+        }
+      ' "$path"
+    done |
+    sort -k1,1 -k2,2 -k3,3 -k4,4 -k5,5
+}
+
 route_body_limit_inventory() {
   git ls-files -- apps/backend/src apps/backend/crates |
     awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
@@ -502,6 +563,27 @@ check_internal_route_inventory() {
   rm -f "$actual_path"
 }
 
+check_http_route_gate_inventory() {
+  local expected_path="$repo_root/$HTTP_ROUTE_GATE_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "HTTP route gate inventory file is missing"
+    return
+  fi
+
+  http_route_gate_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: HTTP route gate inventory matches the reviewed baseline"
+  else
+    report_failure "HTTP route gate surface changed; review launch, callback, and internal route exposure before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 check_route_body_limit_inventory() {
   local expected_path="$repo_root/$ROUTE_BODY_LIMIT_INVENTORY_PATH"
   local actual_path
@@ -621,6 +703,7 @@ run_sweep() {
     apps/backend/src \
     apps/backend/crates
   check_internal_route_inventory
+  check_http_route_gate_inventory
   check_route_body_limit_inventory
   check_route_body_limit_gap_inventory
   check_read_replica_boundary
@@ -660,11 +743,11 @@ run_self_test() {
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
-    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth).layer(DefaultBodyLimit::max(32 * 1024)));\nroute("/api/body-limits", post(create).layer(DefaultBodyLimit::max(8 * 1024)).put(update).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/promise/intents", post(intent));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list).layer(DefaultBodyLimit::max(8 * 1024)));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
+    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth).layer(DefaultBodyLimit::max(32 * 1024)));\nroute("/api/body-limits", post(create).layer(DefaultBodyLimit::max(8 * 1024)).put(update).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/promise/intents", post(intent));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list).layer(DefaultBodyLimit::max(8 * 1024)));\nlet app = if public_callback_enabled() {\n  app.route("/api/payment/callback", handler)\n} else { app };\n' > apps/backend/src/public_routes.rs
     printf 'route(r#"/api/auth/pi"#, post(auth));\nroute(r#"/health"#, get(health));\n' > apps/backend/src/public_route_raw.rs
     printf 'nest("/api/", Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split.rs
     printf 'nest(r#"/api/"#, Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split_raw.rs
-    printf 'route("/api/internal/orchestration/drain", post(handler).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write));\nroute("/api/internal/ops/unknown-method", handler);\n' > apps/backend/src/internal_routes.rs
+    printf 'let app = if internal_gate_enabled() {\n  app.route("/api/internal/orchestration/drain", post(handler).layer(DefaultBodyLimit::max(16 * 1024)))\n    .route("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write))\n    .route("/api/internal/ops/unknown-method", handler)\n} else { app };\n' > apps/backend/src/internal_routes.rs
     printf 'nest("/api/internal", Router::new().route("/ops/foo", handler));\n' > apps/backend/src/internal_route_prefix.rs
     printf 'route(r#"/api/internal/ops/foo"#, handler);\n' > apps/backend/src/internal_route_raw.rs
     printf 'nest("/api", Router::new().route("/internal/ops/foo", handler));\n' > apps/backend/src/internal_route_split.rs
@@ -805,6 +888,13 @@ run_self_test() {
     else
       route_body_limit_gap_inventory >&2
       report_failure "self-test builds the route body limit gap inventory"
+    fi
+
+    if [ "$(http_route_gate_inventory)" = "$(printf 'apps/backend/src/internal_route_prefix.rs /api/internal UNKNOWN_METHOD UNKNOWN_HANDLER ALWAYS\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} GET read internal_gate_enabled\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} HEAD read internal_gate_enabled\napps/backend/src/internal_routes.rs /api/internal/operator/review-cases/{review_case_id} POST write internal_gate_enabled\napps/backend/src/internal_routes.rs /api/internal/ops/unknown-method UNKNOWN_METHOD UNKNOWN_HANDLER internal_gate_enabled\napps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST handler internal_gate_enabled\napps/backend/src/public_route_nested_prefix.rs /api/auth UNKNOWN_METHOD UNKNOWN_HANDLER ALWAYS\napps/backend/src/public_route_nested_prefix.rs /api/proxy UNKNOWN_METHOD UNKNOWN_HANDLER ALWAYS\napps/backend/src/public_routes.rs /api/auth/pi POST auth ALWAYS\napps/backend/src/public_routes.rs /api/body-limits POST create ALWAYS\napps/backend/src/public_routes.rs /api/body-limits PUT update ALWAYS\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER public_callback_enabled\napps/backend/src/public_routes.rs /api/promise/intents POST intent ALWAYS\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list ALWAYS\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list ALWAYS\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create ALWAYS\napps/backend/src/public_routes.rs /health GET health ALWAYS\napps/backend/src/public_routes.rs /health HEAD health ALWAYS')" ]; then
+      echo "ok: self-test builds the HTTP route gate inventory"
+    else
+      http_route_gate_inventory >&2
+      report_failure "self-test builds the HTTP route gate inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then
