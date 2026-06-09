@@ -24,6 +24,7 @@ INTERNAL_ROUTE_PREFIX_PATTERN='"/api/internal"'
 ROUTE_SPLIT_LITERAL_PATTERN='(?<![A-Za-z0-9_#])"(/api/?|/internal/[^"]*)"'
 ROUTE_SPLIT_RAW_STRING_PATTERN='\br#*"(?:/api/?(?:"|#)|/internal/)'
 INTERNAL_ROUTE_INVENTORY_PATH='apps/backend/docs/internal_route_inventory.txt'
+ROUTE_BODY_LIMIT_INVENTORY_PATH='apps/backend/docs/route_body_limit_inventory.txt'
 READ_REPLICA_TOKEN='WriterReadSource::ReadReplica'
 
 report_failure() {
@@ -277,6 +278,55 @@ internal_route_inventory() {
     sort -k1,1 -k2,2 -k3,3 -k4,4
 }
 
+route_body_limit_inventory() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      ROUTE_BODY_LIMIT_SOURCE_PATH="$path" perl -0ne '
+        while (m{(?<![A-Za-z0-9_#])"(/health(?=")|/api/[^"]*)"}g) {
+          my $route = $1;
+          my $segment = substr($_, $+[0], 1000);
+          if ($segment =~ /(?:^|[\n\r;]|\.)\s*route\s*\(/) {
+            $segment = substr($segment, 0, $-[0]);
+          }
+
+          my $scan_offset = 0;
+          while ($segment =~ /\bDefaultBodyLimit::max\s*\(\s*([^)]+?)\s*\)/sg) {
+            my $limit_start = $-[0];
+            my $limit_end = $+[0];
+            my $limit = $1;
+            $limit =~ s/\s+//g;
+
+            my $limited_segment = substr($segment, $scan_offset, $limit_start - $scan_offset);
+            $scan_offset = $limit_end;
+
+            my %seen_handlers;
+            while ($limited_segment =~ /\b(get|post|put|patch|delete|head|options|trace|any)\s*\(\s*([^,\)\s]+)/g) {
+              my $method = uc($1);
+              my $handler = $2;
+              if ($handler !~ /^[A-Za-z_][A-Za-z0-9_:]*$/ || $handler =~ /^(async|move)$/) {
+                $handler = "UNKNOWN_HANDLER";
+              }
+              $seen_handlers{$method}{$handler} = 1;
+              if ($method eq "GET") {
+                $seen_handlers{HEAD}{$handler} = 1;
+              }
+            }
+            if (!%seen_handlers) {
+              $seen_handlers{UNKNOWN_METHOD}{UNKNOWN_HANDLER} = 1;
+            }
+            for my $method (sort keys %seen_handlers) {
+              for my $handler (sort keys %{ $seen_handlers{$method} }) {
+                print "$ENV{ROUTE_BODY_LIMIT_SOURCE_PATH} $route $method $handler DefaultBodyLimit::max($limit)\n";
+              }
+            }
+          }
+        }
+      ' "$path"
+    done |
+    sort -k1,1 -k2,2 -k3,3 -k4,4 -k5,5
+}
+
 check_raw_transaction_inventory() {
   local expected_path="$repo_root/$RAW_TRANSACTION_INVENTORY_PATH"
   local actual_path
@@ -425,6 +475,27 @@ check_internal_route_inventory() {
   rm -f "$actual_path"
 }
 
+check_route_body_limit_inventory() {
+  local expected_path="$repo_root/$ROUTE_BODY_LIMIT_INVENTORY_PATH"
+  local actual_path
+  actual_path="$(mktemp)"
+
+  if [ ! -f "$expected_path" ]; then
+    rm -f "$actual_path"
+    report_failure "route body limit inventory file is missing"
+    return
+  fi
+
+  route_body_limit_inventory > "$actual_path"
+  if diff -u "$expected_path" "$actual_path"; then
+    echo "ok: route body limit inventory matches the reviewed baseline"
+  else
+    report_failure "explicit route body limit surface changed; review request size exposure before updating baseline"
+  fi
+
+  rm -f "$actual_path"
+}
+
 read_replica_boundary_matches() {
   git grep -n "$READ_REPLICA_TOKEN" -- \
     apps/backend/src \
@@ -502,6 +573,7 @@ run_sweep() {
     apps/backend/src \
     apps/backend/crates
   check_internal_route_inventory
+  check_route_body_limit_inventory
   check_read_replica_boundary
   check_codex_hygiene
 }
@@ -539,11 +611,11 @@ run_self_test() {
     printf 'pub trait SettlementBackend { async fn submit_action_impl(&self); }\n' > apps/backend/crates/settlement-domain/src/backend.rs
     printf 'struct SandboxPiProviderClient;\nimpl SettlementBackend for PiSettlementBackend {}\n' > apps/backend/src/provider_adapter.rs
     printf 'backend.submit_action(cmd).await?; backend.verify_receipt(receipt).await?;\nbackend\n    .normalize_callback(callback)\n    .await?;\nSettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as SettlementBackend>::normalize_callback(&backend, callback).await?;\nsettlement_domain::SettlementBackend::submit_action(&backend, cmd).await?;\n<PiSettlementBackend as settlement_domain::SettlementBackend>::normalize_callback(&backend, callback).await?;\nProviderBackend::verify_receipt(&backend, receipt).await?;\n<PiSettlementBackend as ProviderBackend>::reconcile_submission(&backend, submission).await?;\n' > apps/backend/src/provider_callsite.rs
-    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
+    printf 'route("/health", get(health));\nroute("/api/auth/pi", post(auth).layer(DefaultBodyLimit::max(32 * 1024)));\nroute("/api/body-limits", post(create).layer(DefaultBodyLimit::max(8 * 1024)).put(update).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/review-cases/{review_case_id}/appeals", post(create).get(list).layer(DefaultBodyLimit::max(8 * 1024)));\nroute("/api/payment/callback", handler);\n' > apps/backend/src/public_routes.rs
     printf 'route(r#"/api/auth/pi"#, post(auth));\nroute(r#"/health"#, get(health));\n' > apps/backend/src/public_route_raw.rs
     printf 'nest("/api/", Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split.rs
     printf 'nest(r#"/api/"#, Router::new().route("auth/pi", handler));\n' > apps/backend/tests/public_route_split_raw.rs
-    printf 'route("/api/internal/orchestration/drain", post(handler));\nroute("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write));\nroute("/api/internal/ops/unknown-method", handler);\n' > apps/backend/src/internal_routes.rs
+    printf 'route("/api/internal/orchestration/drain", post(handler).layer(DefaultBodyLimit::max(16 * 1024)));\nroute("/api/internal/operator/review-cases/{review_case_id}", get(read).post(write));\nroute("/api/internal/ops/unknown-method", handler);\n' > apps/backend/src/internal_routes.rs
     printf 'nest("/api/internal", Router::new().route("/ops/foo", handler));\n' > apps/backend/src/internal_route_prefix.rs
     printf 'route(r#"/api/internal/ops/foo"#, handler);\n' > apps/backend/src/internal_route_raw.rs
     printf 'nest("/api", Router::new().route("/internal/ops/foo", handler));\n' > apps/backend/src/internal_route_split.rs
@@ -618,7 +690,7 @@ run_self_test() {
       "$PUBLIC_ROUTE_RAW_STRING_PATTERN" \
       apps/backend/src/public_route_raw.rs
 
-    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST auth\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create\napps/backend/src/public_routes.rs /health GET health\napps/backend/src/public_routes.rs /health HEAD health')" ]; then
+    if [ "$(public_route_inventory)" = "$(printf 'apps/backend/src/public_routes.rs /api/auth/pi POST auth\napps/backend/src/public_routes.rs /api/body-limits POST create\napps/backend/src/public_routes.rs /api/body-limits PUT update\napps/backend/src/public_routes.rs /api/payment/callback UNKNOWN_METHOD UNKNOWN_HANDLER\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create\napps/backend/src/public_routes.rs /health GET health\napps/backend/src/public_routes.rs /health HEAD health')" ]; then
       echo "ok: self-test builds the public route inventory"
     else
       public_route_inventory >&2
@@ -670,6 +742,13 @@ run_self_test() {
     else
       internal_route_inventory >&2
       report_failure "self-test builds the internal route inventory"
+    fi
+
+    if [ "$(route_body_limit_inventory)" = "$(printf 'apps/backend/src/internal_routes.rs /api/internal/orchestration/drain POST handler DefaultBodyLimit::max(16*1024)\napps/backend/src/public_routes.rs /api/auth/pi POST auth DefaultBodyLimit::max(32*1024)\napps/backend/src/public_routes.rs /api/body-limits POST create DefaultBodyLimit::max(8*1024)\napps/backend/src/public_routes.rs /api/body-limits PUT update DefaultBodyLimit::max(16*1024)\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals GET list DefaultBodyLimit::max(8*1024)\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals HEAD list DefaultBodyLimit::max(8*1024)\napps/backend/src/public_routes.rs /api/review-cases/{review_case_id}/appeals POST create DefaultBodyLimit::max(8*1024)')" ]; then
+      echo "ok: self-test builds the route body limit inventory"
+    else
+      route_body_limit_inventory >&2
+      report_failure "self-test builds the route body limit inventory"
     fi
 
     if [ -n "$(read_replica_boundary_matches)" ]; then
