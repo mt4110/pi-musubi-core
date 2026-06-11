@@ -87,6 +87,7 @@ Current executable guards:
   - `begin_command(...)`
 - `OrchestrationRuntime` does not expose a replica option for those progression paths. It always uses `WriterReadSource::PrimaryWriter`.
 - `apps/backend/crates/orchestration/tests/runtime_contract.rs` includes `authoritative_progression_rejects_read_replica_sources`.
+- `apps/backend/crates/orchestration/tests/postgres_contract.rs` includes `postgres_begin_command_reclaims_expired_processing_lease`.
 
 Why this matters:
 - settlement progression
