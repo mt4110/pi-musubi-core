@@ -204,6 +204,9 @@ transaction_provider_adapter_colocation_matches() {
           END { print $count || 0; }
         ' "$path"
       )"
+      if [ "$raw_transaction_count" -eq 0 ]; then
+        continue
+      fi
 
       local provider_adapter_count
       provider_adapter_count="$(
@@ -235,6 +238,9 @@ transaction_provider_colocation_matches() {
           END { print $count || 0; }
         ' "$path"
       )"
+      if [ "$raw_transaction_count" -eq 0 ]; then
+        continue
+      fi
 
       local provider_callsite_count
       provider_callsite_count="$(
