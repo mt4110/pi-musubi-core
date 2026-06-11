@@ -108,6 +108,9 @@ Current executable tests:
 - `postgres_helpers_keep_truth_and_outbox_in_same_transaction`
 
 This is intentionally database-shaped logic, not in-memory optimism.
+The `backend-db-smoke` CI workflow runs the `musubi_orchestration` package tests
+after DB bootstrap and migrations, so those PostgreSQL-backed contracts are
+covered before the HTTP smoke suite.
 
 ### 3. Drop-Tx-Before-Await at the runtime seam
 
@@ -318,7 +321,8 @@ Product and later domain flows must not describe this as complete anti-spoofing.
 ## Expected next improvements
 
 The next meaningful upgrades would be:
-- add integration tests around real PostgreSQL writer/claim/persist flows as the happy route grows
+- broaden integration tests around real PostgreSQL writer/claim/persist flows
+  as the happy route grows beyond the current orchestration contracts
 - broaden the transaction/provider co-location tripwire into syntax-aware
   linting that understands function-level await ordering
 - turn the archive-before-prune source tripwire into a syntax-aware lifecycle

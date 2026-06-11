@@ -45,10 +45,11 @@ jobs:
           cargo run -p musubi-ops -- db bootstrap
           cargo run -p musubi-ops -- db migrate
           cargo run -p musubi-ops -- db status
-      - name: Runtime and backend checks
+      - name: Runtime, orchestration, and backend checks
         working-directory: apps/backend
         run: |
           cargo test -p musubi_db_runtime
+          cargo test -p musubi_orchestration
           cargo test -p musubi_backend
       - name: HTTP Day 1 smoke
         working-directory: apps/backend
