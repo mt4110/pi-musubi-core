@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `b3e8c9b`
+Status: Draft; aligned to accepted foundation commit `5862e40`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `b3e8c9b370b320f86f39fc04e1fe0ca0feedf337`
-- Foundation commit title: `Merge pull request #235 from mt4110/feat/post-c2-orchestration-terminal-archive-payload-preservation-handoff`
-- Foundation PR title: `docs: evaluate post-C2 orchestration terminal archive payload preservation handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/235`
+- Foundation commit SHA: `5862e402ce37a0ac77001d23b956a8ff9ac1c746`
+- Foundation commit title: `Merge pull request #241 from mt4110/feat/post-c2-orchestration-terminal-quarantine-archive-diagnostics-preservation-handoff`
+- Foundation PR title: `docs: evaluate post-C2 orchestration terminal quarantine archive diagnostics preservation handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/241`
 - Date pinned: `2026-06-11`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/b3e8c9b370b320f86f39fc04e1fe0ca0feedf337`
-- Previous pinned reference: `e619312` / `Merge pull request #229 from mt4110/feat/post-c2-orchestration-prune-nonterminal-preservation-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5862e402ce37a0ac77001d23b956a8ff9ac1c746`
+- Previous pinned reference: `b3e8c9b` / `Merge pull request #235 from mt4110/feat/post-c2-orchestration-terminal-archive-payload-preservation-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -97,6 +97,9 @@ Pinned reference for implementation work:
 - Post-C2 orchestration prune nonterminal preservation implementation closeout source: `7713770` / `Merge pull request #231 from mt4110/feat/close-orchestration-prune-nonterminal-preservation-handoff`
 - Post-C2 orchestration terminal archive payload preservation evidence source: `b8ee362` / `Merge pull request #233 from mt4110/feat/orchestration-terminal-archive-payload-evidence`
 - Post-C2 orchestration terminal archive payload preservation handoff source: `b3e8c9b` / `Merge pull request #235 from mt4110/feat/post-c2-orchestration-terminal-archive-payload-preservation-handoff`
+- Post-C2 orchestration terminal archive payload preservation implementation closeout source: `ebccabd` / `Merge pull request #237 from mt4110/feat/close-orchestration-terminal-archive-payload-handoff`
+- Post-C2 orchestration terminal quarantine archive diagnostics preservation evidence source: `393f370` / `Merge pull request #239 from mt4110/feat/orchestration-terminal-quarantine-archive-diagnostics-evidence`
+- Post-C2 orchestration terminal quarantine archive diagnostics preservation handoff source: `5862e40` / `Merge pull request #241 from mt4110/feat/post-c2-orchestration-terminal-quarantine-archive-diagnostics-preservation-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -231,38 +234,41 @@ Before coding, read these upstream documents in order.
 114. `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_implementation_closeout_ledger.md`
 115. `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_evidence_package.md`
 116. `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_handoff_gate_decision.md`
+117. `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_implementation_closeout_ledger.md`
+118. `docs/readiness/post_c2_orchestration_terminal_quarantine_archive_diagnostics_preservation_evidence_package.md`
+119. `docs/readiness/post_c2_orchestration_terminal_quarantine_archive_diagnostics_preservation_handoff_gate_decision.md`
 
 ### Operations layer
-117. `docs/operations/readiness_routine.md`
-118. `docs/operations/runalways_readiness_orchestrator_design.md`
-119. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-120. `docs/operations/runalways_lane_controller_v0_1.md`
+120. `docs/operations/readiness_routine.md`
+121. `docs/operations/runalways_readiness_orchestrator_design.md`
+122. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+123. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-121. `docs/detail/accountability_matrix.md`
-122. `docs/detail/critical_incident_and_loss.md`
-123. `docs/detail/automated_decisioning_and_human_appeal.md`
-124. `docs/detail/youth_safety_and_age_assurance.md`
-125. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-126. `docs/detail/data_deletion_vs_legal_hold.md`
-127. `docs/detail/security_and_autonomy_hardening.md`
-128. `docs/detail/realm_model.md`
-129. `docs/detail/data_scope_model.md`
-130. `docs/detail/mobility_model.md`
-131. `docs/detail/settlement_model.md`
-132. `docs/detail/settlement_backend_trait.md`
-133. `docs/detail/proof_of_infrastructure.md`
-134. `docs/detail/protected_groups_and_translation_safety.md`
+124. `docs/detail/accountability_matrix.md`
+125. `docs/detail/critical_incident_and_loss.md`
+126. `docs/detail/automated_decisioning_and_human_appeal.md`
+127. `docs/detail/youth_safety_and_age_assurance.md`
+128. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+129. `docs/detail/data_deletion_vs_legal_hold.md`
+130. `docs/detail/security_and_autonomy_hardening.md`
+131. `docs/detail/realm_model.md`
+132. `docs/detail/data_scope_model.md`
+133. `docs/detail/mobility_model.md`
+134. `docs/detail/settlement_model.md`
+135. `docs/detail/settlement_backend_trait.md`
+136. `docs/detail/proof_of_infrastructure.md`
+137. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-135. `docs/whitepaper/01_executive_summary.md`
-136. `docs/whitepaper/02_realm_model.md`
-137. `docs/whitepaper/03_experience_model.md`
-138. `docs/whitepaper/04_dm_shield.md`
-139. `docs/whitepaper/05_trust_model.md`
-140. `docs/whitepaper/06_promise_protocol.md`
-141. `docs/whitepaper/07_realm_economy.md`
-142. `docs/whitepaper/08_unlock_engine.md`
+138. `docs/whitepaper/01_executive_summary.md`
+139. `docs/whitepaper/02_realm_model.md`
+140. `docs/whitepaper/03_experience_model.md`
+141. `docs/whitepaper/04_dm_shield.md`
+142. `docs/whitepaper/05_trust_model.md`
+143. `docs/whitepaper/06_promise_protocol.md`
+144. `docs/whitepaper/07_realm_economy.md`
+145. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -293,7 +299,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration terminal archive payload preservation verification.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration terminal quarantine archive diagnostics preservation verification.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -363,6 +369,9 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_evidence_package.md`
 - `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_handoff_gate_decision.md`
+- `docs/readiness/post_c2_orchestration_terminal_archive_payload_preservation_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_orchestration_terminal_quarantine_archive_diagnostics_preservation_evidence_package.md`
+- `docs/readiness/post_c2_orchestration_terminal_quarantine_archive_diagnostics_preservation_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -442,16 +451,21 @@ Foundation PR #221 provided the prior narrow downstream test-only handoff author
 That allowance was consumed by `mt4110/pi-musubi-core` PR #142 and closed out by foundation PR #223.
 Foundation PR #227 accepted the exact candidate test-only slice as post-C2 orchestration coordination prune nonterminal preservation verification.
 Foundation PR #229 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
-This update is the required lock pin for that one-use allowance.
-It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves pending and processing outbox / command inbox coordination rows and does not archive or delete them as terminal coordination rows, plus the two named backend-local guardrail documentation updates.
-It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+That consumed lock update authorized only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
+It allowed only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves pending and processing outbox / command inbox coordination rows and does not archive or delete them as terminal coordination rows, plus the two named backend-local guardrail documentation updates.
+It did not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 That allowance was consumed by `mt4110/pi-musubi-core` PR #143 and closed out by foundation PR #231.
 Foundation PR #233 accepted the exact candidate test-only slice as post-C2 orchestration terminal archive payload preservation verification.
-Foundation PR #235 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #235 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That consumed lock update authorized only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
+It allowed only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves terminal coordination archive payload and correlation evidence when existing hot-table coordination rows are moved to archive tables before pruning, plus the two named backend-local guardrail documentation updates.
+It did not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #144 and closed out by foundation PR #237.
+Foundation PR #239 accepted the exact candidate test-only slice as post-C2 orchestration terminal quarantine archive diagnostics preservation verification.
+Foundation PR #241 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
 It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves terminal coordination archive payload and correlation evidence when existing hot-table coordination rows are moved to archive tables before pruning, plus the two named backend-local guardrail documentation updates.
+It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves terminal quarantine and failure diagnostics when existing hot-table coordination rows are moved to archive tables before pruning, plus the two named backend-local guardrail documentation updates.
 It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
@@ -673,11 +687,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `e619312e3963c0769d242602c595b2e752fc4766` -> `b3e8c9b370b320f86f39fc04e1fe0ca0feedf337`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #235 (`docs: evaluate post-C2 orchestration terminal archive payload preservation handoff`).
-- New required docs: Post-C2 orchestration prune nonterminal preservation implementation closeout ledger; Post-C2 orchestration terminal archive payload preservation evidence package; Post-C2 orchestration terminal archive payload preservation handoff gate decision; RunAlways Lane Controller v0.1 operations protocol.
+- Updated from foundation SHA: `b3e8c9b370b320f86f39fc04e1fe0ca0feedf337` -> `5862e402ce37a0ac77001d23b956a8ff9ac1c746`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #241 (`docs: evaluate post-C2 orchestration terminal quarantine archive diagnostics preservation handoff`).
+- New required docs: Post-C2 orchestration terminal archive payload preservation implementation closeout ledger; Post-C2 orchestration terminal quarantine archive diagnostics preservation evidence package; Post-C2 orchestration terminal quarantine archive diagnostics preservation handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #235 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed terminal coordination archive payload preservation verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, Relationship Depth behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
+- Implementation impact: PR #241 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed terminal quarantine archive diagnostics preservation verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, Relationship Depth behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---

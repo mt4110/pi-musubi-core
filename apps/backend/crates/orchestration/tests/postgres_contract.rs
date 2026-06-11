@@ -1138,6 +1138,429 @@ async fn postgres_prune_preserves_terminal_archive_payloads() {
 }
 
 #[tokio::test]
+async fn postgres_prune_preserves_terminal_quarantine_archive_diagnostics() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x723);
+    let event_id = Uuid::from_u128(0x724);
+    let command_id = Uuid::from_u128(0x725);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x726),
+        stream_key: "settlement_case:quarantine-diagnostics".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-quarantine-diagnostics",
+            "retention_probe": { "kind": "terminal_quarantine_diagnostics" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert quarantine diagnostics outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'quarantined',
+            attempt_count = 2,
+            quarantined_at = $2,
+            last_attempt_at = $3,
+            last_error_class = $4,
+            last_error_code = $5,
+            last_error_detail = $6,
+            quarantine_reason = $7,
+            retain_until = $8
+        WHERE event_id = $1
+        ",
+        &[
+            &event_id,
+            &ts(40),
+            &ts(30),
+            &"permanent",
+            &"poison_payload",
+            &"payload cannot be parsed by relay",
+            &"poison_pill",
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to mark outbox event quarantined");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempts (
+            event_id,
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ",
+        &[
+            &event_id,
+            &2_i32,
+            &"settlement-relay",
+            &ts(20),
+            &ts(320),
+            &ts(30),
+            &"permanent",
+            &"poison_payload",
+            &"payload cannot be parsed by relay",
+            &"provider-key-quarantine-diagnostics",
+        ],
+    )
+    .await
+    .expect("failed to insert quarantined outbox attempt");
+
+    let command = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": aggregate_id }),
+    )
+    .unwrap();
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            last_error_class,
+            last_error_code,
+            last_error_detail,
+            quarantine_reason,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'quarantined', $6, 2, $7, $8, $9, $10, $11, $12, $13)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &command_id,
+            &event_id,
+            &command.payload_hash,
+            &ts(25),
+            &command.command_type,
+            &command.schema_version,
+            &"permanent",
+            &"poison_command",
+            &"command payload rejected by projection worker",
+            &"poison_pill",
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert quarantined command inbox row");
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune quarantine diagnostics coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![CommandKey {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        }]
+    );
+
+    let archived_event = tx
+        .query_one(
+            "
+            SELECT
+                archived_at,
+                final_status,
+                attempt_count,
+                quarantined_at,
+                last_attempt_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                retain_until
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read quarantined archived outbox event");
+    assert_eq!(
+        archived_event.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_event.get::<_, String>("final_status"),
+        "quarantined"
+    );
+    assert_eq!(archived_event.get::<_, i32>("attempt_count"), 2);
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("quarantined_at"),
+        Some(ts(40))
+    );
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("last_attempt_at"),
+        Some(ts(30))
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("last_error_class")
+            .as_deref(),
+        Some("permanent")
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("last_error_code")
+            .as_deref(),
+        Some("poison_payload")
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("last_error_detail")
+            .as_deref(),
+        Some("payload cannot be parsed by relay")
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("quarantine_reason")
+            .as_deref(),
+        Some("poison_pill")
+    );
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+
+    let archived_attempt = tx
+        .query_one(
+            "
+            SELECT
+                archived_at,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id = $1
+              AND attempt_number = $2
+            ",
+            &[&event_id, &2_i32],
+        )
+        .await
+        .expect("failed to read quarantined archived outbox attempt");
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, String>("relay_name"),
+        "settlement-relay"
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_at"),
+        ts(20)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_until"),
+        ts(320)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("finished_at"),
+        ts(30)
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("failure_class")
+            .as_deref(),
+        Some("permanent")
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("failure_code")
+            .as_deref(),
+        Some("poison_payload")
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("failure_detail")
+            .as_deref(),
+        Some("payload cannot be parsed by relay")
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("external_idempotency_key")
+            .as_deref(),
+        Some("provider-key-quarantine-diagnostics")
+    );
+
+    let archived_command = tx
+        .query_one(
+            "
+            SELECT
+                source_event_id,
+                archived_at,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                retain_until
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to read quarantined archived command inbox row");
+    assert_eq!(archived_command.get::<_, Uuid>("source_event_id"), event_id);
+    assert_eq!(
+        archived_command.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_command.get::<_, String>("command_type"),
+        command.command_type.as_str()
+    );
+    assert_eq!(
+        archived_command.get::<_, i32>("schema_version"),
+        command.schema_version
+    );
+    assert_eq!(archived_command.get::<_, String>("status"), "quarantined");
+    assert_eq!(archived_command.get::<_, i32>("attempt_count"), 2);
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some(command.payload_hash.as_str())
+    );
+    assert_eq!(
+        archived_command.get::<_, chrono::DateTime<Utc>>("received_at"),
+        ts(25)
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("last_error_class")
+            .as_deref(),
+        Some("permanent")
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("last_error_code")
+            .as_deref(),
+        Some("poison_command")
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("last_error_detail")
+            .as_deref(),
+        Some("command payload rejected by projection worker")
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("quarantine_reason")
+            .as_deref(),
+        Some("poison_pill")
+    );
+    assert_eq!(
+        archived_command.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot quarantined outbox events after prune")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot quarantined outbox attempts after prune")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to count hot quarantined command rows after prune")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 0);
+    assert_eq!(hot_attempt_count, 0);
+    assert_eq!(hot_command_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
