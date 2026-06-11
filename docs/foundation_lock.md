@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `575b60c`
+Status: Draft; aligned to accepted foundation commit `e619312`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `575b60c7b7bcff3f64fbac87343f391478217583`
-- Foundation commit title: `Merge pull request #221 from mt4110/feat/orchestration-command-lease-reclaim-handoff`
-- Foundation PR title: `docs: authorize command lease reclaim test handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/221`
+- Foundation commit SHA: `e619312e3963c0769d242602c595b2e752fc4766`
+- Foundation commit title: `Merge pull request #229 from mt4110/feat/post-c2-orchestration-prune-nonterminal-preservation-handoff`
+- Foundation PR title: `docs: evaluate post-C2 orchestration prune nonterminal preservation handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/229`
 - Date pinned: `2026-06-11`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/575b60c7b7bcff3f64fbac87343f391478217583`
-- Previous pinned reference: `feb4ebf` / `Merge pull request #213 from mt4110/feat/master-submaster-runtime-handoff-gate`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e619312e3963c0769d242602c595b2e752fc4766`
+- Previous pinned reference: `575b60c` / `Merge pull request #221 from mt4110/feat/orchestration-command-lease-reclaim-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -90,6 +90,9 @@ Pinned reference for implementation work:
 - Post-C2 Master / Submaster active authority writer fact shape handoff source: `0aa667b` / `Merge pull request #217 from mt4110/feat/master-submaster-active-authority-handoff-gate`
 - Post-C2 legal privacy consumer-contract quantitative gate handoff source: `6dbf34b` / `Merge pull request #218 from mt4110/feat/legal-privacy-quantitative-gate-handoff`
 - Post-C2 orchestration command lease reclaim test handoff source: `575b60c` / `Merge pull request #221 from mt4110/feat/orchestration-command-lease-reclaim-handoff`
+- Post-C2 orchestration command lease reclaim test implementation closeout source: `2821fc1` / `Merge pull request #223 from mt4110/feat/close-orchestration-command-lease-reclaim-handoff`
+- Post-C2 orchestration prune nonterminal preservation evidence source: `23cecc1` / `Merge pull request #227 from mt4110/feat/orchestration-prune-nonterminal-evidence`
+- Post-C2 orchestration prune nonterminal preservation handoff source: `e619312` / `Merge pull request #229 from mt4110/feat/post-c2-orchestration-prune-nonterminal-preservation-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -218,37 +221,40 @@ Before coding, read these upstream documents in order.
 108. `docs/readiness/post_c2_master_submaster_operator_seat_active_authority_writer_fact_shape_handoff_gate_decision.md`
 109. `docs/readiness/post_c2_legal_privacy_consumer_contract_quantitative_gate_handoff_gate_decision.md`
 110. `docs/readiness/post_c2_orchestration_command_lease_reclaim_test_handoff_gate_decision.md`
+111. `docs/readiness/post_c2_orchestration_command_lease_reclaim_test_implementation_closeout_ledger.md`
+112. `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_evidence_package.md`
+113. `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_handoff_gate_decision.md`
 
 ### Operations layer
-111. `docs/operations/readiness_routine.md`
-112. `docs/operations/runalways_readiness_orchestrator_design.md`
-113. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+114. `docs/operations/readiness_routine.md`
+115. `docs/operations/runalways_readiness_orchestrator_design.md`
+116. `docs/operations/runalways_readiness_orchestrator_stage0.md`
 
 ### Detail layer
-114. `docs/detail/accountability_matrix.md`
-115. `docs/detail/critical_incident_and_loss.md`
-116. `docs/detail/automated_decisioning_and_human_appeal.md`
-117. `docs/detail/youth_safety_and_age_assurance.md`
-118. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-119. `docs/detail/data_deletion_vs_legal_hold.md`
-120. `docs/detail/security_and_autonomy_hardening.md`
-121. `docs/detail/realm_model.md`
-122. `docs/detail/data_scope_model.md`
-123. `docs/detail/mobility_model.md`
-124. `docs/detail/settlement_model.md`
-125. `docs/detail/settlement_backend_trait.md`
-126. `docs/detail/proof_of_infrastructure.md`
-127. `docs/detail/protected_groups_and_translation_safety.md`
+117. `docs/detail/accountability_matrix.md`
+118. `docs/detail/critical_incident_and_loss.md`
+119. `docs/detail/automated_decisioning_and_human_appeal.md`
+120. `docs/detail/youth_safety_and_age_assurance.md`
+121. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+122. `docs/detail/data_deletion_vs_legal_hold.md`
+123. `docs/detail/security_and_autonomy_hardening.md`
+124. `docs/detail/realm_model.md`
+125. `docs/detail/data_scope_model.md`
+126. `docs/detail/mobility_model.md`
+127. `docs/detail/settlement_model.md`
+128. `docs/detail/settlement_backend_trait.md`
+129. `docs/detail/proof_of_infrastructure.md`
+130. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-128. `docs/whitepaper/01_executive_summary.md`
-129. `docs/whitepaper/02_realm_model.md`
-130. `docs/whitepaper/03_experience_model.md`
-131. `docs/whitepaper/04_dm_shield.md`
-132. `docs/whitepaper/05_trust_model.md`
-133. `docs/whitepaper/06_promise_protocol.md`
-134. `docs/whitepaper/07_realm_economy.md`
-135. `docs/whitepaper/08_unlock_engine.md`
+131. `docs/whitepaper/01_executive_summary.md`
+132. `docs/whitepaper/02_realm_model.md`
+133. `docs/whitepaper/03_experience_model.md`
+134. `docs/whitepaper/04_dm_shield.md`
+135. `docs/whitepaper/05_trust_model.md`
+136. `docs/whitepaper/06_promise_protocol.md`
+137. `docs/whitepaper/07_realm_economy.md`
+138. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -279,7 +285,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo docs-only PR for post-C2 Master / Submaster operator-seat runtime non-authority documentation.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration coordination prune nonterminal preservation verification.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -343,6 +349,9 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_master_submaster_operator_seat_active_authority_writer_fact_shape_handoff_gate_decision.md`
 - `docs/readiness/post_c2_legal_privacy_consumer_contract_quantitative_gate_handoff_gate_decision.md`
 - `docs/readiness/post_c2_orchestration_command_lease_reclaim_test_handoff_gate_decision.md`
+- `docs/readiness/post_c2_orchestration_command_lease_reclaim_test_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_evidence_package.md`
+- `docs/readiness/post_c2_orchestration_prune_nonterminal_preservation_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -417,11 +426,14 @@ Foundation PR #216 accepted the foundation-side Master / Submaster active author
 Foundation PR #217 kept the Master / Submaster active authority writer fact shape handoff result at NO-GO and did not authorize foundation lock alignment, downstream docs-only work, test-only work, schema-only work, DDL, migrations, runtime tests, backend code, public API changes, mobile UI, projection refresh, runtime orchestration, or `pi-musubi-core` changes.
 Foundation PR #218 accepted the legal / privacy / consumer-contract quantitative gate as a required future gate shape only.
 It did not authorize runtime implementation, DDL, migrations, runtime tests, gate invocation for implementation, runtime handoff, implementation handoff, backend code, public API changes, mobile UI, projection refresh, runtime orchestration, Terms of Service finalization, Privacy Policy finalization, blockchain anchoring, foundation lock alignment, downstream docs-only work, or `pi-musubi-core` changes.
-Foundation PR #221 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #221 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #142 and closed out by foundation PR #223.
+Foundation PR #227 accepted the exact candidate test-only slice as post-C2 orchestration coordination prune nonterminal preservation verification.
+Foundation PR #229 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
 It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only deterministic PostgreSQL-backed contract verification that an expired command inbox processing lease can be reclaimed and persisted as a fresh processing claim on the existing command inbox schema, plus the two named backend-local guardrail documentation updates.
-It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
+It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning preserves pending and processing outbox / command inbox coordination rows and does not archive or delete them as terminal coordination rows, plus the two named backend-local guardrail documentation updates.
+It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -642,11 +654,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `feb4ebfa5811517f5c93cff3eb77ee564bf89954` -> `575b60c7b7bcff3f64fbac87343f391478217583`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #221 (`docs: authorize command lease reclaim test handoff`).
-- New required docs: Post-C2 Master / Submaster operator-seat runtime non-authority implementation closeout ledger; Post-C2 Master / Submaster operator-seat active authority writer fact shape evidence package; Post-C2 legal / privacy / consumer-contract quantitative gate evidence package; Post-C2 Master / Submaster operator-seat active authority writer fact shape handoff gate decision; Post-C2 legal / privacy / consumer-contract quantitative gate handoff gate decision; Post-C2 orchestration command lease reclaim test handoff gate decision.
+- Updated from foundation SHA: `575b60c7b7bcff3f64fbac87343f391478217583` -> `e619312e3963c0769d242602c595b2e752fc4766`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #229 (`docs: evaluate post-C2 orchestration prune nonterminal preservation handoff`).
+- New required docs: Post-C2 orchestration command lease reclaim test implementation closeout ledger; Post-C2 orchestration prune nonterminal preservation evidence package; Post-C2 orchestration prune nonterminal preservation handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #221 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed command inbox expired processing lease reclaim verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning, archive, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, Relationship Depth behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
+- Implementation impact: PR #229 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed coordination prune nonterminal preservation verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, Relationship Depth behavior, Social Trust scoring, public trust display, and paid romantic advantage remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
