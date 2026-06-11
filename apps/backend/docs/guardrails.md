@@ -133,6 +133,7 @@ Current executable tests:
 - `postgres_prune_preserves_terminal_quarantine_archive_diagnostics`
 - `postgres_prune_is_idempotent_with_existing_archive_rows`
 - `postgres_prune_preserves_terminal_rows_before_retain_until`
+- `postgres_prune_separates_mixed_retention_eligibility_rows`
 - `postgres_prune_preserves_nonterminal_coordination_rows`
 
 These prove terminal outbox and command-inbox coordination rows are archived
@@ -147,7 +148,11 @@ not archived or deleted by the same prune helper, even when their retention
 timestamp is already in the past. The terminal retention eligibility contract
 proves that terminal published/quarantined outbox rows, their hot attempt rows,
 and completed/quarantined command-inbox rows are not archived or deleted when
-their `retain_until` is NULL or later than the prune timestamp.
+their `retain_until` is NULL or later than the prune timestamp. The mixed
+retention eligibility contract proves that one prune run archives and removes
+eligible terminal rows while retaining terminal rows whose `retain_until` is
+NULL or later than the prune timestamp, retaining their hot attempts, and
+preserving nonterminal coordination rows.
 
 ### 5. Drop-Tx-Before-Await at the runtime seam
 
