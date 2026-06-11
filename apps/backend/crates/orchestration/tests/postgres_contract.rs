@@ -711,6 +711,102 @@ async fn postgres_prune_archives_terminal_coordination_rows() {
 }
 
 #[tokio::test]
+async fn postgres_begin_command_reclaims_expired_processing_lease() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let command_id = Uuid::from_u128(0x715);
+    let source_event_id = Uuid::from_u128(0x716);
+    let command = CommandEnvelope::new(
+        command_id,
+        source_event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": "expired-lease" }),
+    )
+    .unwrap();
+
+    let first = PostgresOrchestrationStore::begin_command(
+        &tx,
+        "projection-builder",
+        &command,
+        ts(10),
+        ts(310),
+    )
+    .await
+    .expect("first command begin should insert processing lease");
+    assert!(matches!(
+        first,
+        CommandBeginOutcome::FirstSeen(entry)
+            if entry.status == musubi_orchestration::CommandInboxStatus::Processing
+                && entry.claimed_until == Some(ts(310))
+    ));
+
+    let reclaimed = PostgresOrchestrationStore::begin_command(
+        &tx,
+        "projection-builder",
+        &command,
+        ts(311),
+        ts(611),
+    )
+    .await
+    .expect("expired processing lease should be ready for retry");
+    assert!(matches!(
+        reclaimed,
+        CommandBeginOutcome::ReadyForRetry(entry)
+            if entry.status == musubi_orchestration::CommandInboxStatus::Processing
+                && entry.claimed_until == Some(ts(611))
+    ));
+
+    let row = tx
+        .query_one(
+            "
+            SELECT status, claimed_by, claimed_until
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to read reclaimed command inbox row");
+    let status: String = row.get("status");
+    let claimed_by: Option<String> = row.get("claimed_by");
+    let claimed_until: Option<chrono::DateTime<Utc>> = row.get("claimed_until");
+
+    assert_eq!(status, "processing");
+    assert_eq!(claimed_by.as_deref(), Some("projection-builder"));
+    assert_eq!(claimed_until, Some(ts(611)));
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn legacy_command_rows_without_payload_checksum_fail_gracefully() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;

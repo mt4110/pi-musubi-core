@@ -95,7 +95,17 @@ Why this matters:
 
 These are the places where replica lag would create duplicate execution or stale settlement truth.
 
-### 2. Idempotency behavior
+### 2. Command inbox lease reclaim
+
+Current executable tests:
+- `active_processing_lease_is_deferred_until_claim_expiry`
+- `postgres_begin_command_reclaims_expired_processing_lease`
+
+These prove active command processing leases defer duplicate delivery, while
+expired leases can be reclaimed and persisted as a new processing claim on the
+real PostgreSQL command inbox schema.
+
+### 3. Idempotency behavior
 
 Current executable guards:
 - producer-side duplicate outbox idempotency keys are rejected before a second authoritative change is recorded
@@ -114,7 +124,7 @@ The `backend-db-smoke` CI workflow runs the `musubi_orchestration` package tests
 after DB bootstrap and migrations, so those PostgreSQL-backed contracts are
 covered before the HTTP smoke suite.
 
-### 3. Coordination retention / pruning
+### 4. Coordination retention / pruning
 
 Current executable tests:
 - `pruning_archives_terminal_coordination_rows`
@@ -125,7 +135,7 @@ before hot-table pruning removes them. The PostgreSQL-backed contract covers
 event archive, attempt archive, command-inbox archive, and the returned prune
 outcome on the real schema.
 
-### 4. Drop-Tx-Before-Await at the runtime seam
+### 5. Drop-Tx-Before-Await at the runtime seam
 
 Current executable guards:
 - `OrchestrationRuntime::deliver_ready_outbox(...)` claims work first, then awaits publish, then records the result in a fresh store call
