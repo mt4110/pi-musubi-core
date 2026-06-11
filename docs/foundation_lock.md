@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `52d20d0`
+Status: Draft; aligned to accepted foundation commit `985eb58`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `52d20d010d71a006a07307fe9e4d8ff0bce57a84`
-- Foundation commit title: `docs: add orchestration prune mixed eligibility separation handoff gate`
-- Foundation PR title: `docs: add orchestration prune mixed eligibility separation handoff gate`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/259`
+- Foundation commit SHA: `985eb58d99346bf1f62e90b47a2b2ea1752043dc`
+- Foundation commit title: `Merge pull request #265 from mt4110/feat/post-c2-orchestration-prune-deterministic-outcome-ordering-handoff`
+- Foundation PR title: `docs: evaluate post-C2 orchestration prune deterministic outcome ordering handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/265`
 - Date pinned: `2026-06-12`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/52d20d010d71a006a07307fe9e4d8ff0bce57a84`
-- Previous pinned reference: `a77f78e` / `Merge pull request #253 from mt4110/feat/post-c2-orchestration-terminal-prune-retention-eligibility-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/985eb58d99346bf1f62e90b47a2b2ea1752043dc`
+- Previous pinned reference: `52d20d0` / `docs: add orchestration prune mixed eligibility separation handoff gate`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -109,6 +109,9 @@ Pinned reference for implementation work:
 - Post-C2 orchestration terminal prune retention eligibility implementation closeout source: `be7d8bb` / `docs: close orchestration terminal prune retention eligibility handoff`
 - Post-C2 orchestration prune mixed eligibility separation evidence source: `ab8f6f5` / `docs: define orchestration prune mixed eligibility separation evidence`
 - Post-C2 orchestration prune mixed eligibility separation handoff source: `52d20d0` / `docs: add orchestration prune mixed eligibility separation handoff gate`
+- Post-C2 orchestration prune mixed eligibility separation implementation closeout source: `7d732d9` / `docs: close orchestration prune mixed eligibility separation handoff`
+- Post-C2 orchestration prune deterministic outcome ordering evidence source: `4d95282` / `Merge pull request #263 from mt4110/feat/orchestration-prune-deterministic-outcome-ordering-evidence`
+- Post-C2 orchestration prune deterministic outcome ordering handoff source: `985eb58` / `Merge pull request #265 from mt4110/feat/post-c2-orchestration-prune-deterministic-outcome-ordering-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -255,38 +258,41 @@ Before coding, read these upstream documents in order.
 126. `docs/readiness/post_c2_orchestration_terminal_prune_retention_eligibility_implementation_closeout_ledger.md`
 127. `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_evidence_package.md`
 128. `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_handoff_gate_decision.md`
+129. `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_implementation_closeout_ledger.md`
+130. `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_evidence_package.md`
+131. `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_handoff_gate_decision.md`
 
 ### Operations layer
-129. `docs/operations/readiness_routine.md`
-130. `docs/operations/runalways_readiness_orchestrator_design.md`
-131. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-132. `docs/operations/runalways_lane_controller_v0_1.md`
+132. `docs/operations/readiness_routine.md`
+133. `docs/operations/runalways_readiness_orchestrator_design.md`
+134. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+135. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-133. `docs/detail/accountability_matrix.md`
-134. `docs/detail/critical_incident_and_loss.md`
-135. `docs/detail/automated_decisioning_and_human_appeal.md`
-136. `docs/detail/youth_safety_and_age_assurance.md`
-137. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-138. `docs/detail/data_deletion_vs_legal_hold.md`
-139. `docs/detail/security_and_autonomy_hardening.md`
-140. `docs/detail/realm_model.md`
-141. `docs/detail/data_scope_model.md`
-142. `docs/detail/mobility_model.md`
-143. `docs/detail/settlement_model.md`
-144. `docs/detail/settlement_backend_trait.md`
-145. `docs/detail/proof_of_infrastructure.md`
-146. `docs/detail/protected_groups_and_translation_safety.md`
+136. `docs/detail/accountability_matrix.md`
+137. `docs/detail/critical_incident_and_loss.md`
+138. `docs/detail/automated_decisioning_and_human_appeal.md`
+139. `docs/detail/youth_safety_and_age_assurance.md`
+140. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+141. `docs/detail/data_deletion_vs_legal_hold.md`
+142. `docs/detail/security_and_autonomy_hardening.md`
+143. `docs/detail/realm_model.md`
+144. `docs/detail/data_scope_model.md`
+145. `docs/detail/mobility_model.md`
+146. `docs/detail/settlement_model.md`
+147. `docs/detail/settlement_backend_trait.md`
+148. `docs/detail/proof_of_infrastructure.md`
+149. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-147. `docs/whitepaper/01_executive_summary.md`
-148. `docs/whitepaper/02_realm_model.md`
-149. `docs/whitepaper/03_experience_model.md`
-150. `docs/whitepaper/04_dm_shield.md`
-151. `docs/whitepaper/05_trust_model.md`
-152. `docs/whitepaper/06_promise_protocol.md`
-153. `docs/whitepaper/07_realm_economy.md`
-154. `docs/whitepaper/08_unlock_engine.md`
+150. `docs/whitepaper/01_executive_summary.md`
+151. `docs/whitepaper/02_realm_model.md`
+152. `docs/whitepaper/03_experience_model.md`
+153. `docs/whitepaper/04_dm_shield.md`
+154. `docs/whitepaper/05_trust_model.md`
+155. `docs/whitepaper/06_promise_protocol.md`
+156. `docs/whitepaper/07_realm_economy.md`
+157. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -317,7 +323,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration prune mixed eligibility separation verification.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration prune deterministic outcome ordering verification.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -399,6 +405,9 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_orchestration_terminal_prune_retention_eligibility_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_evidence_package.md`
 - `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_handoff_gate_decision.md`
+- `docs/readiness/post_c2_orchestration_prune_mixed_eligibility_separation_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_evidence_package.md`
+- `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -501,10 +510,13 @@ Foundation PR #251 accepted the exact candidate test-only slice as post-C2 orche
 Foundation PR #253 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
 That allowance was consumed by `mt4110/pi-musubi-core` PR #147 and closed out by foundation PR #255.
 Foundation PR #257 accepted the exact candidate test-only slice as post-C2 orchestration prune mixed eligibility separation verification.
-Foundation PR #259 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #259 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #148 and closed out by foundation PR #261.
+Foundation PR #263 accepted the exact candidate test-only slice as post-C2 orchestration prune deterministic outcome ordering verification.
+Foundation PR #265 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
 It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning separates eligible and ineligible terminal coordination rows in the same prune run, proves eligible terminal outbox events and command inbox rows are archived and removed from hot state, proves eligible-row outbox attempts are archived and removed from hot state, proves retained terminal rows and their attempts remain hot, and proves pending, processing, or otherwise nonterminal rows remain protected, plus the required backend-local guardrail documentation and raw transaction inventory updates.
+It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning returns stable prune outcome ordering when multiple eligible terminal coordination rows are pruned in one run, proves outbox outcomes follow writer-owned replay order, proves command inbox outcomes follow stable command-key order, proves reported rows are archived and removed from hot state, proves retained terminal rows and nonterminal rows are not reported or removed, plus the required backend-local guardrail documentation and raw transaction inventory updates.
 It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, paid romantic advantage, DM unlock by payment, or any broader `pi-musubi-core` change.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
@@ -726,11 +738,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `4f1faafe231faf6ae4ad8314a3650d5e6f781e37` -> `a77f78eb3ccbc04edd5b0741848b98a862a9b5b7`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #253 (`docs: evaluate post-C2 orchestration terminal prune retention eligibility handoff`).
-- New required docs: Post-C2 orchestration prune archive conflict idempotency implementation closeout ledger; Post-C2 orchestration terminal prune retention eligibility evidence package; Post-C2 orchestration terminal prune retention eligibility handoff gate decision.
+- Updated from foundation SHA: `52d20d010d71a006a07307fe9e4d8ff0bce57a84` -> `985eb58d99346bf1f62e90b47a2b2ea1752043dc`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #265 (`docs: evaluate post-C2 orchestration prune deterministic outcome ordering handoff`).
+- New required docs: Post-C2 orchestration prune mixed eligibility separation implementation closeout ledger; Post-C2 orchestration prune deterministic outcome ordering evidence package; Post-C2 orchestration prune deterministic outcome ordering handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #253 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed terminal prune retention eligibility verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, Relationship Depth behavior, Social Trust scoring, public trust display, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, paid romantic advantage, and DM unlock by payment remain blocked.
+- Implementation impact: PR #265 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed prune outcome ordering verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, runtime prune fixes, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, Relationship Depth behavior, Social Trust scoring, public trust display, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, paid romantic advantage, and DM unlock by payment remain blocked.
 - Review completed by: Masaki Takemura
 
 ---
