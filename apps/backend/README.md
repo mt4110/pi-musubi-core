@@ -144,6 +144,10 @@ set +a
 cargo test -p musubi_orchestration
 ```
 
+The `backend-db-smoke` CI workflow also runs this package after DB bootstrap
+and migrations, so the PostgreSQL-backed orchestration contract stays covered
+before the HTTP smoke suite.
+
 ### Run the backend checks
 
 For the full local backend verification path, including local Postgres/Redis,
