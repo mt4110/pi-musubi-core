@@ -114,7 +114,18 @@ The `backend-db-smoke` CI workflow runs the `musubi_orchestration` package tests
 after DB bootstrap and migrations, so those PostgreSQL-backed contracts are
 covered before the HTTP smoke suite.
 
-### 3. Drop-Tx-Before-Await at the runtime seam
+### 3. Coordination retention / pruning
+
+Current executable tests:
+- `pruning_archives_terminal_coordination_rows`
+- `postgres_prune_archives_terminal_coordination_rows`
+
+These prove terminal outbox and command-inbox coordination rows are archived
+before hot-table pruning removes them. The PostgreSQL-backed contract covers
+event archive, attempt archive, command-inbox archive, and the returned prune
+outcome on the real schema.
+
+### 4. Drop-Tx-Before-Await at the runtime seam
 
 Current executable guards:
 - `OrchestrationRuntime::deliver_ready_outbox(...)` claims work first, then awaits publish, then records the result in a fresh store call

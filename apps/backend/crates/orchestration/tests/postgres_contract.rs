@@ -4,7 +4,7 @@ use tokio_postgres::NoTls;
 use uuid::Uuid;
 
 use musubi_orchestration::{
-    AuthoritativeSqlCommand, CommandBeginOutcome, CommandEnvelope, NewOutboxMessage,
+    AuthoritativeSqlCommand, CommandBeginOutcome, CommandEnvelope, CommandKey, NewOutboxMessage,
     NewOutboxMessageSpec, OrchestrationError, PostgresOrchestrationStore, SqlParam,
 };
 
@@ -482,6 +482,228 @@ async fn postgres_duplicate_outbox_idempotency_rolls_back_authoritative_sql() {
     assert_eq!(second_fact_count, 0);
     assert_eq!(first_outbox_count, 1);
     assert_eq!(second_outbox_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
+async fn postgres_prune_archives_terminal_coordination_rows() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x711);
+    let event_id = Uuid::from_u128(0x712);
+    let command_id = Uuid::from_u128(0x713);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x714),
+        stream_key: "settlement_case:711".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "intent_id": "intent-prune" }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert prune outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'published',
+            attempt_count = 1,
+            published_at = $2,
+            retain_until = $3,
+            published_external_idempotency_key = $4
+        WHERE event_id = $1
+        ",
+        &[&event_id, &ts(10), &ts(100), &"provider-key-prune"],
+    )
+    .await
+    .expect("failed to mark outbox event terminal");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempts (
+            event_id,
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+        ",
+        &[
+            &event_id,
+            &1_i32,
+            &"settlement-relay",
+            &ts(0),
+            &ts(300),
+            &ts(10),
+            &"provider-key-prune",
+        ],
+    )
+    .await
+    .expect("failed to insert outbox attempt");
+
+    let command = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": aggregate_id }),
+    )
+    .unwrap();
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &command_id,
+            &event_id,
+            &command.payload_hash,
+            &ts(20),
+            &command.command_type,
+            &command.schema_version,
+            &ts(30),
+            &"projected",
+            &json!({ "projection_id": "projection-prune" }),
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert completed command inbox row");
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![CommandKey {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        }]
+    );
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox events")
+        .get("count");
+    let archived_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count archived outbox events")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox attempts")
+        .get("count");
+    let archived_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempt_archive WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count archived outbox attempts")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to count hot command inbox rows")
+        .get("count");
+    let archived_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to count archived command inbox rows")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 0);
+    assert_eq!(archived_outbox_count, 1);
+    assert_eq!(hot_attempt_count, 0);
+    assert_eq!(archived_attempt_count, 1);
+    assert_eq!(hot_command_count, 0);
+    assert_eq!(archived_command_count, 1);
 
     tx.rollback()
         .await
