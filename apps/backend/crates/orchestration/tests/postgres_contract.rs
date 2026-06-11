@@ -3554,6 +3554,370 @@ async fn postgres_prune_returns_deterministic_outcome_ordering() {
 }
 
 #[tokio::test]
+async fn postgres_prune_archives_all_attempts_for_eligible_terminal_outbox_event() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x780);
+    let event_id = Uuid::from_u128(0x781);
+    let command_id = Uuid::from_u128(0x782);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x783),
+        stream_key: "settlement_case:attempt-archive-completeness".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-attempt-archive-completeness",
+            "retention_probe": { "kind": "outbox_attempt_archive_completeness" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert attempt archive completeness outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'published',
+            attempt_count = 3,
+            published_at = $2,
+            last_attempt_at = $3,
+            retain_until = $4,
+            published_external_idempotency_key = $5
+        WHERE event_id = $1
+        ",
+        &[
+            &event_id,
+            &ts(30),
+            &ts(30),
+            &ts(100),
+            &"provider-key-attempt-completeness-3",
+        ],
+    )
+    .await
+    .expect("failed to mark attempt archive completeness outbox event terminal");
+
+    let attempts: [(
+        i32,
+        &str,
+        chrono::DateTime<Utc>,
+        chrono::DateTime<Utc>,
+        chrono::DateTime<Utc>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+    ); 3] = [
+        (
+            1,
+            "settlement-relay-a",
+            ts(0),
+            ts(300),
+            ts(10),
+            Some("transient"),
+            Some("rate_limited"),
+            Some("relay rate limit"),
+            Some("provider-key-attempt-completeness-1"),
+        ),
+        (
+            2,
+            "settlement-relay-b",
+            ts(11),
+            ts(311),
+            ts(20),
+            Some("transient"),
+            Some("timeout"),
+            Some("provider timeout"),
+            Some("provider-key-attempt-completeness-2"),
+        ),
+        (
+            3,
+            "settlement-relay-a",
+            ts(21),
+            ts(321),
+            ts(30),
+            None,
+            None,
+            None,
+            Some("provider-key-attempt-completeness-3"),
+        ),
+    ];
+
+    for (
+        attempt_number,
+        relay_name,
+        claimed_at,
+        claimed_until,
+        finished_at,
+        failure_class,
+        failure_code,
+        failure_detail,
+        external_idempotency_key,
+    ) in &attempts
+    {
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_attempts (
+                event_id,
+                attempt_number,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ",
+            &[
+                &event_id,
+                attempt_number,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key,
+            ],
+        )
+        .await
+        .expect("failed to insert attempt archive completeness outbox attempt");
+    }
+
+    let command = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": aggregate_id }),
+    )
+    .unwrap();
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &command.command_id,
+            &command.source_event_id,
+            &command.payload_hash,
+            &ts(40),
+            &command.command_type,
+            &command.schema_version,
+            &ts(50),
+            &"projected",
+            &json!({ "projection_id": "projection-attempt-archive-completeness" }),
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert attempt archive completeness command inbox row");
+
+    let hot_attempt_count_before: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox attempts before prune")
+        .get("count");
+    assert_eq!(hot_attempt_count_before, 3);
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune attempt archive completeness coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![CommandKey {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        }]
+    );
+
+    let archived_event = tx
+        .query_one(
+            "
+            SELECT COUNT(*) OVER () AS archive_row_count,
+                   attempt_count
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read attempt archive completeness outbox archive row");
+    assert_eq!(archived_event.get::<_, i64>("archive_row_count"), 1);
+    assert_eq!(archived_event.get::<_, i32>("attempt_count"), 3);
+
+    let archived_attempts = tx
+        .query(
+            "
+            SELECT
+                attempt_number,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id = $1
+            ORDER BY attempt_number
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read attempt archive completeness outbox attempt archive rows");
+    assert_eq!(archived_attempts.len(), attempts.len());
+
+    for (
+        archived_attempt,
+        (
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key,
+        ),
+    ) in archived_attempts.iter().zip(attempts.iter())
+    {
+        assert_eq!(
+            archived_attempt.get::<_, i32>("attempt_number"),
+            *attempt_number
+        );
+        assert_eq!(archived_attempt.get::<_, String>("relay_name"), *relay_name);
+        assert_eq!(
+            archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_at"),
+            *claimed_at
+        );
+        assert_eq!(
+            archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_until"),
+            *claimed_until
+        );
+        assert_eq!(
+            archived_attempt.get::<_, chrono::DateTime<Utc>>("finished_at"),
+            *finished_at
+        );
+        assert_eq!(
+            archived_attempt
+                .get::<_, Option<String>>("failure_class")
+                .as_deref(),
+            *failure_class
+        );
+        assert_eq!(
+            archived_attempt
+                .get::<_, Option<String>>("failure_code")
+                .as_deref(),
+            *failure_code
+        );
+        assert_eq!(
+            archived_attempt
+                .get::<_, Option<String>>("failure_detail")
+                .as_deref(),
+            *failure_detail
+        );
+        assert_eq!(
+            archived_attempt
+                .get::<_, Option<String>>("external_idempotency_key")
+                .as_deref(),
+            *external_idempotency_key
+        );
+    }
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox events after attempt archive completeness prune")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox attempts after attempt archive completeness prune")
+        .get("count");
+    let archived_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempt_archive WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count archived outbox attempts after attempt archive completeness prune")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 0);
+    assert_eq!(hot_attempt_count, 0);
+    assert_eq!(archived_attempt_count, hot_attempt_count_before);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
