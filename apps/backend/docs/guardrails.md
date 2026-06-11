@@ -132,6 +132,7 @@ Current executable tests:
 - `postgres_prune_preserves_terminal_archive_payloads`
 - `postgres_prune_preserves_terminal_quarantine_archive_diagnostics`
 - `postgres_prune_is_idempotent_with_existing_archive_rows`
+- `postgres_prune_preserves_terminal_rows_before_retain_until`
 - `postgres_prune_preserves_nonterminal_coordination_rows`
 
 These prove terminal outbox and command-inbox coordination rows are archived
@@ -143,7 +144,10 @@ The archive conflict contract proves preexisting archive rows are not duplicated
 or overwritten while matching prune-ready hot rows are removed. The nonterminal
 preservation contract proves that pending and processing coordination rows are
 not archived or deleted by the same prune helper, even when their retention
-timestamp is already in the past.
+timestamp is already in the past. The terminal retention eligibility contract
+proves that terminal published/quarantined outbox rows, their hot attempt rows,
+and completed/quarantined command-inbox rows are not archived or deleted when
+their `retain_until` is NULL or later than the prune timestamp.
 
 ### 5. Drop-Tx-Before-Await at the runtime seam
 
