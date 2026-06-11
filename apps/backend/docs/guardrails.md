@@ -20,6 +20,8 @@ checks. It fails if backend source, backend crates, or migrations introduce:
 - production outbox / command-inbox hot-table pruning that deletes before the
   required archive inserts;
 - settlement/provider adapter surface drift from the reviewed inventory;
+- production files that co-locate raw DB transaction surface with
+  settlement/provider adapter surface;
 - settlement/provider callsite surface drift from the reviewed inventory;
 - production files that co-locate raw DB transaction surface with
   settlement/provider callsites;
@@ -54,6 +56,7 @@ representative forbidden fixtures and verifies that the sweep patterns detect:
 - production archive-before-prune detection for outbox and command-inbox hot
   tables;
 - provider adapter inventory construction;
+- transaction/provider adapter co-location detection;
 - provider callsite inventory construction;
 - transaction/provider callsite co-location detection;
 - method- and handler-aware public HTTP route inventory construction;
@@ -165,6 +168,14 @@ the happy-route service. New provider adapter types, implementations, or hook
 methods must update that inventory deliberately after review. This prevents
 silent provider-boundary growth; it does not prove adapter correctness or
 provider guarantee semantics.
+
+The sweep also checks production source for files that contain both raw DB
+transaction surface and settlement/provider adapter surface. Today adapter
+surface stays file-separated from transaction-heavy repository code. If a
+future file contains both surfaces, CI fails so reviewers can inspect the
+provider boundary before adapter logic is allowed to share a raw transaction
+surface. This is a coarse file-level tripwire, not a proof that every adapter
+method is side-effect free or correctly sequenced.
 
 `apps/backend/docs/provider_callsite_inventory.txt` fixes the current
 production provider callsite surface by file and matching-call count for
@@ -314,7 +325,8 @@ The next meaningful upgrades would be:
   lint once coordination lifecycle shapes grow beyond the current SQL helpers
 - turn the internal route inventory into route-metadata linting once gate/auth
   declarations are centralized
-- turn the provider adapter and callsite inventories into a richer boundary lint once production Pi networking is pinned
+- turn the provider adapter and callsite inventories plus co-location
+  tripwires into a richer boundary lint once production Pi networking is pinned
 
 ## Bottom line
 

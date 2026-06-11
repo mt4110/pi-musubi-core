@@ -192,6 +192,37 @@ provider_callsite_inventory() {
     sort -k2,2
 }
 
+transaction_provider_adapter_colocation_matches() {
+  git ls-files -- apps/backend/src apps/backend/crates |
+    awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
+    while IFS= read -r path; do
+      local raw_transaction_count
+      raw_transaction_count="$(
+        RAW_TRANSACTION_PATTERN="$RAW_TRANSACTION_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{RAW_TRANSACTION_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+
+      local provider_adapter_count
+      provider_adapter_count="$(
+        PROVIDER_ADAPTER_PATTERN="$PROVIDER_ADAPTER_PATTERN" perl -0ne '
+          BEGIN { $pattern = qr/$ENV{PROVIDER_ADAPTER_PATTERN}/; }
+          while (/$pattern/g) { $count++; }
+          END { print $count || 0; }
+        ' "$path"
+      )"
+
+      if [ "$raw_transaction_count" -gt 0 ] && [ "$provider_adapter_count" -gt 0 ]; then
+        printf "%s:1: raw transaction surface (%s) and provider adapter surface (%s) are co-located\n" \
+          "$path" \
+          "$raw_transaction_count" \
+          "$provider_adapter_count"
+      fi
+    done
+}
+
 transaction_provider_colocation_matches() {
   git ls-files -- apps/backend/src apps/backend/crates |
     awk -v pattern="$PRODUCTION_SOURCE_PATTERN" '$0 ~ pattern { print }' |
@@ -541,6 +572,17 @@ check_provider_callsite_inventory() {
   rm -f "$actual_path"
 }
 
+check_transaction_provider_adapter_colocation() {
+  local matches
+  matches="$(transaction_provider_adapter_colocation_matches)"
+  if [ -n "$matches" ]; then
+    echo "$matches" >&2
+    report_failure "production files must not co-locate raw DB transaction surface with provider adapter surface"
+  else
+    echo "ok: production transaction and provider adapter surfaces stay separated by file"
+  fi
+}
+
 check_transaction_provider_colocation() {
   local matches
   matches="$(transaction_provider_colocation_matches)"
@@ -716,6 +758,7 @@ run_sweep() {
   check_coordination_prune_inventory
   check_archive_before_prune
   check_provider_adapter_inventory
+  check_transaction_provider_adapter_colocation
   check_provider_callsite_inventory
   check_transaction_provider_colocation
   check_no_matches \
@@ -851,6 +894,16 @@ run_self_test() {
     else
       provider_adapter_inventory >&2
       report_failure "self-test builds the provider adapter inventory"
+    fi
+
+    printf 'let tx = client.transaction().await?;\nstruct InlineSettlementBackend;\nimpl SettlementBackend for InlineSettlementBackend {}\n' > apps/backend/src/transaction_provider_adapter_colocation.rs
+    git add apps/backend/src/transaction_provider_adapter_colocation.rs
+
+    if [ "$(transaction_provider_adapter_colocation_matches)" = "$(printf 'apps/backend/src/transaction_provider_adapter_colocation.rs:1: raw transaction surface (1) and provider adapter surface (2) are co-located')" ]; then
+      echo "ok: self-test catches transaction and provider adapter co-location"
+    else
+      transaction_provider_adapter_colocation_matches >&2
+      report_failure "self-test catches transaction and provider adapter co-location"
     fi
 
     if [ "$(provider_callsite_inventory)" = "$(printf '9 apps/backend/src/provider_callsite.rs')" ]; then
