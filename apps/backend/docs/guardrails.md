@@ -106,6 +106,7 @@ Current executable tests:
 - `duplicate_outbox_idempotency_key_does_not_duplicate_truth`
 - `duplicate_consumer_delivery_is_a_no_op`
 - `postgres_helpers_keep_truth_and_outbox_in_same_transaction`
+- `postgres_authoritative_write_rolls_back_truth_and_outbox_together`
 
 This is intentionally database-shaped logic, not in-memory optimism.
 The `backend-db-smoke` CI workflow runs the `musubi_orchestration` package tests

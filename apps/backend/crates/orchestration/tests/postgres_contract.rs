@@ -212,6 +212,117 @@ async fn postgres_helper_rejects_empty_authoritative_write_batch() {
 }
 
 #[tokio::test]
+async fn postgres_authoritative_write_rolls_back_truth_and_outbox_together() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let mut tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+    tx.batch_execute(
+        "
+        CREATE TEMP TABLE authoritative_facts_rollback (
+            fact_id UUID PRIMARY KEY,
+            fact_kind TEXT NOT NULL
+        )
+        ",
+    )
+    .await
+    .expect("failed to create temp authoritative_facts_rollback table");
+
+    let fact_id = Uuid::from_u128(0x709);
+    let event_id = Uuid::from_u128(0x70a);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x70b),
+        stream_key: "settlement_case:709".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: fact_id,
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "fact_id": fact_id }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    let authoritative_commands = [AuthoritativeSqlCommand {
+        statement: "INSERT INTO authoritative_facts_rollback (fact_id, fact_kind) VALUES ($1, $2)",
+        params: vec![
+            &fact_id as SqlParam<'_>,
+            &"receipt_recorded" as SqlParam<'_>,
+        ],
+    }];
+
+    let rollback_tx = tx
+        .transaction()
+        .await
+        .expect("failed to open rollback transaction");
+    PostgresOrchestrationStore::record_authoritative_write(
+        &rollback_tx,
+        &authoritative_commands,
+        &message,
+    )
+    .await
+    .expect("same-tx authoritative write + outbox insert should succeed");
+    rollback_tx
+        .rollback()
+        .await
+        .expect("rollback should discard truth and outbox rows");
+
+    let fact_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM authoritative_facts_rollback
+            WHERE fact_id = $1
+            ",
+            &[&fact_id],
+        )
+        .await
+        .expect("failed to count rolled-back authoritative facts")
+        .get("count");
+    let outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count rolled-back outbox events")
+        .get("count");
+
+    assert_eq!(fact_count, 0);
+    assert_eq!(outbox_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn legacy_command_rows_without_payload_checksum_fail_gracefully() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
