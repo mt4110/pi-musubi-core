@@ -711,6 +711,241 @@ async fn postgres_prune_archives_terminal_coordination_rows() {
 }
 
 #[tokio::test]
+async fn postgres_prune_preserves_nonterminal_coordination_rows() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let pending_event_id = Uuid::from_u128(0x717);
+    let processing_event_id = Uuid::from_u128(0x718);
+    let pending_command_id = Uuid::from_u128(0x719);
+    let processing_command_id = Uuid::from_u128(0x71a);
+
+    for (event_id, idempotency_key, aggregate_id, label) in [
+        (
+            pending_event_id,
+            Uuid::from_u128(0x71b),
+            Uuid::from_u128(0x71c),
+            "pending-prune",
+        ),
+        (
+            processing_event_id,
+            Uuid::from_u128(0x71d),
+            Uuid::from_u128(0x71e),
+            "processing-prune",
+        ),
+    ] {
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key,
+            stream_key: format!("settlement_case:{label}"),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({ "intent_id": label }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+        PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+            .await
+            .expect("failed to insert nonterminal outbox message");
+    }
+
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET retain_until = $2
+        WHERE event_id = $1
+        ",
+        &[&pending_event_id, &ts(100)],
+    )
+    .await
+    .expect("failed to mark pending outbox retain_until");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'processing',
+            claimed_by = $2,
+            claimed_until = $3,
+            retain_until = $4
+        WHERE event_id = $1
+        ",
+        &[
+            &processing_event_id,
+            &"settlement-relay",
+            &ts(300),
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to mark processing outbox retain_until");
+
+    let pending_command = CommandEnvelope::new(
+        pending_command_id,
+        pending_event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": "pending-prune" }),
+    )
+    .unwrap();
+    let processing_command = CommandEnvelope::new(
+        processing_command_id,
+        processing_event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": "processing-prune" }),
+    )
+    .unwrap();
+
+    for (command, status, claimed_by, claimed_until) in [
+        (&pending_command, "pending", None, None),
+        (
+            &processing_command,
+            "processing",
+            Some("projection-builder"),
+            Some(ts(300)),
+        ),
+    ] {
+        tx.execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                command_id,
+                source_event_id,
+                payload_checksum,
+                received_at,
+                status,
+                available_at,
+                attempt_count,
+                command_type,
+                schema_version,
+                claimed_by,
+                claimed_until,
+                retain_until
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $6, 0, $8, $9, $10, $11, $12)
+            ",
+            &[
+                &Uuid::new_v4(),
+                &"projection-builder",
+                &command.command_id,
+                &command.source_event_id,
+                &command.payload_hash,
+                &ts(0),
+                &status,
+                &command.command_type,
+                &command.schema_version,
+                &claimed_by,
+                &claimed_until,
+                &ts(100),
+            ],
+        )
+        .await
+        .expect("failed to insert nonterminal command inbox row");
+    }
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune coordination rows");
+
+    assert!(outcome.pruned_outbox_event_ids.is_empty());
+    assert!(outcome.pruned_command_keys.is_empty());
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&pending_event_id, &processing_event_id],
+        )
+        .await
+        .expect("failed to count nonterminal hot outbox rows")
+        .get("count");
+    let archived_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_event_archive
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&pending_event_id, &processing_event_id],
+        )
+        .await
+        .expect("failed to count nonterminal archived outbox rows")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3)
+            ",
+            &[
+                &"projection-builder",
+                &pending_command_id,
+                &processing_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count nonterminal hot command inbox rows")
+        .get("count");
+    let archived_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3)
+            ",
+            &[
+                &"projection-builder",
+                &pending_command_id,
+                &processing_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count nonterminal archived command inbox rows")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 2);
+    assert_eq!(archived_outbox_count, 0);
+    assert_eq!(hot_command_count, 2);
+    assert_eq!(archived_command_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_begin_command_reclaims_expired_processing_lease() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
