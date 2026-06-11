@@ -3016,6 +3016,544 @@ async fn postgres_prune_separates_mixed_retention_eligibility_rows() {
 }
 
 #[tokio::test]
+async fn postgres_prune_returns_deterministic_outcome_ordering() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let late_event_id = Uuid::from_u128(0x760);
+    let first_event_id = Uuid::from_u128(0x761);
+    let middle_event_id = Uuid::from_u128(0x762);
+    let retained_event_id = Uuid::from_u128(0x763);
+    let nonterminal_event_id = Uuid::from_u128(0x764);
+
+    let outbox_cases: [(Uuid, Uuid, Uuid, &str, &str, i64, chrono::DateTime<Utc>); 5] = [
+        (
+            late_event_id,
+            Uuid::from_u128(0x765),
+            Uuid::from_u128(0x766),
+            "ordering-late",
+            "published",
+            30,
+            ts(100),
+        ),
+        (
+            first_event_id,
+            Uuid::from_u128(0x767),
+            Uuid::from_u128(0x768),
+            "ordering-first",
+            "published",
+            10,
+            ts(100),
+        ),
+        (
+            middle_event_id,
+            Uuid::from_u128(0x769),
+            Uuid::from_u128(0x76a),
+            "ordering-middle",
+            "published",
+            20,
+            ts(100),
+        ),
+        (
+            retained_event_id,
+            Uuid::from_u128(0x76b),
+            Uuid::from_u128(0x76c),
+            "ordering-retained",
+            "published",
+            5,
+            ts(300),
+        ),
+        (
+            nonterminal_event_id,
+            Uuid::from_u128(0x76d),
+            Uuid::from_u128(0x76e),
+            "ordering-nonterminal",
+            "pending",
+            15,
+            ts(100),
+        ),
+    ];
+
+    for (
+        event_id,
+        idempotency_key,
+        aggregate_id,
+        label,
+        delivery_status,
+        causal_order,
+        retain_until,
+    ) in outbox_cases
+    {
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key,
+            stream_key: format!("settlement_case:{label}"),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({
+                "intent_id": label,
+                "retention_probe": { "kind": "deterministic_outcome_ordering" }
+            }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+        let attempt_count = if delivery_status == "published" {
+            1_i32
+        } else {
+            0_i32
+        };
+        let published_at = if delivery_status == "published" {
+            Some(ts(10))
+        } else {
+            None
+        };
+        let external_key = if delivery_status == "published" {
+            Some(format!("provider-key-{label}"))
+        } else {
+            None
+        };
+
+        tx.execute(
+            "
+            INSERT INTO outbox.events (
+                event_id,
+                idempotency_key,
+                stream_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                delivery_status,
+                attempt_count,
+                causal_order,
+                available_at,
+                created_at,
+                published_at,
+                last_attempt_at,
+                retain_until,
+                published_external_idempotency_key
+            )
+            OVERRIDING SYSTEM VALUE
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17)
+            ",
+            &[
+                &message.event_id,
+                &message.idempotency_key,
+                &message.stream_key,
+                &message.aggregate_type,
+                &message.aggregate_id,
+                &message.event_type,
+                &message.schema_version,
+                &message.payload_json,
+                &message.payload_hash,
+                &delivery_status,
+                &attempt_count,
+                &causal_order,
+                &message.available_at,
+                &message.created_at,
+                &published_at,
+                &retain_until,
+                &external_key,
+            ],
+        )
+        .await
+        .expect("failed to insert deterministic ordering outbox event");
+
+        if delivery_status == "published" {
+            tx.execute(
+                "
+                INSERT INTO outbox.outbox_attempts (
+                    event_id,
+                    attempt_number,
+                    relay_name,
+                    claimed_at,
+                    claimed_until,
+                    finished_at,
+                    failure_class,
+                    failure_code,
+                    failure_detail,
+                    external_idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+                ",
+                &[
+                    &event_id,
+                    &1_i32,
+                    &"settlement-relay",
+                    &ts(0),
+                    &ts(300),
+                    &ts(10),
+                    &external_key,
+                ],
+            )
+            .await
+            .expect("failed to insert deterministic ordering outbox attempt");
+        }
+    }
+
+    let zeta_command_id = Uuid::from_u128(0x773);
+    let alpha_high_command_id = Uuid::from_u128(0x772);
+    let alpha_low_command_id = Uuid::from_u128(0x771);
+    let retained_command_id = Uuid::from_u128(0x774);
+    let nonterminal_command_id = Uuid::from_u128(0x775);
+
+    let command_cases: [(
+        &str,
+        Uuid,
+        Uuid,
+        &str,
+        &str,
+        chrono::DateTime<Utc>,
+        chrono::DateTime<Utc>,
+    ); 5] = [
+        (
+            "projection-zeta",
+            zeta_command_id,
+            late_event_id,
+            "ordering-zeta",
+            "completed",
+            ts(100),
+            ts(30),
+        ),
+        (
+            "projection-alpha",
+            alpha_high_command_id,
+            middle_event_id,
+            "ordering-alpha-high",
+            "completed",
+            ts(100),
+            ts(10),
+        ),
+        (
+            "projection-alpha",
+            alpha_low_command_id,
+            first_event_id,
+            "ordering-alpha-low",
+            "completed",
+            ts(100),
+            ts(20),
+        ),
+        (
+            "projection-alpha",
+            retained_command_id,
+            retained_event_id,
+            "ordering-retained-command",
+            "completed",
+            ts(300),
+            ts(0),
+        ),
+        (
+            "projection-alpha",
+            nonterminal_command_id,
+            nonterminal_event_id,
+            "ordering-nonterminal-command",
+            "processing",
+            ts(100),
+            ts(40),
+        ),
+    ];
+
+    for (consumer_name, command_id, source_event_id, label, status, retain_until, received_at) in
+        command_cases
+    {
+        let command = CommandEnvelope::new(
+            command_id,
+            source_event_id,
+            "projection.refresh",
+            1,
+            json!({ "settlement_case_id": label }),
+        )
+        .unwrap();
+
+        if status == "completed" {
+            let result_json = json!({ "projection_id": label });
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    completed_at,
+                    result_type,
+                    result_json,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &consumer_name,
+                    &command.command_id,
+                    &command.source_event_id,
+                    &command.payload_hash,
+                    &received_at,
+                    &command.command_type,
+                    &command.schema_version,
+                    &ts(50),
+                    &"projected",
+                    &result_json,
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert deterministic ordering completed command inbox row");
+        } else {
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    claimed_by,
+                    claimed_until,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'processing', $6, 0, $7, $8, $9, $10, $11)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &consumer_name,
+                    &command.command_id,
+                    &command.source_event_id,
+                    &command.payload_hash,
+                    &received_at,
+                    &command.command_type,
+                    &command.schema_version,
+                    &"projection-builder",
+                    &ts(300),
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert deterministic ordering processing command inbox row");
+        }
+    }
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune deterministic ordering coordination rows");
+
+    assert_eq!(
+        outcome.pruned_outbox_event_ids,
+        vec![first_event_id, middle_event_id, late_event_id]
+    );
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![
+            CommandKey {
+                consumer_name: "projection-alpha".to_owned(),
+                command_id: alpha_low_command_id,
+            },
+            CommandKey {
+                consumer_name: "projection-alpha".to_owned(),
+                command_id: alpha_high_command_id,
+            },
+            CommandKey {
+                consumer_name: "projection-zeta".to_owned(),
+                command_id: zeta_command_id,
+            },
+        ]
+    );
+
+    let hot_eligible_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id IN ($1, $2, $3)
+            ",
+            &[&late_event_id, &first_event_id, &middle_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering hot eligible outbox rows")
+        .get("count");
+    let archived_eligible_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_event_archive
+            WHERE event_id IN ($1, $2, $3)
+            ",
+            &[&late_event_id, &first_event_id, &middle_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering archived eligible outbox rows")
+        .get("count");
+    let hot_eligible_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempts
+            WHERE event_id IN ($1, $2, $3)
+            ",
+            &[&late_event_id, &first_event_id, &middle_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering hot eligible attempts")
+        .get("count");
+    let archived_eligible_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id IN ($1, $2, $3)
+            ",
+            &[&late_event_id, &first_event_id, &middle_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering archived eligible attempts")
+        .get("count");
+    let hot_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE (consumer_name = $1 AND command_id IN ($2, $3))
+               OR (consumer_name = $4 AND command_id = $5)
+            ",
+            &[
+                &"projection-alpha",
+                &alpha_low_command_id,
+                &alpha_high_command_id,
+                &"projection-zeta",
+                &zeta_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count deterministic ordering hot eligible command rows")
+        .get("count");
+    let archived_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE (consumer_name = $1 AND command_id IN ($2, $3))
+               OR (consumer_name = $4 AND command_id = $5)
+            ",
+            &[
+                &"projection-alpha",
+                &alpha_low_command_id,
+                &alpha_high_command_id,
+                &"projection-zeta",
+                &zeta_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count deterministic ordering archived eligible command rows")
+        .get("count");
+    let retained_hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&retained_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering retained hot outbox row")
+        .get("count");
+    let retained_hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&retained_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering retained hot attempt")
+        .get("count");
+    let retained_hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-alpha", &retained_command_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering retained hot command row")
+        .get("count");
+    let nonterminal_hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&nonterminal_event_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering nonterminal hot outbox row")
+        .get("count");
+    let nonterminal_hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-alpha", &nonterminal_command_id],
+        )
+        .await
+        .expect("failed to count deterministic ordering nonterminal hot command row")
+        .get("count");
+
+    assert_eq!(hot_eligible_outbox_count, 0);
+    assert_eq!(archived_eligible_outbox_count, 3);
+    assert_eq!(hot_eligible_attempt_count, 0);
+    assert_eq!(archived_eligible_attempt_count, 3);
+    assert_eq!(hot_eligible_command_count, 0);
+    assert_eq!(archived_eligible_command_count, 3);
+    assert_eq!(retained_hot_outbox_count, 1);
+    assert_eq!(retained_hot_attempt_count, 1);
+    assert_eq!(retained_hot_command_count, 1);
+    assert_eq!(nonterminal_hot_outbox_count, 1);
+    assert_eq!(nonterminal_hot_command_count, 1);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;

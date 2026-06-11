@@ -134,6 +134,7 @@ Current executable tests:
 - `postgres_prune_is_idempotent_with_existing_archive_rows`
 - `postgres_prune_preserves_terminal_rows_before_retain_until`
 - `postgres_prune_separates_mixed_retention_eligibility_rows`
+- `postgres_prune_returns_deterministic_outcome_ordering`
 - `postgres_prune_preserves_nonterminal_coordination_rows`
 
 These prove terminal outbox and command-inbox coordination rows are archived
@@ -152,7 +153,10 @@ their `retain_until` is NULL or later than the prune timestamp. The mixed
 retention eligibility contract proves that one prune run archives and removes
 eligible terminal rows while retaining terminal rows whose `retain_until` is
 NULL or later than the prune timestamp, retaining their hot attempts, and
-preserving nonterminal coordination rows.
+preserving nonterminal coordination rows. The deterministic outcome ordering
+contract proves that a multi-row prune result reports outbox event ids in
+writer-owned replay order and command inbox keys in stable command-key order
+while still preserving retained terminal rows and nonterminal rows.
 
 ### 5. Drop-Tx-Before-Await at the runtime seam
 
