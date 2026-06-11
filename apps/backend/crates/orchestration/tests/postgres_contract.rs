@@ -323,6 +323,172 @@ async fn postgres_authoritative_write_rolls_back_truth_and_outbox_together() {
 }
 
 #[tokio::test]
+async fn postgres_duplicate_outbox_idempotency_rolls_back_authoritative_sql() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let mut tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+    tx.batch_execute(
+        "
+        CREATE TEMP TABLE authoritative_facts_duplicate (
+            fact_id UUID PRIMARY KEY,
+            fact_kind TEXT NOT NULL
+        )
+        ",
+    )
+    .await
+    .expect("failed to create temp authoritative_facts_duplicate table");
+
+    let first_fact_id = Uuid::from_u128(0x70c);
+    let second_fact_id = Uuid::from_u128(0x70d);
+    let first_event_id = Uuid::from_u128(0x70e);
+    let second_event_id = Uuid::from_u128(0x70f);
+    let idempotency_key = Uuid::from_u128(0x710);
+
+    let first_message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: first_event_id,
+        idempotency_key,
+        stream_key: "settlement_case:70c".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: first_fact_id,
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "fact_id": first_fact_id }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+    let second_message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: second_event_id,
+        idempotency_key,
+        stream_key: "settlement_case:70d".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: second_fact_id,
+        event_type: "settlement.receipt_recorded".to_owned(),
+        schema_version: 1,
+        payload_json: json!({ "fact_id": second_fact_id }),
+        available_at: ts(1),
+        created_at: ts(1),
+    })
+    .unwrap();
+
+    let first_commands = [AuthoritativeSqlCommand {
+        statement: "INSERT INTO authoritative_facts_duplicate (fact_id, fact_kind) VALUES ($1, $2)",
+        params: vec![
+            &first_fact_id as SqlParam<'_>,
+            &"receipt_recorded" as SqlParam<'_>,
+        ],
+    }];
+    let second_commands = [AuthoritativeSqlCommand {
+        statement: "INSERT INTO authoritative_facts_duplicate (fact_id, fact_kind) VALUES ($1, $2)",
+        params: vec![
+            &second_fact_id as SqlParam<'_>,
+            &"duplicate_attempt" as SqlParam<'_>,
+        ],
+    }];
+
+    PostgresOrchestrationStore::record_authoritative_write(&tx, &first_commands, &first_message)
+        .await
+        .expect("initial authoritative write + outbox insert should succeed");
+
+    let duplicate_tx = tx
+        .transaction()
+        .await
+        .expect("failed to open duplicate savepoint");
+    let duplicate_error = PostgresOrchestrationStore::record_authoritative_write(
+        &duplicate_tx,
+        &second_commands,
+        &second_message,
+    )
+    .await
+    .expect_err("duplicate outbox idempotency key should fail");
+    assert!(matches!(duplicate_error, OrchestrationError::Database(_)));
+    duplicate_tx
+        .rollback()
+        .await
+        .expect("duplicate savepoint rollback should discard the attempted authoritative SQL");
+
+    let first_fact_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM authoritative_facts_duplicate
+            WHERE fact_id = $1
+            ",
+            &[&first_fact_id],
+        )
+        .await
+        .expect("failed to count first authoritative fact")
+        .get("count");
+    let second_fact_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM authoritative_facts_duplicate
+            WHERE fact_id = $1
+            ",
+            &[&second_fact_id],
+        )
+        .await
+        .expect("failed to count second authoritative fact")
+        .get("count");
+    let first_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id = $1
+            ",
+            &[&first_event_id],
+        )
+        .await
+        .expect("failed to count first outbox event")
+        .get("count");
+    let second_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id = $1
+            ",
+            &[&second_event_id],
+        )
+        .await
+        .expect("failed to count second outbox event")
+        .get("count");
+
+    assert_eq!(first_fact_count, 1);
+    assert_eq!(second_fact_count, 0);
+    assert_eq!(first_outbox_count, 1);
+    assert_eq!(second_outbox_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn legacy_command_rows_without_payload_checksum_fail_gracefully() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
