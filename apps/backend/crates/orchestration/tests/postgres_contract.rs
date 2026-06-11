@@ -711,6 +711,433 @@ async fn postgres_prune_archives_terminal_coordination_rows() {
 }
 
 #[tokio::test]
+async fn postgres_prune_preserves_terminal_archive_payloads() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x71f);
+    let event_id = Uuid::from_u128(0x720);
+    let command_id = Uuid::from_u128(0x721);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x722),
+        stream_key: "settlement_case:archive-payload".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-archive-payload",
+            "retention_probe": { "kind": "terminal_archive_payload" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert archive payload outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'published',
+            attempt_count = 1,
+            published_at = $2,
+            last_attempt_at = $2,
+            retain_until = $3,
+            published_external_idempotency_key = $4
+        WHERE event_id = $1
+        ",
+        &[
+            &event_id,
+            &ts(10),
+            &ts(100),
+            &"provider-key-archive-payload",
+        ],
+    )
+    .await
+    .expect("failed to mark archive payload outbox event terminal");
+    let causal_order: i64 = tx
+        .query_one(
+            "SELECT causal_order FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read source outbox causal order")
+        .get("causal_order");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempts (
+            event_id,
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+        ",
+        &[
+            &event_id,
+            &1_i32,
+            &"settlement-relay",
+            &ts(0),
+            &ts(300),
+            &ts(10),
+            &"provider-key-archive-payload",
+        ],
+    )
+    .await
+    .expect("failed to insert archive payload outbox attempt");
+
+    let command = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": aggregate_id }),
+    )
+    .unwrap();
+    let result_json = json!({
+        "projection_id": "projection-archive-payload",
+        "archived_payload_seen": true
+    });
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &command_id,
+            &event_id,
+            &command.payload_hash,
+            &ts(20),
+            &command.command_type,
+            &command.schema_version,
+            &ts(30),
+            &"projected",
+            &result_json,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert archive payload command inbox row");
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune archive payload coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![CommandKey {
+            consumer_name: "projection-builder".to_owned(),
+            command_id,
+        }]
+    );
+
+    let archived_event = tx
+        .query_one(
+            "
+            SELECT
+                archived_at,
+                stream_key,
+                aggregate_type,
+                aggregate_id,
+                event_type,
+                schema_version,
+                payload_json,
+                payload_hash,
+                final_status,
+                attempt_count,
+                causal_order,
+                available_at,
+                created_at,
+                published_at,
+                last_attempt_at,
+                retain_until,
+                published_external_idempotency_key
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read archived outbox event");
+    assert_eq!(
+        archived_event.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("stream_key")
+            .as_deref(),
+        Some(message.stream_key.as_str())
+    );
+    assert_eq!(
+        archived_event.get::<_, String>("aggregate_type"),
+        message.aggregate_type.as_str()
+    );
+    assert_eq!(archived_event.get::<_, Uuid>("aggregate_id"), aggregate_id);
+    assert_eq!(
+        archived_event.get::<_, String>("event_type"),
+        message.event_type.as_str()
+    );
+    assert_eq!(archived_event.get::<_, i32>("schema_version"), 1);
+    assert_eq!(
+        archived_event.get::<_, serde_json::Value>("payload_json"),
+        message.payload_json.clone()
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("payload_hash")
+            .as_deref(),
+        Some(message.payload_hash.as_str())
+    );
+    assert_eq!(archived_event.get::<_, String>("final_status"), "published");
+    assert_eq!(archived_event.get::<_, i32>("attempt_count"), 1);
+    assert_eq!(archived_event.get::<_, i64>("causal_order"), causal_order);
+    assert_eq!(
+        archived_event.get::<_, chrono::DateTime<Utc>>("available_at"),
+        ts(0)
+    );
+    assert_eq!(
+        archived_event.get::<_, chrono::DateTime<Utc>>("created_at"),
+        ts(0)
+    );
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("published_at"),
+        Some(ts(10))
+    );
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("last_attempt_at"),
+        Some(ts(10))
+    );
+    assert_eq!(
+        archived_event.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("published_external_idempotency_key")
+            .as_deref(),
+        Some("provider-key-archive-payload")
+    );
+
+    let archived_attempt = tx
+        .query_one(
+            "
+            SELECT
+                archived_at,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id = $1
+              AND attempt_number = $2
+            ",
+            &[&event_id, &1_i32],
+        )
+        .await
+        .expect("failed to read archived outbox attempt");
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, String>("relay_name"),
+        "settlement-relay"
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_at"),
+        ts(0)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("claimed_until"),
+        ts(300)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, chrono::DateTime<Utc>>("finished_at"),
+        ts(10)
+    );
+    assert_eq!(
+        archived_attempt.get::<_, Option<String>>("failure_class"),
+        None
+    );
+    assert_eq!(
+        archived_attempt.get::<_, Option<String>>("failure_code"),
+        None
+    );
+    assert_eq!(
+        archived_attempt.get::<_, Option<String>>("failure_detail"),
+        None
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("external_idempotency_key")
+            .as_deref(),
+        Some("provider-key-archive-payload")
+    );
+
+    let archived_command = tx
+        .query_one(
+            "
+            SELECT
+                source_event_id,
+                archived_at,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                completed_at,
+                result_type,
+                result_json,
+                retain_until
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to read archived command inbox row");
+    assert_eq!(archived_command.get::<_, Uuid>("source_event_id"), event_id);
+    assert_eq!(
+        archived_command.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_command.get::<_, String>("command_type"),
+        command.command_type.as_str()
+    );
+    assert_eq!(
+        archived_command.get::<_, i32>("schema_version"),
+        command.schema_version
+    );
+    assert_eq!(archived_command.get::<_, String>("status"), "completed");
+    assert_eq!(archived_command.get::<_, i32>("attempt_count"), 1);
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some(command.payload_hash.as_str())
+    );
+    assert_eq!(
+        archived_command.get::<_, chrono::DateTime<Utc>>("received_at"),
+        ts(20)
+    );
+    assert_eq!(
+        archived_command.get::<_, Option<chrono::DateTime<Utc>>>("completed_at"),
+        Some(ts(30))
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("result_type")
+            .as_deref(),
+        Some("projected")
+    );
+    assert_eq!(
+        archived_command.get::<_, Option<serde_json::Value>>("result_json"),
+        Some(result_json)
+    );
+    assert_eq!(
+        archived_command.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox events after archive payload prune")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox attempts after archive payload prune")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to count hot command rows after archive payload prune")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 0);
+    assert_eq!(hot_attempt_count, 0);
+    assert_eq!(hot_command_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
