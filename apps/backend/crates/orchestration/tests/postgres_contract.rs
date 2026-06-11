@@ -2408,6 +2408,614 @@ async fn postgres_prune_preserves_terminal_rows_before_retain_until() {
 }
 
 #[tokio::test]
+async fn postgres_prune_separates_mixed_retention_eligibility_rows() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let eligible_event_id = Uuid::from_u128(0x73b);
+    let retained_null_event_id = Uuid::from_u128(0x73c);
+    let retained_future_event_id = Uuid::from_u128(0x73d);
+    let nonterminal_event_id = Uuid::from_u128(0x73e);
+    let eligible_command_id = Uuid::from_u128(0x747);
+    let retained_null_command_id = Uuid::from_u128(0x748);
+    let retained_future_command_id = Uuid::from_u128(0x749);
+    let nonterminal_command_id = Uuid::from_u128(0x74a);
+
+    let outbox_cases: [(Uuid, Uuid, Uuid, &str, &str, Option<chrono::DateTime<Utc>>); 3] = [
+        (
+            eligible_event_id,
+            Uuid::from_u128(0x73f),
+            Uuid::from_u128(0x742),
+            "mixed-eligible-published",
+            "published",
+            Some(ts(100)),
+        ),
+        (
+            retained_null_event_id,
+            Uuid::from_u128(0x740),
+            Uuid::from_u128(0x743),
+            "mixed-retained-null",
+            "published",
+            None,
+        ),
+        (
+            retained_future_event_id,
+            Uuid::from_u128(0x741),
+            Uuid::from_u128(0x744),
+            "mixed-retained-future",
+            "quarantined",
+            Some(ts(300)),
+        ),
+    ];
+
+    for (event_id, idempotency_key, aggregate_id, label, delivery_status, retain_until) in
+        outbox_cases
+    {
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key,
+            stream_key: format!("settlement_case:{label}"),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({
+                "intent_id": label,
+                "retention_probe": { "kind": "mixed_retention_eligibility" }
+            }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+
+        PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+            .await
+            .expect("failed to insert mixed eligibility outbox message");
+
+        if delivery_status == "published" {
+            let external_key = format!("provider-key-{label}");
+            tx.execute(
+                "
+                UPDATE outbox.events
+                SET delivery_status = 'published',
+                    attempt_count = 1,
+                    published_at = $2,
+                    last_attempt_at = $2,
+                    retain_until = $3,
+                    published_external_idempotency_key = $4
+                WHERE event_id = $1
+                ",
+                &[&event_id, &ts(10), &retain_until, &external_key],
+            )
+            .await
+            .expect("failed to mark mixed eligibility outbox event published");
+            tx.execute(
+                "
+                INSERT INTO outbox.outbox_attempts (
+                    event_id,
+                    attempt_number,
+                    relay_name,
+                    claimed_at,
+                    claimed_until,
+                    finished_at,
+                    failure_class,
+                    failure_code,
+                    failure_detail,
+                    external_idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+                ",
+                &[
+                    &event_id,
+                    &1_i32,
+                    &"settlement-relay",
+                    &ts(0),
+                    &ts(300),
+                    &ts(10),
+                    &external_key,
+                ],
+            )
+            .await
+            .expect("failed to insert mixed eligibility published attempt");
+        } else {
+            tx.execute(
+                "
+                UPDATE outbox.events
+                SET delivery_status = 'quarantined',
+                    attempt_count = 1,
+                    quarantined_at = $2,
+                    last_attempt_at = $2,
+                    last_error_class = $3,
+                    last_error_code = $4,
+                    last_error_detail = $5,
+                    quarantine_reason = $6,
+                    retain_until = $7
+                WHERE event_id = $1
+                ",
+                &[
+                    &event_id,
+                    &ts(10),
+                    &"permanent",
+                    &"provider_rejected",
+                    &"mixed eligibility quarantine detail",
+                    &"permanent_failure",
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to mark mixed eligibility outbox event quarantined");
+            tx.execute(
+                "
+                INSERT INTO outbox.outbox_attempts (
+                    event_id,
+                    attempt_number,
+                    relay_name,
+                    claimed_at,
+                    claimed_until,
+                    finished_at,
+                    failure_class,
+                    failure_code,
+                    failure_detail,
+                    external_idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+                ",
+                &[
+                    &event_id,
+                    &1_i32,
+                    &"settlement-relay",
+                    &ts(0),
+                    &ts(300),
+                    &ts(10),
+                    &"permanent",
+                    &"provider_rejected",
+                    &"mixed eligibility attempt detail",
+                ],
+            )
+            .await
+            .expect("failed to insert mixed eligibility quarantined attempt");
+        }
+    }
+
+    let nonterminal_message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: nonterminal_event_id,
+        idempotency_key: Uuid::from_u128(0x745),
+        stream_key: "settlement_case:mixed-nonterminal".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: Uuid::from_u128(0x746),
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "mixed-nonterminal",
+            "retention_probe": { "kind": "mixed_retention_eligibility_nonterminal" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &nonterminal_message)
+        .await
+        .expect("failed to insert mixed eligibility nonterminal outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET retain_until = $2
+        WHERE event_id = $1
+        ",
+        &[&nonterminal_event_id, &ts(100)],
+    )
+    .await
+    .expect("failed to mark mixed eligibility nonterminal outbox retain_until");
+
+    let command_cases: [(Uuid, Uuid, &str, &str, Option<chrono::DateTime<Utc>>); 3] = [
+        (
+            eligible_command_id,
+            eligible_event_id,
+            "mixed-eligible-command",
+            "completed",
+            Some(ts(100)),
+        ),
+        (
+            retained_null_command_id,
+            retained_null_event_id,
+            "mixed-retained-null-command",
+            "completed",
+            None,
+        ),
+        (
+            retained_future_command_id,
+            retained_future_event_id,
+            "mixed-retained-future-command",
+            "quarantined",
+            Some(ts(300)),
+        ),
+    ];
+
+    for (command_id, source_event_id, label, status, retain_until) in command_cases {
+        let command = CommandEnvelope::new(
+            command_id,
+            source_event_id,
+            "projection.refresh",
+            1,
+            json!({ "settlement_case_id": label }),
+        )
+        .unwrap();
+
+        if status == "completed" {
+            let result_json = json!({ "projection_id": label });
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    completed_at,
+                    result_type,
+                    result_json,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &"projection-builder",
+                    &command_id,
+                    &source_event_id,
+                    &command.payload_hash,
+                    &ts(20),
+                    &command.command_type,
+                    &command.schema_version,
+                    &ts(30),
+                    &"projected",
+                    &result_json,
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert mixed eligibility completed command inbox row");
+        } else {
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    processed_at,
+                    last_error_class,
+                    last_error_code,
+                    last_error_detail,
+                    quarantine_reason,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'quarantined', $6, 1, $7, $8, $9, $10, $11, $12, $13, $14)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &"projection-builder",
+                    &command_id,
+                    &source_event_id,
+                    &command.payload_hash,
+                    &ts(20),
+                    &command.command_type,
+                    &command.schema_version,
+                    &ts(30),
+                    &"permanent",
+                    &"projection_failed",
+                    &"mixed eligibility command detail",
+                    &"permanent_failure",
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert mixed eligibility quarantined command inbox row");
+        }
+    }
+
+    let nonterminal_command = CommandEnvelope::new(
+        nonterminal_command_id,
+        nonterminal_event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": "mixed-nonterminal" }),
+    )
+    .unwrap();
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            claimed_by,
+            claimed_until,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'processing', $6, 0, $7, $8, $9, $10, $11)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &nonterminal_command.command_id,
+            &nonterminal_command.source_event_id,
+            &nonterminal_command.payload_hash,
+            &ts(0),
+            &nonterminal_command.command_type,
+            &nonterminal_command.schema_version,
+            &"projection-builder",
+            &ts(300),
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert mixed eligibility nonterminal command inbox row");
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune mixed eligibility coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![eligible_event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![CommandKey {
+            consumer_name: "projection-builder".to_owned(),
+            command_id: eligible_command_id,
+        }]
+    );
+
+    let hot_eligible_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&eligible_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility hot eligible outbox row")
+        .get("count");
+    let archived_eligible_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+            &[&eligible_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility archived eligible outbox row")
+        .get("count");
+    let hot_eligible_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&eligible_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility hot eligible attempt row")
+        .get("count");
+    let archived_eligible_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempt_archive WHERE event_id = $1",
+            &[&eligible_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility archived eligible attempt row")
+        .get("count");
+    let hot_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &eligible_command_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility hot eligible command row")
+        .get("count");
+    let archived_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &eligible_command_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility archived eligible command row")
+        .get("count");
+
+    let hot_retained_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&retained_null_event_id, &retained_future_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained hot outbox rows")
+        .get("count");
+    let archived_retained_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_event_archive
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&retained_null_event_id, &retained_future_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained archived outbox rows")
+        .get("count");
+    let hot_retained_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempts
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&retained_null_event_id, &retained_future_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained hot attempt rows")
+        .get("count");
+    let archived_retained_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id IN ($1, $2)
+            ",
+            &[&retained_null_event_id, &retained_future_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained archived attempt rows")
+        .get("count");
+    let hot_retained_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3)
+            ",
+            &[
+                &"projection-builder",
+                &retained_null_command_id,
+                &retained_future_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained hot command rows")
+        .get("count");
+    let archived_retained_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3)
+            ",
+            &[
+                &"projection-builder",
+                &retained_null_command_id,
+                &retained_future_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count mixed eligibility retained archived command rows")
+        .get("count");
+
+    let hot_nonterminal_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&nonterminal_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility nonterminal hot outbox row")
+        .get("count");
+    let archived_nonterminal_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+            &[&nonterminal_event_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility nonterminal archived outbox row")
+        .get("count");
+    let hot_nonterminal_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &nonterminal_command_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility nonterminal hot command row")
+        .get("count");
+    let archived_nonterminal_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &nonterminal_command_id],
+        )
+        .await
+        .expect("failed to count mixed eligibility nonterminal archived command row")
+        .get("count");
+
+    assert_eq!(hot_eligible_outbox_count, 0);
+    assert_eq!(archived_eligible_outbox_count, 1);
+    assert_eq!(hot_eligible_attempt_count, 0);
+    assert_eq!(archived_eligible_attempt_count, 1);
+    assert_eq!(hot_eligible_command_count, 0);
+    assert_eq!(archived_eligible_command_count, 1);
+    assert_eq!(hot_retained_outbox_count, 2);
+    assert_eq!(archived_retained_outbox_count, 0);
+    assert_eq!(hot_retained_attempt_count, 2);
+    assert_eq!(archived_retained_attempt_count, 0);
+    assert_eq!(hot_retained_command_count, 2);
+    assert_eq!(archived_retained_command_count, 0);
+    assert_eq!(hot_nonterminal_outbox_count, 1);
+    assert_eq!(archived_nonterminal_outbox_count, 0);
+    assert_eq!(hot_nonterminal_command_count, 1);
+    assert_eq!(archived_nonterminal_command_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
