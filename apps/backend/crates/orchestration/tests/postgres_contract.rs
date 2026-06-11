@@ -1954,6 +1954,460 @@ async fn postgres_prune_is_idempotent_with_existing_archive_rows() {
 }
 
 #[tokio::test]
+async fn postgres_prune_preserves_terminal_rows_before_retain_until() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let published_null_event_id = Uuid::from_u128(0x72b);
+    let published_future_event_id = Uuid::from_u128(0x72c);
+    let quarantined_null_event_id = Uuid::from_u128(0x72d);
+    let quarantined_future_event_id = Uuid::from_u128(0x72e);
+    let completed_null_command_id = Uuid::from_u128(0x737);
+    let completed_future_command_id = Uuid::from_u128(0x738);
+    let quarantined_null_command_id = Uuid::from_u128(0x739);
+    let quarantined_future_command_id = Uuid::from_u128(0x73a);
+
+    let outbox_cases: [(Uuid, Uuid, Uuid, &str, &str, Option<chrono::DateTime<Utc>>); 4] = [
+        (
+            published_null_event_id,
+            Uuid::from_u128(0x72f),
+            Uuid::from_u128(0x733),
+            "published-retain-null",
+            "published",
+            None,
+        ),
+        (
+            published_future_event_id,
+            Uuid::from_u128(0x730),
+            Uuid::from_u128(0x734),
+            "published-retain-future",
+            "published",
+            Some(ts(300)),
+        ),
+        (
+            quarantined_null_event_id,
+            Uuid::from_u128(0x731),
+            Uuid::from_u128(0x735),
+            "quarantined-retain-null",
+            "quarantined",
+            None,
+        ),
+        (
+            quarantined_future_event_id,
+            Uuid::from_u128(0x732),
+            Uuid::from_u128(0x736),
+            "quarantined-retain-future",
+            "quarantined",
+            Some(ts(300)),
+        ),
+    ];
+
+    for (event_id, idempotency_key, aggregate_id, label, delivery_status, retain_until) in
+        outbox_cases
+    {
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key,
+            stream_key: format!("settlement_case:{label}"),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({
+                "intent_id": label,
+                "retention_probe": { "kind": "terminal_prune_retention_eligibility" }
+            }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+
+        PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+            .await
+            .expect("failed to insert retention eligibility outbox message");
+
+        if delivery_status == "published" {
+            let external_key = format!("provider-key-{label}");
+            tx.execute(
+                "
+                UPDATE outbox.events
+                SET delivery_status = 'published',
+                    attempt_count = 1,
+                    published_at = $2,
+                    last_attempt_at = $2,
+                    retain_until = $3,
+                    published_external_idempotency_key = $4
+                WHERE event_id = $1
+                ",
+                &[&event_id, &ts(10), &retain_until, &external_key],
+            )
+            .await
+            .expect("failed to mark retention eligibility outbox event published");
+            tx.execute(
+                "
+                INSERT INTO outbox.outbox_attempts (
+                    event_id,
+                    attempt_number,
+                    relay_name,
+                    claimed_at,
+                    claimed_until,
+                    finished_at,
+                    failure_class,
+                    failure_code,
+                    failure_detail,
+                    external_idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+                ",
+                &[
+                    &event_id,
+                    &1_i32,
+                    &"settlement-relay",
+                    &ts(0),
+                    &ts(300),
+                    &ts(10),
+                    &external_key,
+                ],
+            )
+            .await
+            .expect("failed to insert retention eligibility published attempt");
+        } else {
+            tx.execute(
+                "
+                UPDATE outbox.events
+                SET delivery_status = 'quarantined',
+                    attempt_count = 1,
+                    quarantined_at = $2,
+                    last_attempt_at = $2,
+                    last_error_class = $3,
+                    last_error_code = $4,
+                    last_error_detail = $5,
+                    quarantine_reason = $6,
+                    retain_until = $7
+                WHERE event_id = $1
+                ",
+                &[
+                    &event_id,
+                    &ts(10),
+                    &"permanent",
+                    &"provider_rejected",
+                    &"terminal retention eligibility quarantine detail",
+                    &"permanent_failure",
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to mark retention eligibility outbox event quarantined");
+            tx.execute(
+                "
+                INSERT INTO outbox.outbox_attempts (
+                    event_id,
+                    attempt_number,
+                    relay_name,
+                    claimed_at,
+                    claimed_until,
+                    finished_at,
+                    failure_class,
+                    failure_code,
+                    failure_detail,
+                    external_idempotency_key
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+                ",
+                &[
+                    &event_id,
+                    &1_i32,
+                    &"settlement-relay",
+                    &ts(0),
+                    &ts(300),
+                    &ts(10),
+                    &"permanent",
+                    &"provider_rejected",
+                    &"terminal retention eligibility attempt detail",
+                ],
+            )
+            .await
+            .expect("failed to insert retention eligibility quarantined attempt");
+        }
+    }
+
+    let command_cases: [(Uuid, Uuid, &str, &str, Option<chrono::DateTime<Utc>>); 4] = [
+        (
+            completed_null_command_id,
+            published_null_event_id,
+            "completed-retain-null",
+            "completed",
+            None,
+        ),
+        (
+            completed_future_command_id,
+            published_future_event_id,
+            "completed-retain-future",
+            "completed",
+            Some(ts(300)),
+        ),
+        (
+            quarantined_null_command_id,
+            quarantined_null_event_id,
+            "quarantined-retain-null",
+            "quarantined",
+            None,
+        ),
+        (
+            quarantined_future_command_id,
+            quarantined_future_event_id,
+            "quarantined-retain-future",
+            "quarantined",
+            Some(ts(300)),
+        ),
+    ];
+
+    for (command_id, source_event_id, label, status, retain_until) in command_cases {
+        let command = CommandEnvelope::new(
+            command_id,
+            source_event_id,
+            "projection.refresh",
+            1,
+            json!({ "settlement_case_id": label }),
+        )
+        .unwrap();
+
+        if status == "completed" {
+            let result_json = json!({ "projection_id": label });
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    completed_at,
+                    result_type,
+                    result_json,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &"projection-builder",
+                    &command_id,
+                    &source_event_id,
+                    &command.payload_hash,
+                    &ts(20),
+                    &command.command_type,
+                    &command.schema_version,
+                    &ts(30),
+                    &"projected",
+                    &result_json,
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert retention eligibility completed command inbox row");
+        } else {
+            tx.execute(
+                "
+                INSERT INTO outbox.command_inbox (
+                    inbox_entry_id,
+                    consumer_name,
+                    command_id,
+                    source_event_id,
+                    payload_checksum,
+                    received_at,
+                    status,
+                    available_at,
+                    attempt_count,
+                    command_type,
+                    schema_version,
+                    processed_at,
+                    last_error_class,
+                    last_error_code,
+                    last_error_detail,
+                    quarantine_reason,
+                    retain_until
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'quarantined', $6, 1, $7, $8, $9, $10, $11, $12, $13, $14)
+                ",
+                &[
+                    &Uuid::new_v4(),
+                    &"projection-builder",
+                    &command_id,
+                    &source_event_id,
+                    &command.payload_hash,
+                    &ts(20),
+                    &command.command_type,
+                    &command.schema_version,
+                    &ts(30),
+                    &"permanent",
+                    &"projection_failed",
+                    &"terminal retention eligibility command detail",
+                    &"permanent_failure",
+                    &retain_until,
+                ],
+            )
+            .await
+            .expect("failed to insert retention eligibility quarantined command inbox row");
+        }
+    }
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune retention eligibility coordination rows");
+
+    assert!(outcome.pruned_outbox_event_ids.is_empty());
+    assert!(outcome.pruned_command_keys.is_empty());
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.events
+            WHERE event_id IN ($1, $2, $3, $4)
+            ",
+            &[
+                &published_null_event_id,
+                &published_future_event_id,
+                &quarantined_null_event_id,
+                &quarantined_future_event_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility hot outbox rows")
+        .get("count");
+    let archived_outbox_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_event_archive
+            WHERE event_id IN ($1, $2, $3, $4)
+            ",
+            &[
+                &published_null_event_id,
+                &published_future_event_id,
+                &quarantined_null_event_id,
+                &quarantined_future_event_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility archived outbox rows")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempts
+            WHERE event_id IN ($1, $2, $3, $4)
+            ",
+            &[
+                &published_null_event_id,
+                &published_future_event_id,
+                &quarantined_null_event_id,
+                &quarantined_future_event_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility hot attempt rows")
+        .get("count");
+    let archived_attempt_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id IN ($1, $2, $3, $4)
+            ",
+            &[
+                &published_null_event_id,
+                &published_future_event_id,
+                &quarantined_null_event_id,
+                &quarantined_future_event_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility archived attempt rows")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3, $4, $5)
+            ",
+            &[
+                &"projection-builder",
+                &completed_null_command_id,
+                &completed_future_command_id,
+                &quarantined_null_command_id,
+                &quarantined_future_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility hot command inbox rows")
+        .get("count");
+    let archived_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id IN ($2, $3, $4, $5)
+            ",
+            &[
+                &"projection-builder",
+                &completed_null_command_id,
+                &completed_future_command_id,
+                &quarantined_null_command_id,
+                &quarantined_future_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count retention eligibility archived command inbox rows")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 4);
+    assert_eq!(archived_outbox_count, 0);
+    assert_eq!(hot_attempt_count, 4);
+    assert_eq!(archived_attempt_count, 0);
+    assert_eq!(hot_command_count, 4);
+    assert_eq!(archived_command_count, 0);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
