@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `c9b6e37`
+Status: Draft; aligned to accepted foundation commit `c2729ce`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `c9b6e378959fc386bd545d6b5fa844354725ae01`
-- Foundation commit title: `Merge pull request #271 from mt4110/feat/post-c2-orchestration-prune-outbox-attempt-archive-completeness-handoff`
-- Foundation PR title: `docs: evaluate post-C2 orchestration prune outbox attempt archive completeness handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/271`
+- Foundation commit SHA: `c2729ce7a2df2aa66e4ee0f438fb97cafab8aee4`
+- Foundation commit title: `Merge pull request #277 from mt4110/feat/post-c2-orchestration-prune-command-inbox-archive-completeness-handoff`
+- Foundation PR title: `docs: evaluate post-C2 orchestration prune command inbox archive completeness handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/277`
 - Date pinned: `2026-06-12`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c9b6e378959fc386bd545d6b5fa844354725ae01`
-- Previous pinned reference: `985eb58` / `Merge pull request #265 from mt4110/feat/post-c2-orchestration-prune-deterministic-outcome-ordering-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c2729ce7a2df2aa66e4ee0f438fb97cafab8aee4`
+- Previous pinned reference: `c9b6e37` / `Merge pull request #271 from mt4110/feat/post-c2-orchestration-prune-outbox-attempt-archive-completeness-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -115,6 +115,9 @@ Pinned reference for implementation work:
 - Post-C2 orchestration prune deterministic outcome ordering implementation closeout source: `b98fc53` / `Merge pull request #267 from mt4110/feat/close-orchestration-prune-deterministic-outcome-ordering-handoff`
 - Post-C2 orchestration prune outbox attempt archive completeness evidence source: `97aa9e0` / `Merge pull request #269 from mt4110/feat/orchestration-prune-outbox-attempt-archive-completeness-evidence`
 - Post-C2 orchestration prune outbox attempt archive completeness handoff source: `c9b6e37` / `Merge pull request #271 from mt4110/feat/post-c2-orchestration-prune-outbox-attempt-archive-completeness-handoff`
+- Post-C2 orchestration prune outbox attempt archive completeness implementation closeout source: `f314d55` / `Merge pull request #273 from mt4110/feat/close-orchestration-prune-outbox-attempt-archive-completeness-handoff`
+- Post-C2 orchestration prune command inbox archive completeness evidence source: `963f0e6` / `Merge pull request #275 from mt4110/feat/orchestration-prune-command-inbox-archive-completeness-evidence`
+- Post-C2 orchestration prune command inbox archive completeness handoff source: `c2729ce` / `Merge pull request #277 from mt4110/feat/post-c2-orchestration-prune-command-inbox-archive-completeness-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -267,38 +270,41 @@ Before coding, read these upstream documents in order.
 132. `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_implementation_closeout_ledger.md`
 133. `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_evidence_package.md`
 134. `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_handoff_gate_decision.md`
+135. `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_implementation_closeout_ledger.md`
+136. `docs/readiness/post_c2_orchestration_prune_command_inbox_archive_completeness_evidence_package.md`
+137. `docs/readiness/post_c2_orchestration_prune_command_inbox_archive_completeness_handoff_gate_decision.md`
 
 ### Operations layer
-135. `docs/operations/readiness_routine.md`
-136. `docs/operations/runalways_readiness_orchestrator_design.md`
-137. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-138. `docs/operations/runalways_lane_controller_v0_1.md`
+138. `docs/operations/readiness_routine.md`
+139. `docs/operations/runalways_readiness_orchestrator_design.md`
+140. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+141. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-139. `docs/detail/accountability_matrix.md`
-140. `docs/detail/critical_incident_and_loss.md`
-141. `docs/detail/automated_decisioning_and_human_appeal.md`
-142. `docs/detail/youth_safety_and_age_assurance.md`
-143. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-144. `docs/detail/data_deletion_vs_legal_hold.md`
-145. `docs/detail/security_and_autonomy_hardening.md`
-146. `docs/detail/realm_model.md`
-147. `docs/detail/data_scope_model.md`
-148. `docs/detail/mobility_model.md`
-149. `docs/detail/settlement_model.md`
-150. `docs/detail/settlement_backend_trait.md`
-151. `docs/detail/proof_of_infrastructure.md`
-152. `docs/detail/protected_groups_and_translation_safety.md`
+142. `docs/detail/accountability_matrix.md`
+143. `docs/detail/critical_incident_and_loss.md`
+144. `docs/detail/automated_decisioning_and_human_appeal.md`
+145. `docs/detail/youth_safety_and_age_assurance.md`
+146. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+147. `docs/detail/data_deletion_vs_legal_hold.md`
+148. `docs/detail/security_and_autonomy_hardening.md`
+149. `docs/detail/realm_model.md`
+150. `docs/detail/data_scope_model.md`
+151. `docs/detail/mobility_model.md`
+152. `docs/detail/settlement_model.md`
+153. `docs/detail/settlement_backend_trait.md`
+154. `docs/detail/proof_of_infrastructure.md`
+155. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-153. `docs/whitepaper/01_executive_summary.md`
-154. `docs/whitepaper/02_realm_model.md`
-155. `docs/whitepaper/03_experience_model.md`
-156. `docs/whitepaper/04_dm_shield.md`
-157. `docs/whitepaper/05_trust_model.md`
-158. `docs/whitepaper/06_promise_protocol.md`
-159. `docs/whitepaper/07_realm_economy.md`
-160. `docs/whitepaper/08_unlock_engine.md`
+156. `docs/whitepaper/01_executive_summary.md`
+157. `docs/whitepaper/02_realm_model.md`
+158. `docs/whitepaper/03_experience_model.md`
+159. `docs/whitepaper/04_dm_shield.md`
+160. `docs/whitepaper/05_trust_model.md`
+161. `docs/whitepaper/06_promise_protocol.md`
+162. `docs/whitepaper/07_realm_economy.md`
+163. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -329,7 +335,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration prune outbox attempt archive completeness verification.
+The current narrow downstream allowance is one implementation-repo test-only PR for post-C2 orchestration prune command inbox archive completeness verification.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -417,6 +423,9 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_orchestration_prune_deterministic_outcome_ordering_implementation_closeout_ledger.md`
 - `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_evidence_package.md`
 - `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_handoff_gate_decision.md`
+- `docs/readiness/post_c2_orchestration_prune_outbox_attempt_archive_completeness_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_orchestration_prune_command_inbox_archive_completeness_evidence_package.md`
+- `docs/readiness/post_c2_orchestration_prune_command_inbox_archive_completeness_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -525,11 +534,14 @@ Foundation PR #263 accepted the exact candidate test-only slice as post-C2 orche
 Foundation PR #265 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
 That allowance was consumed by `mt4110/pi-musubi-core` PR #149 and closed out by foundation PR #267.
 Foundation PR #269 accepted the exact candidate test-only slice as post-C2 orchestration prune outbox attempt archive completeness verification.
-Foundation PR #271 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
+Foundation PR #271 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #150 and closed out by foundation PR #273.
+Foundation PR #275 accepted the exact candidate test-only slice as post-C2 orchestration prune command inbox archive completeness verification.
+Foundation PR #277 provides the current narrow downstream test-only handoff authority for one later implementation-repo PR only.
 This update is the required lock pin for that one-use allowance.
 It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning archives every hot outbox attempt row belonging to one pruned eligible terminal outbox event, preserves attempt number identity and copied attempt evidence, reports the outbox event once rather than once per attempt, plus the required backend-local guardrail documentation and raw transaction inventory updates.
-It does not authorize broad runtime implementation, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, discovery, recommendation, room, settlement, Promise runtime behavior, proof runtime behavior, Relationship Depth behavior, Social Trust scoring, public trust display, paid romantic advantage, DM unlock by payment, or any broader `pi-musubi-core` change.
+It allows only deterministic PostgreSQL-backed contract verification that existing coordination pruning archives every eligible terminal command inbox row for a shared source event, preserves command archive source event, envelope, terminal status, completion result, quarantine diagnostic, and retention evidence, removes eligible hot command inbox rows, retains terminal rows not retention-eligible and nonterminal rows, and proves command inbox eligibility is row-owned by terminal status plus `retain_until` rather than `source_event_id` alone, plus the required backend-local guardrail documentation and raw transaction inventory updates.
+It does not authorize broad runtime implementation, runtime prune fixes, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access, key lifecycle, choosing retention periods, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring/display, paid romantic advantage, DM unlock by payment, or broader `pi-musubi-core` changes.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -750,11 +762,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `985eb58d99346bf1f62e90b47a2b2ea1752043dc` -> `c9b6e378959fc386bd545d6b5fa844354725ae01`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #271 (`docs: evaluate post-C2 orchestration prune outbox attempt archive completeness handoff`).
-- New required docs: Post-C2 orchestration prune deterministic outcome ordering implementation closeout ledger; Post-C2 orchestration prune outbox attempt archive completeness evidence package; Post-C2 orchestration prune outbox attempt archive completeness handoff gate decision.
+- Updated from foundation SHA: `c9b6e378959fc386bd545d6b5fa844354725ae01` -> `c2729ce7a2df2aa66e4ee0f438fb97cafab8aee4`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #277 (`docs: evaluate post-C2 orchestration prune command inbox archive completeness handoff`).
+- New required docs: Post-C2 orchestration prune outbox attempt archive completeness implementation closeout ledger; Post-C2 orchestration prune command inbox archive completeness evidence package; Post-C2 orchestration prune command inbox archive completeness handoff gate decision.
 - Removed docs: None.
-- Implementation impact: PR #271 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed outbox attempt archive completeness verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, runtime prune fixes, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, Relationship Depth behavior, Social Trust scoring, public trust display, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, paid romantic advantage, and DM unlock by payment remain blocked.
+- Implementation impact: PR #277 authorizes one later implementation-repo test-only PR. This PR may update this foundation lock, add deterministic PostgreSQL-backed command inbox archive completeness verification to `apps/backend/crates/orchestration/tests/postgres_contract.rs`, and update only `apps/backend/docs/guardrails.md` plus `apps/backend/docs/raw_transaction_inventory.txt` for the new guardrail test surface. Broad runtime implementation, runtime prune fixes, DDL, migrations, backend runtime code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, choosing retention periods, Relationship Depth behavior, Social Trust scoring/display, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, paid romantic advantage, and DM unlock by payment remain blocked.
 - Review completed by: Masaki Takemura
 
 ---

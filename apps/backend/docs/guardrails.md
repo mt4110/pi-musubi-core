@@ -136,6 +136,7 @@ Current executable tests:
 - `postgres_prune_separates_mixed_retention_eligibility_rows`
 - `postgres_prune_returns_deterministic_outcome_ordering`
 - `postgres_prune_archives_all_attempts_for_eligible_terminal_outbox_event`
+- `postgres_prune_archives_all_eligible_command_inbox_rows_for_source_event`
 - `postgres_prune_preserves_nonterminal_coordination_rows`
 
 These prove terminal outbox and command-inbox coordination rows are archived
@@ -161,7 +162,10 @@ while still preserving retained terminal rows and nonterminal rows. The outbox
 attempt archive completeness contract proves that every hot outbox attempt row
 for one eligible terminal outbox event is copied into the attempt archive before
 hot rows are removed, while the prune outcome still reports the outbox event
-only once.
+only once. The command inbox archive completeness contract proves that all
+eligible terminal command inbox rows for one source event are copied into the
+command archive before hot rows are removed, while terminal rows with future
+retention and nonterminal rows sharing that source event remain hot-row owned.
 
 ### 5. Drop-Tx-Before-Await at the runtime seam
 

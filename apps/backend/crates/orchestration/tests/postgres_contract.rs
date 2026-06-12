@@ -3918,6 +3918,788 @@ async fn postgres_prune_archives_all_attempts_for_eligible_terminal_outbox_event
 }
 
 #[tokio::test]
+async fn postgres_prune_archives_all_eligible_command_inbox_rows_for_source_event() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x790);
+    let event_id = Uuid::from_u128(0x791);
+    let completed_projection_command_id = Uuid::from_u128(0x792);
+    let completed_audit_command_id = Uuid::from_u128(0x793);
+    let quarantined_command_id = Uuid::from_u128(0x794);
+    let retained_terminal_command_id = Uuid::from_u128(0x795);
+    let nonterminal_command_id = Uuid::from_u128(0x796);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x797),
+        stream_key: "settlement_case:command-inbox-archive-completeness".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-command-inbox-archive-completeness",
+            "retention_probe": { "kind": "command_inbox_archive_completeness" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert command inbox archive completeness outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'published',
+            attempt_count = 1,
+            published_at = $2,
+            last_attempt_at = $3,
+            retain_until = $4,
+            published_external_idempotency_key = $5
+        WHERE event_id = $1
+        ",
+        &[
+            &event_id,
+            &ts(30),
+            &ts(30),
+            &ts(100),
+            &"provider-key-command-inbox-completeness",
+        ],
+    )
+    .await
+    .expect("failed to mark command inbox archive completeness outbox event terminal");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempts (
+            event_id,
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, 1, $2, $3, $4, $5, NULL, NULL, NULL, $6)
+        ",
+        &[
+            &event_id,
+            &"settlement-relay",
+            &ts(0),
+            &ts(300),
+            &ts(30),
+            &"provider-key-command-inbox-completeness",
+        ],
+    )
+    .await
+    .expect("failed to insert command inbox archive completeness outbox attempt");
+
+    let completed_projection_command = CommandEnvelope::new(
+        completed_projection_command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({
+            "settlement_case_id": aggregate_id,
+            "command_label": "projection-completed"
+        }),
+    )
+    .unwrap();
+    let completed_audit_command = CommandEnvelope::new(
+        completed_audit_command_id,
+        event_id,
+        "projection.audit",
+        1,
+        json!({
+            "settlement_case_id": aggregate_id,
+            "command_label": "audit-completed"
+        }),
+    )
+    .unwrap();
+    let quarantined_command = CommandEnvelope::new(
+        quarantined_command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({
+            "settlement_case_id": aggregate_id,
+            "command_label": "search-quarantined"
+        }),
+    )
+    .unwrap();
+    let retained_terminal_command = CommandEnvelope::new(
+        retained_terminal_command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({
+            "settlement_case_id": aggregate_id,
+            "command_label": "future-retained"
+        }),
+    )
+    .unwrap();
+    let nonterminal_command = CommandEnvelope::new(
+        nonterminal_command_id,
+        event_id,
+        "projection.audit",
+        1,
+        json!({
+            "settlement_case_id": aggregate_id,
+            "command_label": "processing-retained"
+        }),
+    )
+    .unwrap();
+
+    let completed_projection_result = json!({
+        "projection_id": "projection-command-inbox-completeness"
+    });
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &completed_projection_command.command_id,
+            &completed_projection_command.source_event_id,
+            &completed_projection_command.payload_hash,
+            &ts(40),
+            &completed_projection_command.command_type,
+            &completed_projection_command.schema_version,
+            &ts(50),
+            &"projected",
+            &completed_projection_result,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert eligible completed projection command inbox row");
+
+    let completed_audit_result = json!({
+        "audit_id": "audit-command-inbox-completeness"
+    });
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"audit-projector",
+            &completed_audit_command.command_id,
+            &completed_audit_command.source_event_id,
+            &completed_audit_command.payload_hash,
+            &ts(42),
+            &completed_audit_command.command_type,
+            &completed_audit_command.schema_version,
+            &ts(52),
+            &"audited",
+            &completed_audit_result,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert eligible completed audit command inbox row");
+
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            last_error_class,
+            last_error_code,
+            last_error_detail,
+            quarantine_reason,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'quarantined', $6, 2, $7, $8, $9, $10, $11, $12, $13)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"search-indexer",
+            &quarantined_command.command_id,
+            &quarantined_command.source_event_id,
+            &quarantined_command.payload_hash,
+            &ts(44),
+            &quarantined_command.command_type,
+            &quarantined_command.schema_version,
+            &"permanent",
+            &"poison_command",
+            &"command payload rejected by projection worker",
+            &"poison_pill",
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert eligible quarantined command inbox row");
+
+    let retained_terminal_result = json!({
+        "projection_id": "future-retained-command-inbox-completeness"
+    });
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"projection-builder",
+            &retained_terminal_command.command_id,
+            &retained_terminal_command.source_event_id,
+            &retained_terminal_command.payload_hash,
+            &ts(46),
+            &retained_terminal_command.command_type,
+            &retained_terminal_command.schema_version,
+            &ts(56),
+            &"projected",
+            &retained_terminal_result,
+            &ts(300),
+        ],
+    )
+    .await
+    .expect("failed to insert retained terminal command inbox row");
+
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            claimed_by,
+            claimed_until,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'processing', $6, 0, $7, $8, $9, $10, $11)
+        ",
+        &[
+            &Uuid::new_v4(),
+            &"audit-projector",
+            &nonterminal_command.command_id,
+            &nonterminal_command.source_event_id,
+            &nonterminal_command.payload_hash,
+            &ts(48),
+            &nonterminal_command.command_type,
+            &nonterminal_command.schema_version,
+            &"audit-projector",
+            &ts(360),
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert retained nonterminal command inbox row");
+
+    let hot_command_count_before: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE source_event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot command inbox rows before prune")
+        .get("count");
+    assert_eq!(hot_command_count_before, 5);
+
+    let outcome = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect("failed to prune command inbox archive completeness coordination rows");
+
+    assert_eq!(outcome.pruned_outbox_event_ids, vec![event_id]);
+    assert_eq!(
+        outcome.pruned_command_keys,
+        vec![
+            CommandKey {
+                consumer_name: "audit-projector".to_owned(),
+                command_id: completed_audit_command_id,
+            },
+            CommandKey {
+                consumer_name: "projection-builder".to_owned(),
+                command_id: completed_projection_command_id,
+            },
+            CommandKey {
+                consumer_name: "search-indexer".to_owned(),
+                command_id: quarantined_command_id,
+            },
+        ]
+    );
+
+    let archived_commands = tx
+        .query(
+            "
+            SELECT
+                consumer_name,
+                command_id,
+                source_event_id,
+                archived_at,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                completed_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                result_type,
+                result_json,
+                retain_until
+            FROM outbox.command_inbox_archive
+            WHERE source_event_id = $1
+            ORDER BY consumer_name, command_id
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read command inbox archive completeness rows");
+    assert_eq!(archived_commands.len(), 3);
+
+    let archived_audit_command = &archived_commands[0];
+    assert_eq!(
+        archived_audit_command.get::<_, String>("consumer_name"),
+        "audit-projector"
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, Uuid>("command_id"),
+        completed_audit_command_id
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, Uuid>("source_event_id"),
+        event_id
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, String>("command_type"),
+        completed_audit_command.command_type.as_str()
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, i32>("schema_version"),
+        completed_audit_command.schema_version
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, String>("status"),
+        "completed"
+    );
+    assert_eq!(archived_audit_command.get::<_, i32>("attempt_count"), 1);
+    assert_eq!(
+        archived_audit_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some(completed_audit_command.payload_hash.as_str())
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, chrono::DateTime<Utc>>("received_at"),
+        ts(42)
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, Option<chrono::DateTime<Utc>>>("completed_at"),
+        Some(ts(52))
+    );
+    assert_eq!(
+        archived_audit_command
+            .get::<_, Option<String>>("result_type")
+            .as_deref(),
+        Some("audited")
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, Option<serde_json::Value>>("result_json"),
+        Some(completed_audit_result)
+    );
+    assert_eq!(
+        archived_audit_command.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+    assert_eq!(
+        archived_audit_command
+            .get::<_, Option<String>>("last_error_class"),
+        None
+    );
+
+    let archived_projection_command = &archived_commands[1];
+    assert_eq!(
+        archived_projection_command.get::<_, String>("consumer_name"),
+        "projection-builder"
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, Uuid>("command_id"),
+        completed_projection_command_id
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, Uuid>("source_event_id"),
+        event_id
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, String>("command_type"),
+        completed_projection_command.command_type.as_str()
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, i32>("schema_version"),
+        completed_projection_command.schema_version
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, String>("status"),
+        "completed"
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, i32>("attempt_count"),
+        1
+    );
+    assert_eq!(
+        archived_projection_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some(completed_projection_command.payload_hash.as_str())
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, chrono::DateTime<Utc>>("received_at"),
+        ts(40)
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, Option<chrono::DateTime<Utc>>>("completed_at"),
+        Some(ts(50))
+    );
+    assert_eq!(
+        archived_projection_command
+            .get::<_, Option<String>>("result_type")
+            .as_deref(),
+        Some("projected")
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, Option<serde_json::Value>>("result_json"),
+        Some(completed_projection_result)
+    );
+    assert_eq!(
+        archived_projection_command.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+    assert_eq!(
+        archived_projection_command
+            .get::<_, Option<String>>("last_error_code"),
+        None
+    );
+
+    let archived_quarantined_command = &archived_commands[2];
+    assert_eq!(
+        archived_quarantined_command.get::<_, String>("consumer_name"),
+        "search-indexer"
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, Uuid>("command_id"),
+        quarantined_command_id
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, Uuid>("source_event_id"),
+        event_id
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, chrono::DateTime<Utc>>("archived_at"),
+        ts(200)
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, String>("command_type"),
+        quarantined_command.command_type.as_str()
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, i32>("schema_version"),
+        quarantined_command.schema_version
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, String>("status"),
+        "quarantined"
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, i32>("attempt_count"),
+        2
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some(quarantined_command.payload_hash.as_str())
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, chrono::DateTime<Utc>>("received_at"),
+        ts(44)
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, Option<chrono::DateTime<Utc>>>("completed_at"),
+        None
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("last_error_class")
+            .as_deref(),
+        Some("permanent")
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("last_error_code")
+            .as_deref(),
+        Some("poison_command")
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("last_error_detail")
+            .as_deref(),
+        Some("command payload rejected by projection worker")
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("quarantine_reason")
+            .as_deref(),
+        Some("poison_pill")
+    );
+    assert_eq!(
+        archived_quarantined_command
+            .get::<_, Option<String>>("result_type"),
+        None
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, Option<serde_json::Value>>("result_json"),
+        None
+    );
+    assert_eq!(
+        archived_quarantined_command.get::<_, Option<chrono::DateTime<Utc>>>("retain_until"),
+        Some(ts(100))
+    );
+
+    let hot_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE (consumer_name = $1 AND command_id = $2)
+               OR (consumer_name = $3 AND command_id = $4)
+               OR (consumer_name = $5 AND command_id = $6)
+            ",
+            &[
+                &"audit-projector",
+                &completed_audit_command_id,
+                &"projection-builder",
+                &completed_projection_command_id,
+                &"search-indexer",
+                &quarantined_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count hot eligible command inbox rows after prune")
+        .get("count");
+    let archived_eligible_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE (consumer_name = $1 AND command_id = $2)
+               OR (consumer_name = $3 AND command_id = $4)
+               OR (consumer_name = $5 AND command_id = $6)
+            ",
+            &[
+                &"audit-projector",
+                &completed_audit_command_id,
+                &"projection-builder",
+                &completed_projection_command_id,
+                &"search-indexer",
+                &quarantined_command_id,
+            ],
+        )
+        .await
+        .expect("failed to count archived eligible command inbox rows after prune")
+        .get("count");
+    let retained_terminal_hot_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+              AND status = 'completed'
+              AND retain_until = $3
+            ",
+            &[
+                &"projection-builder",
+                &retained_terminal_command_id,
+                &ts(300),
+            ],
+        )
+        .await
+        .expect("failed to count retained terminal command inbox row after prune")
+        .get("count");
+    let retained_terminal_archive_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &retained_terminal_command_id],
+        )
+        .await
+        .expect("failed to count retained terminal command archive row after prune")
+        .get("count");
+    let nonterminal_hot_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+              AND status = 'processing'
+              AND retain_until = $3
+            ",
+            &[&"audit-projector", &nonterminal_command_id, &ts(100)],
+        )
+        .await
+        .expect("failed to count retained nonterminal command inbox row after prune")
+        .get("count");
+    let nonterminal_archive_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"audit-projector", &nonterminal_command_id],
+        )
+        .await
+        .expect("failed to count retained nonterminal command archive row after prune")
+        .get("count");
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox event after command inbox completeness prune")
+        .get("count");
+    let archived_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count archived outbox event after command inbox completeness prune")
+        .get("count");
+
+    assert_eq!(hot_eligible_command_count, 0);
+    assert_eq!(archived_eligible_command_count, 3);
+    assert_eq!(retained_terminal_hot_count, 1);
+    assert_eq!(retained_terminal_archive_count, 0);
+    assert_eq!(nonterminal_hot_count, 1);
+    assert_eq!(nonterminal_archive_count, 0);
+    assert_eq!(hot_outbox_count, 0);
+    assert_eq!(archived_outbox_count, 1);
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_nonterminal_coordination_rows() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
