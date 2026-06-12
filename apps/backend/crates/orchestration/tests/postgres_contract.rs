@@ -4409,8 +4409,7 @@ async fn postgres_prune_archives_all_eligible_command_inbox_rows_for_source_even
         Some(ts(100))
     );
     assert_eq!(
-        archived_audit_command
-            .get::<_, Option<String>>("last_error_class"),
+        archived_audit_command.get::<_, Option<String>>("last_error_class"),
         None
     );
 
@@ -4476,8 +4475,7 @@ async fn postgres_prune_archives_all_eligible_command_inbox_rows_for_source_even
         Some(ts(100))
     );
     assert_eq!(
-        archived_projection_command
-            .get::<_, Option<String>>("last_error_code"),
+        archived_projection_command.get::<_, Option<String>>("last_error_code"),
         None
     );
 
@@ -4553,8 +4551,7 @@ async fn postgres_prune_archives_all_eligible_command_inbox_rows_for_source_even
         Some("poison_pill")
     );
     assert_eq!(
-        archived_quarantined_command
-            .get::<_, Option<String>>("result_type"),
+        archived_quarantined_command.get::<_, Option<String>>("result_type"),
         None
     );
     assert_eq!(
