@@ -133,6 +133,7 @@ Current executable tests:
 - `postgres_prune_preserves_terminal_quarantine_archive_diagnostics`
 - `postgres_prune_is_idempotent_with_existing_archive_rows`
 - `postgres_prune_archive_conflict_mismatch_fails_closed`
+- `postgres_prune_archive_conflict_mismatch_does_not_expand_archives`
 - `postgres_prune_preserves_terminal_rows_before_retain_until`
 - `postgres_prune_separates_mixed_retention_eligibility_rows`
 - `postgres_prune_returns_deterministic_outcome_ordering`
@@ -152,7 +153,10 @@ not archived or deleted by the same prune helper, even when their retention
 timestamp is already in the past. The archive conflict mismatch contract proves
 that key-only preexisting archive conflicts with mismatched event, attempt, or
 command evidence fail closed before hot rows are removed or reported as pruned,
-without overwriting or duplicating the preexisting archive rows. The terminal
+without overwriting or duplicating the preexisting archive rows. The archive
+conflict mismatch side-effect contract proves that mismatched attempt or command
+archive evidence fails before the prune path inserts absent event, attempt, or
+command archive rows. The terminal
 retention eligibility contract proves that terminal published/quarantined
 outbox rows, their hot attempt rows, and completed/quarantined command-inbox
 rows are not archived or deleted when their `retain_until` is NULL or later

@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `5ceba0d`
+Status: Draft; aligned to accepted foundation commit `cac6b16`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `5ceba0dd77031feda2f0dc385b6b101dc54d4dfa`
-- Foundation commit title: `Merge pull request #293 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-corrective-handoff`
-- Foundation PR title: `docs: evaluate post-C2 orchestration prune archive conflict mismatch corrective handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/293`
-- Date pinned: `2026-06-13`
+- Foundation commit SHA: `cac6b164ce21aa389c1dde7d6b867d2f60fac73c`
+- Foundation commit title: `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
+- Foundation PR title: `docs: evaluate post-C2 orchestration prune archive conflict mismatch side-effect corrective handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/303`
+- Date pinned: `2026-06-14`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5ceba0dd77031feda2f0dc385b6b101dc54d4dfa`
-- Previous pinned reference: `17ee7d9` / `Merge pull request #283 from mt4110/feat/post-c2-orchestration-prune-command-inbox-formatting-compliance-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/cac6b164ce21aa389c1dde7d6b867d2f60fac73c`
+- Previous pinned reference: `5ceba0d` / `Merge pull request #293 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-corrective-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -126,6 +126,11 @@ Pinned reference for implementation work:
 - Post-C2 orchestration prune archive conflict mismatch fail-closed handoff source: `6de5734` / `Merge pull request #289 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-fail-closed-handoff`
 - Post-C2 orchestration prune archive conflict mismatch corrective evidence source: `59ed92b` / `Merge pull request #291 from mt4110/feat/orchestration-prune-archive-conflict-mismatch-corrective-evidence`
 - Post-C2 orchestration prune archive conflict mismatch corrective handoff source: `5ceba0d` / `Merge pull request #293 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-corrective-handoff`
+- Post-C2 orchestration prune archive conflict mismatch corrective implementation closeout source: `2bf19af` / `Merge pull request #295 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-corrective-handoff`
+- Post-C2 orchestration prune archive conflict mismatch side-effect containment evidence source: `14f26c4` / `Merge pull request #297 from mt4110/feat/orchestration-prune-archive-conflict-mismatch-side-effect-containment-evidence`
+- Post-C2 orchestration prune archive conflict mismatch side-effect containment handoff source: `1e3a8ae` / `Merge pull request #299 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-containment-handoff`
+- Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective evidence source: `2b73582` / `Merge pull request #301 from mt4110/feat/orchestration-prune-archive-conflict-mismatch-side-effect-corrective-evidence`
+- Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective handoff source: `cac6b16` / `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
