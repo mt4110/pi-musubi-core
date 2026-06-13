@@ -213,6 +213,123 @@ impl PostgresOrchestrationStore {
             .map(|row| row.get::<_, Uuid>("event_id"))
             .collect::<Vec<_>>();
 
+        let preexisting_mismatched_outbox_event_archives: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.events AS events
+                JOIN outbox.outbox_event_archive AS archive
+                  ON archive.event_id = events.event_id
+                WHERE events.delivery_status IN ('published', 'quarantined')
+                  AND events.retain_until IS NOT NULL
+                  AND events.retain_until <= $1
+                  AND (
+                    archive.stream_key IS DISTINCT FROM events.stream_key
+                    OR archive.aggregate_type IS DISTINCT FROM events.aggregate_type
+                    OR archive.aggregate_id IS DISTINCT FROM events.aggregate_id
+                    OR archive.event_type IS DISTINCT FROM events.event_type
+                    OR archive.schema_version IS DISTINCT FROM events.schema_version
+                    OR archive.payload_json IS DISTINCT FROM events.payload_json
+                    OR archive.payload_hash IS DISTINCT FROM events.payload_hash
+                    OR archive.final_status IS DISTINCT FROM events.delivery_status
+                    OR archive.attempt_count IS DISTINCT FROM events.attempt_count
+                    OR archive.causal_order IS DISTINCT FROM events.causal_order
+                    OR archive.available_at IS DISTINCT FROM events.available_at
+                    OR archive.created_at IS DISTINCT FROM events.created_at
+                    OR archive.published_at IS DISTINCT FROM events.published_at
+                    OR archive.quarantined_at IS DISTINCT FROM events.quarantined_at
+                    OR archive.last_attempt_at IS DISTINCT FROM events.last_attempt_at
+                    OR archive.last_error_class IS DISTINCT FROM events.last_error_class
+                    OR archive.last_error_code IS DISTINCT FROM events.last_error_code
+                    OR archive.last_error_detail IS DISTINCT FROM events.last_error_detail
+                    OR archive.quarantine_reason IS DISTINCT FROM events.quarantine_reason
+                    OR archive.retain_until IS DISTINCT FROM events.retain_until
+                    OR archive.published_external_idempotency_key
+                        IS DISTINCT FROM events.published_external_idempotency_key
+                  )
+                ",
+                &[&now],
+            )
+            .await
+            .map_err(database_error)?
+            .get("count");
+
+        let preexisting_mismatched_outbox_attempt_archives: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.outbox_attempts AS attempts
+                JOIN outbox.events AS events
+                  ON events.event_id = attempts.event_id
+                JOIN outbox.outbox_attempt_archive AS archive
+                  ON archive.event_id = attempts.event_id
+                 AND archive.attempt_number = attempts.attempt_number
+                WHERE events.delivery_status IN ('published', 'quarantined')
+                  AND events.retain_until IS NOT NULL
+                  AND events.retain_until <= $1
+                  AND (
+                    archive.relay_name IS DISTINCT FROM attempts.relay_name
+                    OR archive.claimed_at IS DISTINCT FROM attempts.claimed_at
+                    OR archive.claimed_until IS DISTINCT FROM attempts.claimed_until
+                    OR archive.finished_at IS DISTINCT FROM attempts.finished_at
+                    OR archive.failure_class IS DISTINCT FROM attempts.failure_class
+                    OR archive.failure_code IS DISTINCT FROM attempts.failure_code
+                    OR archive.failure_detail IS DISTINCT FROM attempts.failure_detail
+                    OR archive.external_idempotency_key
+                        IS DISTINCT FROM attempts.external_idempotency_key
+                  )
+                ",
+                &[&now],
+            )
+            .await
+            .map_err(database_error)?
+            .get("count");
+
+        let preexisting_mismatched_command_inbox_archives: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.command_inbox AS command
+                JOIN outbox.command_inbox_archive AS archive
+                  ON archive.consumer_name = command.consumer_name
+                 AND archive.command_id = command.command_id
+                WHERE command.status IN ('completed', 'quarantined')
+                  AND command.retain_until IS NOT NULL
+                  AND command.retain_until <= $1
+                  AND (
+                    archive.source_event_id IS DISTINCT FROM command.source_event_id
+                    OR archive.command_type IS DISTINCT FROM command.command_type
+                    OR archive.schema_version IS DISTINCT FROM command.schema_version
+                    OR archive.status IS DISTINCT FROM command.status
+                    OR archive.attempt_count IS DISTINCT FROM command.attempt_count
+                    OR archive.payload_checksum IS DISTINCT FROM command.payload_checksum
+                    OR archive.received_at IS DISTINCT FROM command.received_at
+                    OR archive.processed_at IS DISTINCT FROM command.processed_at
+                    OR archive.completed_at IS DISTINCT FROM command.completed_at
+                    OR archive.last_error_class IS DISTINCT FROM command.last_error_class
+                    OR archive.last_error_code IS DISTINCT FROM command.last_error_code
+                    OR archive.last_error_detail IS DISTINCT FROM command.last_error_detail
+                    OR archive.quarantine_reason IS DISTINCT FROM command.quarantine_reason
+                    OR archive.result_type IS DISTINCT FROM command.result_type
+                    OR archive.result_json IS DISTINCT FROM command.result_json
+                    OR archive.retain_until IS DISTINCT FROM command.retain_until
+                  )
+                ",
+                &[&now],
+            )
+            .await
+            .map_err(database_error)?
+            .get("count");
+
+        if preexisting_mismatched_outbox_event_archives > 0
+            || preexisting_mismatched_outbox_attempt_archives > 0
+            || preexisting_mismatched_command_inbox_archives > 0
+        {
+            return Err(OrchestrationError::Database(
+                "coordination archive evidence mismatch before prune".to_owned(),
+            ));
+        }
+
         tx.execute(
             "
             INSERT INTO outbox.outbox_event_archive (

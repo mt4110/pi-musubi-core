@@ -2446,6 +2446,567 @@ async fn postgres_prune_archive_conflict_mismatch_fails_closed() {
 }
 
 #[tokio::test]
+async fn postgres_prune_archive_conflict_mismatch_does_not_expand_archives() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    {
+        let tx = client
+            .transaction()
+            .await
+            .expect("failed to open transaction");
+        tx.batch_execute(include_str!(
+            "../../../migrations/0004_create_outbox_schema.sql"
+        ))
+        .await
+        .expect("failed to apply outbox schema");
+        tx.batch_execute(include_str!(
+            "../../../migrations/0006_orchestration_runtime_baseline.sql"
+        ))
+        .await
+        .expect("failed to apply orchestration baseline migration");
+
+        let aggregate_id = Uuid::from_u128(0x8a0);
+        let event_id = Uuid::from_u128(0x8a1);
+        let absent_command_id = Uuid::from_u128(0x8a2);
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key: Uuid::from_u128(0x8a3),
+            stream_key: "settlement_case:archive-conflict-mismatch-side-effect-attempt".to_owned(),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({
+                "intent_id": "intent-archive-conflict-mismatch-side-effect-attempt",
+                "retention_probe": { "kind": "archive_conflict_mismatch_side_effect_attempt" }
+            }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+
+        PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+            .await
+            .expect("failed to insert attempt side-effect outbox message");
+        tx.execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'published',
+                attempt_count = 1,
+                published_at = $2,
+                last_attempt_at = $2,
+                retain_until = $3,
+                published_external_idempotency_key = $4
+            WHERE event_id = $1
+            ",
+            &[
+                &event_id,
+                &ts(10),
+                &ts(100),
+                &"provider-key-archive-conflict-mismatch-side-effect-attempt",
+            ],
+        )
+        .await
+        .expect("failed to mark attempt side-effect outbox event terminal");
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_attempts (
+                event_id,
+                attempt_number,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+            ",
+            &[
+                &event_id,
+                &1_i32,
+                &"settlement-relay",
+                &ts(0),
+                &ts(300),
+                &ts(10),
+                &"provider-key-archive-conflict-mismatch-side-effect-attempt",
+            ],
+        )
+        .await
+        .expect("failed to insert attempt side-effect outbox attempt");
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_attempt_archive (
+                event_id,
+                attempt_number,
+                archived_at,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, $8)
+            ",
+            &[
+                &event_id,
+                &1_i32,
+                &ts(150),
+                &"unexpected-relay",
+                &ts(0),
+                &ts(300),
+                &ts(10),
+                &"mismatched-side-effect-attempt-provider-key",
+            ],
+        )
+        .await
+        .expect("failed to seed mismatched attempt side-effect archive row");
+
+        let before_event_archive_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count attempt side-effect event archives before prune")
+            .get("count");
+        let before_attempt_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.outbox_attempt_archive
+                WHERE event_id = $1
+                  AND attempt_number = $2
+                ",
+                &[&event_id, &1_i32],
+            )
+            .await
+            .expect("failed to count attempt side-effect attempt archives before prune")
+            .get("count");
+        let before_command_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.command_inbox_archive
+                WHERE consumer_name = $1
+                  AND command_id = $2
+                ",
+                &[&"projection-builder", &absent_command_id],
+            )
+            .await
+            .expect("failed to count attempt side-effect command archives before prune")
+            .get("count");
+
+        assert_eq!(before_event_archive_count, 0);
+        assert_eq!(before_attempt_archive_count, 1);
+        assert_eq!(before_command_archive_count, 0);
+
+        let prune_error = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+            .await
+            .expect_err("attempt archive mismatch must fail without expanding archives");
+        assert!(matches!(
+            prune_error,
+            OrchestrationError::Database(message)
+                if message == "coordination archive evidence mismatch before prune"
+        ));
+
+        let after_event_archive_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count attempt side-effect event archives after prune")
+            .get("count");
+        let after_attempt_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.outbox_attempt_archive
+                WHERE event_id = $1
+                  AND attempt_number = $2
+                ",
+                &[&event_id, &1_i32],
+            )
+            .await
+            .expect("failed to count attempt side-effect attempt archives after prune")
+            .get("count");
+        let after_command_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.command_inbox_archive
+                WHERE consumer_name = $1
+                  AND command_id = $2
+                ",
+                &[&"projection-builder", &absent_command_id],
+            )
+            .await
+            .expect("failed to count attempt side-effect command archives after prune")
+            .get("count");
+        let hot_event_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count hot attempt side-effect event after prune")
+            .get("count");
+        let hot_attempt_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count hot attempt side-effect attempt after prune")
+            .get("count");
+
+        assert_eq!(after_event_archive_count, before_event_archive_count);
+        assert_eq!(after_attempt_archive_count, before_attempt_archive_count);
+        assert_eq!(after_command_archive_count, before_command_archive_count);
+        assert_eq!(hot_event_count, 1);
+        assert_eq!(hot_attempt_count, 1);
+
+        tx.rollback()
+            .await
+            .expect("rollback should clean up attempt side-effect test state");
+    }
+
+    {
+        let tx = client
+            .transaction()
+            .await
+            .expect("failed to open transaction");
+        tx.batch_execute(include_str!(
+            "../../../migrations/0004_create_outbox_schema.sql"
+        ))
+        .await
+        .expect("failed to apply outbox schema");
+        tx.batch_execute(include_str!(
+            "../../../migrations/0006_orchestration_runtime_baseline.sql"
+        ))
+        .await
+        .expect("failed to apply orchestration baseline migration");
+
+        let aggregate_id = Uuid::from_u128(0x8b0);
+        let event_id = Uuid::from_u128(0x8b1);
+        let command_id = Uuid::from_u128(0x8b2);
+        let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+            event_id,
+            idempotency_key: Uuid::from_u128(0x8b3),
+            stream_key: "settlement_case:archive-conflict-mismatch-side-effect-command".to_owned(),
+            aggregate_type: "settlement_case".to_owned(),
+            aggregate_id,
+            event_type: "settlement.submit_action".to_owned(),
+            schema_version: 1,
+            payload_json: json!({
+                "intent_id": "intent-archive-conflict-mismatch-side-effect-command",
+                "retention_probe": { "kind": "archive_conflict_mismatch_side_effect_command" }
+            }),
+            available_at: ts(0),
+            created_at: ts(0),
+        })
+        .unwrap();
+
+        PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+            .await
+            .expect("failed to insert command side-effect outbox message");
+        tx.execute(
+            "
+            UPDATE outbox.events
+            SET delivery_status = 'published',
+                attempt_count = 1,
+                published_at = $2,
+                last_attempt_at = $2,
+                retain_until = $3,
+                published_external_idempotency_key = $4
+            WHERE event_id = $1
+            ",
+            &[
+                &event_id,
+                &ts(10),
+                &ts(100),
+                &"provider-key-archive-conflict-mismatch-side-effect-command",
+            ],
+        )
+        .await
+        .expect("failed to mark command side-effect outbox event terminal");
+        tx.execute(
+            "
+            INSERT INTO outbox.outbox_attempts (
+                event_id,
+                attempt_number,
+                relay_name,
+                claimed_at,
+                claimed_until,
+                finished_at,
+                failure_class,
+                failure_code,
+                failure_detail,
+                external_idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+            ",
+            &[
+                &event_id,
+                &1_i32,
+                &"settlement-relay",
+                &ts(0),
+                &ts(300),
+                &ts(10),
+                &"provider-key-archive-conflict-mismatch-side-effect-command",
+            ],
+        )
+        .await
+        .expect("failed to insert command side-effect outbox attempt");
+
+        let command = CommandEnvelope::new(
+            command_id,
+            event_id,
+            "projection.refresh",
+            1,
+            json!({ "settlement_case_id": aggregate_id }),
+        )
+        .unwrap();
+        let result_json = json!({
+            "projection_id": "projection-archive-conflict-mismatch-side-effect-command",
+            "archive_conflict_seen": true
+        });
+        tx.execute(
+            "
+            INSERT INTO outbox.command_inbox (
+                inbox_entry_id,
+                consumer_name,
+                command_id,
+                source_event_id,
+                payload_checksum,
+                received_at,
+                status,
+                available_at,
+                attempt_count,
+                command_type,
+                schema_version,
+                completed_at,
+                result_type,
+                result_json,
+                retain_until
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+            ",
+            &[
+                &Uuid::from_u128(0x8b4),
+                &"projection-builder",
+                &command_id,
+                &event_id,
+                &command.payload_hash,
+                &ts(20),
+                &command.command_type,
+                &command.schema_version,
+                &ts(30),
+                &"projected",
+                &result_json,
+                &ts(100),
+            ],
+        )
+        .await
+        .expect("failed to insert command side-effect inbox row");
+        tx.execute(
+            "
+            INSERT INTO outbox.command_inbox_archive (
+                consumer_name,
+                command_id,
+                source_event_id,
+                archived_at,
+                command_type,
+                schema_version,
+                status,
+                attempt_count,
+                payload_checksum,
+                received_at,
+                processed_at,
+                completed_at,
+                last_error_class,
+                last_error_code,
+                last_error_detail,
+                quarantine_reason,
+                result_type,
+                result_json,
+                retain_until
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'completed', 1, $7, $8, NULL, $9, NULL, NULL, NULL, NULL, $10, $11, $12)
+            ",
+            &[
+                &"projection-builder",
+                &command_id,
+                &event_id,
+                &ts(152),
+                &"projection.unexpected",
+                &command.schema_version,
+                &"mismatched-command-side-effect-checksum",
+                &ts(20),
+                &ts(30),
+                &"projected",
+                &result_json,
+                &ts(100),
+            ],
+        )
+        .await
+        .expect("failed to seed mismatched command side-effect archive row");
+
+        let before_event_archive_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count command side-effect event archives before prune")
+            .get("count");
+        let before_attempt_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.outbox_attempt_archive
+                WHERE event_id = $1
+                  AND attempt_number = $2
+                ",
+                &[&event_id, &1_i32],
+            )
+            .await
+            .expect("failed to count command side-effect attempt archives before prune")
+            .get("count");
+        let before_command_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.command_inbox_archive
+                WHERE consumer_name = $1
+                  AND command_id = $2
+                ",
+                &[&"projection-builder", &command_id],
+            )
+            .await
+            .expect("failed to count command side-effect command archives before prune")
+            .get("count");
+
+        assert_eq!(before_event_archive_count, 0);
+        assert_eq!(before_attempt_archive_count, 0);
+        assert_eq!(before_command_archive_count, 1);
+
+        let prune_error = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+            .await
+            .expect_err("command archive mismatch must fail without expanding archives");
+        assert!(matches!(
+            prune_error,
+            OrchestrationError::Database(message)
+                if message == "coordination archive evidence mismatch before prune"
+        ));
+
+        let after_event_archive_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_event_archive WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count command side-effect event archives after prune")
+            .get("count");
+        let after_attempt_archive_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.outbox_attempt_archive
+                WHERE event_id = $1
+                  AND attempt_number = $2
+                ",
+                &[&event_id, &1_i32],
+            )
+            .await
+            .expect("failed to count command side-effect attempt archives after prune")
+            .get("count");
+        let after_command_archive = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count, MIN(command_type) AS command_type, MIN(payload_checksum) AS payload_checksum
+                FROM outbox.command_inbox_archive
+                WHERE consumer_name = $1
+                  AND command_id = $2
+                ",
+                &[&"projection-builder", &command_id],
+            )
+            .await
+            .expect("failed to read command side-effect command archive after prune");
+        let hot_event_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count hot command side-effect event after prune")
+            .get("count");
+        let hot_attempt_count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+                &[&event_id],
+            )
+            .await
+            .expect("failed to count hot command side-effect attempt after prune")
+            .get("count");
+        let hot_command_count: i64 = tx
+            .query_one(
+                "
+                SELECT COUNT(*) AS count
+                FROM outbox.command_inbox
+                WHERE consumer_name = $1
+                  AND command_id = $2
+                ",
+                &[&"projection-builder", &command_id],
+            )
+            .await
+            .expect("failed to count hot command side-effect command after prune")
+            .get("count");
+
+        assert_eq!(after_event_archive_count, before_event_archive_count);
+        assert_eq!(after_attempt_archive_count, before_attempt_archive_count);
+        assert_eq!(
+            after_command_archive.get::<_, i64>("count"),
+            before_command_archive_count
+        );
+        assert_eq!(
+            after_command_archive
+                .get::<_, Option<String>>("command_type")
+                .as_deref(),
+            Some("projection.unexpected")
+        );
+        assert_eq!(
+            after_command_archive
+                .get::<_, Option<String>>("payload_checksum")
+                .as_deref(),
+            Some("mismatched-command-side-effect-checksum")
+        );
+        assert_eq!(hot_event_count, 1);
+        assert_eq!(hot_attempt_count, 1);
+        assert_eq!(hot_command_count, 1);
+
+        tx.rollback()
+            .await
+            .expect("rollback should clean up command side-effect test state");
+    }
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_terminal_rows_before_retain_until() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
