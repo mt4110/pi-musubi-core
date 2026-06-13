@@ -1954,6 +1954,498 @@ async fn postgres_prune_is_idempotent_with_existing_archive_rows() {
 }
 
 #[tokio::test]
+async fn postgres_prune_archive_conflict_mismatch_fails_closed() {
+    let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
+        return;
+    };
+
+    let (mut client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .expect("failed to connect to MUSUBI_TEST_DATABASE_URL");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let tx = client
+        .transaction()
+        .await
+        .expect("failed to open transaction");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0004_create_outbox_schema.sql"
+    ))
+    .await
+    .expect("failed to apply outbox schema");
+    tx.batch_execute(include_str!(
+        "../../../migrations/0006_orchestration_runtime_baseline.sql"
+    ))
+    .await
+    .expect("failed to apply orchestration baseline migration");
+
+    let aggregate_id = Uuid::from_u128(0x7b0);
+    let event_id = Uuid::from_u128(0x7b1);
+    let command_id = Uuid::from_u128(0x7b2);
+    let pending_event_id = Uuid::from_u128(0x7b3);
+    let pending_command_id = Uuid::from_u128(0x7b4);
+    let message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id,
+        idempotency_key: Uuid::from_u128(0x7b5),
+        stream_key: "settlement_case:archive-conflict-mismatch".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id,
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-archive-conflict-mismatch",
+            "retention_probe": { "kind": "archive_conflict_mismatch" }
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+    let pending_message = NewOutboxMessage::new(NewOutboxMessageSpec {
+        event_id: pending_event_id,
+        idempotency_key: Uuid::from_u128(0x7b6),
+        stream_key: "settlement_case:archive-conflict-mismatch-pending".to_owned(),
+        aggregate_type: "settlement_case".to_owned(),
+        aggregate_id: Uuid::from_u128(0x7b7),
+        event_type: "settlement.submit_action".to_owned(),
+        schema_version: 1,
+        payload_json: json!({
+            "intent_id": "intent-archive-conflict-mismatch-pending"
+        }),
+        available_at: ts(0),
+        created_at: ts(0),
+    })
+    .unwrap();
+
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &message)
+        .await
+        .expect("failed to insert archive mismatch outbox message");
+    PostgresOrchestrationStore::insert_outbox_message(&tx, &pending_message)
+        .await
+        .expect("failed to insert pending archive mismatch outbox message");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET delivery_status = 'published',
+            attempt_count = 1,
+            published_at = $2,
+            last_attempt_at = $2,
+            retain_until = $3,
+            published_external_idempotency_key = $4
+        WHERE event_id = $1
+        ",
+        &[
+            &event_id,
+            &ts(10),
+            &ts(100),
+            &"provider-key-archive-conflict-mismatch",
+        ],
+    )
+    .await
+    .expect("failed to mark archive mismatch outbox event terminal");
+    tx.execute(
+        "
+        UPDATE outbox.events
+        SET retain_until = $2
+        WHERE event_id = $1
+        ",
+        &[&pending_event_id, &ts(100)],
+    )
+    .await
+    .expect("failed to mark pending outbox retain_until");
+
+    let causal_order: i64 = tx
+        .query_one(
+            "SELECT causal_order FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read archive mismatch causal order")
+        .get("causal_order");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempts (
+            event_id,
+            attempt_number,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7)
+        ",
+        &[
+            &event_id,
+            &1_i32,
+            &"settlement-relay",
+            &ts(0),
+            &ts(300),
+            &ts(10),
+            &"provider-key-archive-conflict-mismatch",
+        ],
+    )
+    .await
+    .expect("failed to insert archive mismatch outbox attempt");
+
+    let command = CommandEnvelope::new(
+        command_id,
+        event_id,
+        "projection.refresh",
+        1,
+        json!({ "settlement_case_id": aggregate_id }),
+    )
+    .unwrap();
+    let result_json = json!({
+        "projection_id": "projection-archive-conflict-mismatch",
+        "archive_conflict_seen": true
+    });
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            completed_at,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', $6, 1, $7, $8, $9, $10, $11, $12)
+        ",
+        &[
+            &Uuid::from_u128(0x7b8),
+            &"projection-builder",
+            &command_id,
+            &event_id,
+            &command.payload_hash,
+            &ts(20),
+            &command.command_type,
+            &command.schema_version,
+            &ts(30),
+            &"projected",
+            &result_json,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert archive mismatch command inbox row");
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox (
+            inbox_entry_id,
+            consumer_name,
+            command_id,
+            source_event_id,
+            payload_checksum,
+            received_at,
+            status,
+            available_at,
+            attempt_count,
+            command_type,
+            schema_version,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $6, 0, $7, $8, $9)
+        ",
+        &[
+            &Uuid::from_u128(0x7b9),
+            &"projection-builder",
+            &pending_command_id,
+            &pending_event_id,
+            &"pending-command-checksum",
+            &ts(20),
+            &"projection.refresh",
+            &1_i32,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to insert pending archive mismatch command inbox row");
+
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_event_archive (
+            event_id,
+            archived_at,
+            stream_key,
+            aggregate_type,
+            aggregate_id,
+            event_type,
+            schema_version,
+            payload_json,
+            payload_hash,
+            final_status,
+            attempt_count,
+            causal_order,
+            available_at,
+            created_at,
+            published_at,
+            quarantined_at,
+            last_attempt_at,
+            last_error_class,
+            last_error_code,
+            last_error_detail,
+            quarantine_reason,
+            retain_until,
+            published_external_idempotency_key
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, 1, $7, $8, 'published', 1, $9,
+            $10, $10, $11, NULL, $11, NULL, NULL, NULL, NULL, $12, $13
+        )
+        ",
+        &[
+            &event_id,
+            &ts(150),
+            &"settlement_case:mismatched-archive",
+            &message.aggregate_type,
+            &aggregate_id,
+            &message.event_type,
+            &json!({ "mismatched": "event-payload" }),
+            &"mismatched-event-payload-hash",
+            &causal_order,
+            &ts(0),
+            &ts(10),
+            &ts(100),
+            &"provider-key-archive-conflict-mismatch",
+        ],
+    )
+    .await
+    .expect("failed to seed mismatched outbox event archive row");
+    tx.execute(
+        "
+        INSERT INTO outbox.outbox_attempt_archive (
+            event_id,
+            attempt_number,
+            archived_at,
+            relay_name,
+            claimed_at,
+            claimed_until,
+            finished_at,
+            failure_class,
+            failure_code,
+            failure_detail,
+            external_idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, $8)
+        ",
+        &[
+            &event_id,
+            &1_i32,
+            &ts(151),
+            &"unexpected-relay",
+            &ts(0),
+            &ts(300),
+            &ts(10),
+            &"mismatched-attempt-provider-key",
+        ],
+    )
+    .await
+    .expect("failed to seed mismatched outbox attempt archive row");
+    tx.execute(
+        "
+        INSERT INTO outbox.command_inbox_archive (
+            consumer_name,
+            command_id,
+            source_event_id,
+            archived_at,
+            command_type,
+            schema_version,
+            status,
+            attempt_count,
+            payload_checksum,
+            received_at,
+            processed_at,
+            completed_at,
+            last_error_class,
+            last_error_code,
+            last_error_detail,
+            quarantine_reason,
+            result_type,
+            result_json,
+            retain_until
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'completed', 1, $7, $8, NULL, $9, NULL, NULL, NULL, NULL, $10, $11, $12)
+        ",
+        &[
+            &"projection-builder",
+            &command_id,
+            &event_id,
+            &ts(152),
+            &"projection.unexpected",
+            &command.schema_version,
+            &"mismatched-command-checksum",
+            &ts(20),
+            &ts(30),
+            &"projected",
+            &result_json,
+            &ts(100),
+        ],
+    )
+    .await
+    .expect("failed to seed mismatched command inbox archive row");
+
+    let prune_error = PostgresOrchestrationStore::prune_coordination(&tx, ts(200))
+        .await
+        .expect_err("mismatched archive conflicts must fail closed before prune");
+    assert!(matches!(
+        prune_error,
+        OrchestrationError::Database(message)
+            if message == "coordination archive evidence mismatch before prune"
+    ));
+
+    let hot_outbox_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox event after mismatch prune")
+        .get("count");
+    let hot_attempt_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.outbox_attempts WHERE event_id = $1",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to count hot outbox attempt after mismatch prune")
+        .get("count");
+    let hot_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to count hot command after mismatch prune")
+        .get("count");
+    let pending_event_count: i64 = tx
+        .query_one(
+            "SELECT COUNT(*) AS count FROM outbox.events WHERE event_id = $1",
+            &[&pending_event_id],
+        )
+        .await
+        .expect("failed to count pending event after mismatch prune")
+        .get("count");
+    let pending_command_count: i64 = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count
+            FROM outbox.command_inbox
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &pending_command_id],
+        )
+        .await
+        .expect("failed to count pending command after mismatch prune")
+        .get("count");
+
+    assert_eq!(hot_outbox_count, 1);
+    assert_eq!(hot_attempt_count, 1);
+    assert_eq!(hot_command_count, 1);
+    assert_eq!(pending_event_count, 1);
+    assert_eq!(pending_command_count, 1);
+
+    let archived_event = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count, MIN(stream_key) AS stream_key, MIN(payload_hash) AS payload_hash
+            FROM outbox.outbox_event_archive
+            WHERE event_id = $1
+            ",
+            &[&event_id],
+        )
+        .await
+        .expect("failed to read mismatched event archive row");
+    let archived_attempt = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count, MIN(relay_name) AS relay_name, MIN(external_idempotency_key) AS external_idempotency_key
+            FROM outbox.outbox_attempt_archive
+            WHERE event_id = $1
+              AND attempt_number = $2
+            ",
+            &[&event_id, &1_i32],
+        )
+        .await
+        .expect("failed to read mismatched attempt archive row");
+    let archived_command = tx
+        .query_one(
+            "
+            SELECT COUNT(*) AS count, MIN(command_type) AS command_type, MIN(payload_checksum) AS payload_checksum
+            FROM outbox.command_inbox_archive
+            WHERE consumer_name = $1
+              AND command_id = $2
+            ",
+            &[&"projection-builder", &command_id],
+        )
+        .await
+        .expect("failed to read mismatched command archive row");
+
+    assert_eq!(archived_event.get::<_, i64>("count"), 1);
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("stream_key")
+            .as_deref(),
+        Some("settlement_case:mismatched-archive")
+    );
+    assert_eq!(
+        archived_event
+            .get::<_, Option<String>>("payload_hash")
+            .as_deref(),
+        Some("mismatched-event-payload-hash")
+    );
+    assert_eq!(archived_attempt.get::<_, i64>("count"), 1);
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("relay_name")
+            .as_deref(),
+        Some("unexpected-relay")
+    );
+    assert_eq!(
+        archived_attempt
+            .get::<_, Option<String>>("external_idempotency_key")
+            .as_deref(),
+        Some("mismatched-attempt-provider-key")
+    );
+    assert_eq!(archived_command.get::<_, i64>("count"), 1);
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("command_type")
+            .as_deref(),
+        Some("projection.unexpected")
+    );
+    assert_eq!(
+        archived_command
+            .get::<_, Option<String>>("payload_checksum")
+            .as_deref(),
+        Some("mismatched-command-checksum")
+    );
+
+    tx.rollback()
+        .await
+        .expect("rollback should clean up transactional test state");
+}
+
+#[tokio::test]
 async fn postgres_prune_preserves_terminal_rows_before_retain_until() {
     let Ok(database_url) = std::env::var("MUSUBI_TEST_DATABASE_URL") else {
         return;
