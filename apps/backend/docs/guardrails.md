@@ -132,6 +132,7 @@ Current executable tests:
 - `postgres_prune_preserves_terminal_archive_payloads`
 - `postgres_prune_preserves_terminal_quarantine_archive_diagnostics`
 - `postgres_prune_is_idempotent_with_existing_archive_rows`
+- `postgres_prune_archive_conflict_mismatch_fails_closed`
 - `postgres_prune_preserves_terminal_rows_before_retain_until`
 - `postgres_prune_separates_mixed_retention_eligibility_rows`
 - `postgres_prune_returns_deterministic_outcome_ordering`
@@ -148,24 +149,28 @@ The archive conflict contract proves preexisting archive rows are not duplicated
 or overwritten while matching prune-ready hot rows are removed. The nonterminal
 preservation contract proves that pending and processing coordination rows are
 not archived or deleted by the same prune helper, even when their retention
-timestamp is already in the past. The terminal retention eligibility contract
-proves that terminal published/quarantined outbox rows, their hot attempt rows,
-and completed/quarantined command-inbox rows are not archived or deleted when
-their `retain_until` is NULL or later than the prune timestamp. The mixed
-retention eligibility contract proves that one prune run archives and removes
-eligible terminal rows while retaining terminal rows whose `retain_until` is
-NULL or later than the prune timestamp, retaining their hot attempts, and
-preserving nonterminal coordination rows. The deterministic outcome ordering
-contract proves that a multi-row prune result reports outbox event ids in
-writer-owned replay order and command inbox keys in stable command-key order
-while still preserving retained terminal rows and nonterminal rows. The outbox
-attempt archive completeness contract proves that every hot outbox attempt row
-for one eligible terminal outbox event is copied into the attempt archive before
-hot rows are removed, while the prune outcome still reports the outbox event
-only once. The command inbox archive completeness contract proves that all
-eligible terminal command inbox rows for one source event are copied into the
-command archive before hot rows are removed, while terminal rows with future
-retention and nonterminal rows sharing that source event remain hot-row owned.
+timestamp is already in the past. The archive conflict mismatch contract proves
+that key-only preexisting archive conflicts with mismatched event, attempt, or
+command evidence fail closed before hot rows are removed or reported as pruned,
+without overwriting or duplicating the preexisting archive rows. The terminal
+retention eligibility contract proves that terminal published/quarantined
+outbox rows, their hot attempt rows, and completed/quarantined command-inbox
+rows are not archived or deleted when their `retain_until` is NULL or later
+than the prune timestamp. The mixed retention eligibility contract proves that
+one prune run archives and removes eligible terminal rows while retaining
+terminal rows whose `retain_until` is NULL or later than the prune timestamp,
+retaining their hot attempts, and preserving nonterminal coordination rows. The
+deterministic outcome ordering contract proves that a multi-row prune result
+reports outbox event ids in writer-owned replay order and command inbox keys in
+stable command-key order while still preserving retained terminal rows and
+nonterminal rows. The outbox attempt archive completeness contract proves that
+every hot outbox attempt row for one eligible terminal outbox event is copied
+into the attempt archive before hot rows are removed, while the prune outcome
+still reports the outbox event only once. The command inbox archive completeness
+contract proves that all eligible terminal command inbox rows for one source
+event are copied into the command archive before hot rows are removed, while
+terminal rows with future retention and nonterminal rows sharing that source
+event remain hot-row owned.
 
 ### 5. Drop-Tx-Before-Await at the runtime seam
 
