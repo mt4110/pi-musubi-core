@@ -113,6 +113,36 @@ fn no_effect_freeze_narrowing_and_recovery_do_not_escape_to_external_effects() {
 }
 
 #[test]
+fn c1_trust_depth_proof_authority_targets_remain_blocked_for_c2_facts() {
+    for (source_fact, mutation_fact) in accepted_mappings() {
+        for target in [
+            C2CategoricalFactConsumptionTarget::ProofRuntimeOutcome,
+            C2CategoricalFactConsumptionTarget::RelationshipDepthFact,
+            C2CategoricalFactConsumptionTarget::PublicSocialTrustDisplay,
+            C2CategoricalFactConsumptionTarget::RecommendationBoost,
+            C2CategoricalFactConsumptionTarget::ContactUnlock,
+            C2CategoricalFactConsumptionTarget::RoomTransition,
+            C2CategoricalFactConsumptionTarget::ProjectionRefresh,
+            C2CategoricalFactConsumptionTarget::PublicApiResponse,
+            C2CategoricalFactConsumptionTarget::MobileUiState,
+        ] {
+            let attempt = attempt(source_fact, mutation_fact, target);
+
+            assert_eq!(
+                decide_c2_categorical_fact_consumption(&attempt),
+                C2CategoricalFactConsumptionDecision::Reject(
+                    C2CategoricalFactConsumptionRejection::BlockedConsumptionTarget { target }
+                ),
+                "{} must remain blocked for {} / {}",
+                target.as_str(),
+                source_fact.as_str(),
+                mutation_fact.as_str(),
+            );
+        }
+    }
+}
+
+#[test]
 fn projection_only_authority_fails_closed_even_for_internal_reference() {
     let mut attempt = attempt(
         C2BoundedPromiseReliabilitySourceFact::CompletedAsAgreed,

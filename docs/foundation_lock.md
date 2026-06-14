@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `e793005`
+Status: Draft; aligned to accepted foundation commit `d54a644`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
-- Foundation commit title: `Merge pull request #305 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
-- Foundation PR title: `docs: close archive conflict mismatch side-effect corrective handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/305`
+- Foundation commit SHA: `d54a644ffc52867eb5c432a5e234242977770acc`
+- Foundation commit title: `Merge pull request #327 from mt4110/feat/c1-trust-depth-proof-test-only-handoff`
+- Foundation PR title: `docs: add C1 trust depth proof test-only handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/327`
 - Date pinned: `2026-06-14`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
-- Previous pinned reference: `cac6b16` / `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/d54a644ffc52867eb5c432a5e234242977770acc`
+- Previous pinned reference: `e793005` / `Merge pull request #305 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -132,6 +132,8 @@ Pinned reference for implementation work:
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective evidence source: `2b73582` / `Merge pull request #301 from mt4110/feat/orchestration-prune-archive-conflict-mismatch-side-effect-corrective-evidence`
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective handoff source: `cac6b16` / `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout source: `e793005` / `Merge pull request #305 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
+- C1 Trust / Depth / Proof authority evidence source: `a05577d` / `Merge pull request #326 from mt4110/feat/c1-trust-depth-proof-authority-evidence`
+- C1 Trust / Depth / Proof authority test-only handoff source: `d54a644` / `Merge pull request #327 from mt4110/feat/c1-trust-depth-proof-test-only-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -296,38 +298,42 @@ Before coding, read these upstream documents in order.
 144. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_evidence_package.md`
 145. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_handoff_gate_decision.md`
 146. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_side_effect_containment_corrective_implementation_closeout_ledger.md`
+147. `docs/readiness/c1_trust_depth_proof_authority_foundation_evidence_package.md`
+148. `docs/readiness/c1_trust_depth_proof_authority_source_law_ledger.md`
+149. `docs/readiness/c1_trust_depth_proof_authority_non_authorization_guard.md`
+150. `docs/readiness/c1_trust_depth_proof_authority_test_only_handoff_gate_decision.md`
 
 ### Operations layer
-147. `docs/operations/readiness_routine.md`
-148. `docs/operations/runalways_readiness_orchestrator_design.md`
-149. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-150. `docs/operations/runalways_lane_controller_v0_1.md`
+151. `docs/operations/readiness_routine.md`
+152. `docs/operations/runalways_readiness_orchestrator_design.md`
+153. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+154. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-151. `docs/detail/accountability_matrix.md`
-152. `docs/detail/critical_incident_and_loss.md`
-153. `docs/detail/automated_decisioning_and_human_appeal.md`
-154. `docs/detail/youth_safety_and_age_assurance.md`
-155. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-156. `docs/detail/data_deletion_vs_legal_hold.md`
-157. `docs/detail/security_and_autonomy_hardening.md`
-158. `docs/detail/realm_model.md`
-159. `docs/detail/data_scope_model.md`
-160. `docs/detail/mobility_model.md`
-161. `docs/detail/settlement_model.md`
-162. `docs/detail/settlement_backend_trait.md`
-163. `docs/detail/proof_of_infrastructure.md`
-164. `docs/detail/protected_groups_and_translation_safety.md`
+155. `docs/detail/accountability_matrix.md`
+156. `docs/detail/critical_incident_and_loss.md`
+157. `docs/detail/automated_decisioning_and_human_appeal.md`
+158. `docs/detail/youth_safety_and_age_assurance.md`
+159. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+160. `docs/detail/data_deletion_vs_legal_hold.md`
+161. `docs/detail/security_and_autonomy_hardening.md`
+162. `docs/detail/realm_model.md`
+163. `docs/detail/data_scope_model.md`
+164. `docs/detail/mobility_model.md`
+165. `docs/detail/settlement_model.md`
+166. `docs/detail/settlement_backend_trait.md`
+167. `docs/detail/proof_of_infrastructure.md`
+168. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-165. `docs/whitepaper/01_executive_summary.md`
-166. `docs/whitepaper/02_realm_model.md`
-167. `docs/whitepaper/03_experience_model.md`
-168. `docs/whitepaper/04_dm_shield.md`
-169. `docs/whitepaper/05_trust_model.md`
-170. `docs/whitepaper/06_promise_protocol.md`
-171. `docs/whitepaper/07_realm_economy.md`
-172. `docs/whitepaper/08_unlock_engine.md`
+169. `docs/whitepaper/01_executive_summary.md`
+170. `docs/whitepaper/02_realm_model.md`
+171. `docs/whitepaper/03_experience_model.md`
+172. `docs/whitepaper/04_dm_shield.md`
+173. `docs/whitepaper/05_trust_model.md`
+174. `docs/whitepaper/06_promise_protocol.md`
+175. `docs/whitepaper/07_realm_economy.md`
+176. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -359,6 +365,15 @@ No remaining work may inherit permission from foundation PR #108 or implementati
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
 No current narrow downstream runtime allowance remains after the post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout.
+
+Foundation PR #326 accepted C1 Trust / Depth / Proof authority evidence only.
+It did not decide exact Social Trust source fact taxonomy, exact Relationship Depth source fact taxonomy, proof eligibility semantics, mutation weights, recovery ceilings, scoring, display, public trust posture, provider guarantees, or downstream runtime behavior.
+Foundation PR #327 provides the current one-use downstream test-only handoff authority for this implementation-repo PR only.
+This implementation-repo PR consumes that allowance.
+That allowance authorizes only `docs/foundation_lock.md`, `apps/backend/crates/social-trust-domain/tests/intake_contract.rs`, and `apps/backend/crates/social-trust-domain/tests/post_c2_non_consumption_guard_contract.rs`.
+It authorizes only deterministic tests that verify already-forbidden Trust / Depth / Proof authority inputs remain non-authority in the existing Social Trust domain contract surface.
+It does not authorize runtime implementation, DDL, migrations, schema-only work, backend runtime code, public API changes, mobile UI changes, projection refresh, runtime orchestration, Social Trust mutation behavior, Relationship Depth mutation behavior, proof runtime behavior, provider guarantees, paid romantic advantage, payment-based direct-message unlock, or broader `pi-musubi-core` changes.
+If the deterministic tests require changes outside the exact allowed files, the work must stop and return to foundation for a separate corrective decision.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -458,6 +473,10 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_evidence_package.md`
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_handoff_gate_decision.md`
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_side_effect_containment_corrective_implementation_closeout_ledger.md`
+- `docs/readiness/c1_trust_depth_proof_authority_foundation_evidence_package.md`
+- `docs/readiness/c1_trust_depth_proof_authority_source_law_ledger.md`
+- `docs/readiness/c1_trust_depth_proof_authority_non_authorization_guard.md`
+- `docs/readiness/c1_trust_depth_proof_authority_test_only_handoff_gate_decision.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -812,11 +831,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `cac6b164ce21aa389c1dde7d6b867d2f60fac73c` -> `e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #305 (`docs: close archive conflict mismatch side-effect corrective handoff`), under the one-use docs-only lock-alignment allowance accepted by foundation PR #313.
-- New required docs: Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout ledger.
+- Updated from foundation SHA: `e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf` -> `d54a644ffc52867eb5c432a5e234242977770acc`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #327 (`docs: add C1 trust depth proof test-only handoff`), under the one-use test-only allowance accepted by foundation PR #327.
+- New required docs: C1 Trust / Depth / Proof authority evidence package, source law ledger, non-authorization guard, and test-only handoff gate decision.
 - Removed docs: None.
-- Implementation impact: This docs-only update pins foundation PR #305 closeout and records that foundation PR #303 was consumed by `mt4110/pi-musubi-core` PR #155. PR #305 returns broad runtime implementation, runtime tests, DDL, migrations, implementation handoff, runtime handoff, gate invocation, backend code, backend docs outside `docs/foundation_lock.md`, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, provider guarantees, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring/display, paid romantic advantage, DM unlock by payment, and broader `pi-musubi-core` changes to NO-GO. This update consumes the one-use foundation PR #313 lock-alignment allowance and changes only `docs/foundation_lock.md`.
+- Implementation impact: This update consumes the one-use foundation PR #327 test-only allowance. It pins foundation PR #327 and permits only deterministic tests in the two existing Social Trust domain contract test files named above. Runtime implementation, DDL, migrations, schema-only work, backend runtime code, public API changes, mobile UI changes, projection refresh, runtime orchestration, Social Trust mutation behavior, Relationship Depth mutation behavior, proof runtime behavior, provider guarantees, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
