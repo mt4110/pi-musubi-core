@@ -184,6 +184,34 @@ fn projection_only_posture_fails_closed() {
 }
 
 #[test]
+fn c1_trust_depth_proof_authority_inputs_remain_non_authority() {
+    for source in [
+        ForbiddenSocialTrustSourceCategory::ProofCallbackAlone,
+        ForbiddenSocialTrustSourceCategory::ProjectionState,
+        ForbiddenSocialTrustSourceCategory::PaymentAmount,
+        ForbiddenSocialTrustSourceCategory::PaymentFrequency,
+        ForbiddenSocialTrustSourceCategory::Popularity,
+        ForbiddenSocialTrustSourceCategory::ReplySpeed,
+        ForbiddenSocialTrustSourceCategory::OperatorNotes,
+        ForbiddenSocialTrustSourceCategory::RelationshipDepth,
+        ForbiddenSocialTrustSourceCategory::RoomProjection,
+        ForbiddenSocialTrustSourceCategory::RecommendationState,
+    ] {
+        let mut attempt = complete_attempt();
+        attempt.source_category = SocialTrustSourceCategory::Forbidden(source);
+
+        assert_eq!(
+            decide_social_trust_intake(&attempt),
+            SocialTrustIntakeDecision::Reject(SocialTrustIntakeRejection::ForbiddenSource {
+                source
+            }),
+            "{} must remain non-authority for Social Trust intake",
+            source.as_str(),
+        );
+    }
+}
+
+#[test]
 fn complete_writer_source_candidate_never_mutates_social_trust_directly() {
     let decision = decide_social_trust_intake(&complete_attempt());
 
