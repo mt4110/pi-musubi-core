@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `cac6b16`
+Status: Draft; aligned to accepted foundation commit `e793005`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `cac6b164ce21aa389c1dde7d6b867d2f60fac73c`
-- Foundation commit title: `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
-- Foundation PR title: `docs: evaluate post-C2 orchestration prune archive conflict mismatch side-effect corrective handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/303`
+- Foundation commit SHA: `e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
+- Foundation commit title: `Merge pull request #305 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
+- Foundation PR title: `docs: close archive conflict mismatch side-effect corrective handoff`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/305`
 - Date pinned: `2026-06-14`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/cac6b164ce21aa389c1dde7d6b867d2f60fac73c`
-- Previous pinned reference: `5ceba0d` / `Merge pull request #293 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-corrective-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
+- Previous pinned reference: `cac6b16` / `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -131,6 +131,7 @@ Pinned reference for implementation work:
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment handoff source: `1e3a8ae` / `Merge pull request #299 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-containment-handoff`
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective evidence source: `2b73582` / `Merge pull request #301 from mt4110/feat/orchestration-prune-archive-conflict-mismatch-side-effect-corrective-evidence`
 - Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective handoff source: `cac6b16` / `Merge pull request #303 from mt4110/feat/post-c2-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
+- Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout source: `e793005` / `Merge pull request #305 from mt4110/feat/close-orchestration-prune-archive-conflict-mismatch-side-effect-corrective-handoff`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -294,38 +295,39 @@ Before coding, read these upstream documents in order.
 143. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_fail_closed_handoff_gate_decision.md`
 144. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_evidence_package.md`
 145. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_handoff_gate_decision.md`
+146. `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_side_effect_containment_corrective_implementation_closeout_ledger.md`
 
 ### Operations layer
-146. `docs/operations/readiness_routine.md`
-147. `docs/operations/runalways_readiness_orchestrator_design.md`
-148. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-149. `docs/operations/runalways_lane_controller_v0_1.md`
+147. `docs/operations/readiness_routine.md`
+148. `docs/operations/runalways_readiness_orchestrator_design.md`
+149. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+150. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-150. `docs/detail/accountability_matrix.md`
-151. `docs/detail/critical_incident_and_loss.md`
-152. `docs/detail/automated_decisioning_and_human_appeal.md`
-153. `docs/detail/youth_safety_and_age_assurance.md`
-154. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-155. `docs/detail/data_deletion_vs_legal_hold.md`
-156. `docs/detail/security_and_autonomy_hardening.md`
-157. `docs/detail/realm_model.md`
-158. `docs/detail/data_scope_model.md`
-159. `docs/detail/mobility_model.md`
-160. `docs/detail/settlement_model.md`
-161. `docs/detail/settlement_backend_trait.md`
-162. `docs/detail/proof_of_infrastructure.md`
-163. `docs/detail/protected_groups_and_translation_safety.md`
+151. `docs/detail/accountability_matrix.md`
+152. `docs/detail/critical_incident_and_loss.md`
+153. `docs/detail/automated_decisioning_and_human_appeal.md`
+154. `docs/detail/youth_safety_and_age_assurance.md`
+155. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+156. `docs/detail/data_deletion_vs_legal_hold.md`
+157. `docs/detail/security_and_autonomy_hardening.md`
+158. `docs/detail/realm_model.md`
+159. `docs/detail/data_scope_model.md`
+160. `docs/detail/mobility_model.md`
+161. `docs/detail/settlement_model.md`
+162. `docs/detail/settlement_backend_trait.md`
+163. `docs/detail/proof_of_infrastructure.md`
+164. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-164. `docs/whitepaper/01_executive_summary.md`
-165. `docs/whitepaper/02_realm_model.md`
-166. `docs/whitepaper/03_experience_model.md`
-167. `docs/whitepaper/04_dm_shield.md`
-168. `docs/whitepaper/05_trust_model.md`
-169. `docs/whitepaper/06_promise_protocol.md`
-170. `docs/whitepaper/07_realm_economy.md`
-171. `docs/whitepaper/08_unlock_engine.md`
+165. `docs/whitepaper/01_executive_summary.md`
+166. `docs/whitepaper/02_realm_model.md`
+167. `docs/whitepaper/03_experience_model.md`
+168. `docs/whitepaper/04_dm_shield.md`
+169. `docs/whitepaper/05_trust_model.md`
+170. `docs/whitepaper/06_promise_protocol.md`
+171. `docs/whitepaper/07_realm_economy.md`
+172. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -356,7 +358,7 @@ That one-use C2 implementation allowance was consumed by `mt4110/pi-musubi-core`
 No remaining work may inherit permission from foundation PR #108 or implementation PR #88.
 The broad runtime implementation gate result remains NO-GO.
 Broad runtime implementation remains blocked.
-The current narrow downstream allowance is one implementation-repo corrective runtime PR for post-C2 orchestration prune archive conflict mismatch corrective runtime fix.
+No current narrow downstream runtime allowance remains after the post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -455,6 +457,7 @@ The C2 and post-C2 readiness and closeout chain is accepted for docs-only founda
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_fail_closed_handoff_gate_decision.md`
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_evidence_package.md`
 - `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_corrective_handoff_gate_decision.md`
+- `docs/readiness/post_c2_orchestration_prune_archive_conflict_mismatch_side_effect_containment_corrective_implementation_closeout_ledger.md`
 - `docs/operations/readiness_routine.md`
 - `docs/operations/runalways_readiness_orchestrator_design.md`
 - `docs/operations/runalways_readiness_orchestrator_stage0.md`
@@ -575,11 +578,20 @@ Foundation PR #287 accepted the exact candidate test-only slice as post-C2 orche
 Foundation PR #289 provided the prior narrow downstream test-only handoff authority for one later implementation-repo PR only, or a local proof attempt that would stop and return to foundation if the deterministic test failed before PR creation.
 That one-use test-only allowance was consumed locally, failed before PR creation, and returned to foundation without opening an implementation-repo PR or patching runtime code.
 Foundation PR #291 accepted the corrective evidence package recording that failing proof.
-Foundation PR #293 provides the current narrow downstream corrective runtime handoff authority for one later implementation-repo PR only.
-This update is the required lock pin for that one-use allowance.
-It authorizes only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/src/postgres.rs`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
-It allows only updating this foundation lock to pin PR #293, adding exactly one deterministic PostgreSQL contract test named `postgres_prune_archive_conflict_mismatch_fails_closed`, correcting the existing PostgreSQL prune path so preexisting archive rows under the same keys must be evidence-equivalent before corresponding terminal hot coordination rows are deleted or reported as pruned, preserving the accepted matching archive conflict idempotency behavior, and updating the named backend-local guardrail documents.
-It does not authorize broad runtime implementation, DDL, migrations, backend runtime code outside `apps/backend/crates/orchestration/src/postgres.rs`, service source code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior outside the exact prune correction, retry workers, queues, outbox schema changes, command inbox schema changes, archive schema changes, constraint changes, index changes, retention policy changes, manual-review provider evidence pruning, lifecycle runtime behavior, pruning runtime behavior outside the exact corrective scope, archive runtime behavior outside the exact corrective scope, deletion behavior outside the exact corrective scope, Legal Hold runtime behavior, evidence access, key lifecycle, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring/display, paid romantic advantage, DM unlock by payment, or broader `pi-musubi-core` changes.
+Foundation PR #293 provided the prior narrow downstream corrective runtime handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #153 and closed out by foundation PR #295.
+Foundation PR #297 accepted the exact candidate test-only slice as post-C2 orchestration prune archive conflict mismatch side-effect containment verification.
+Foundation PR #299 provided the prior one-use test-only local proof allowance.
+That local proof failed before implementation-repo PR creation and returned to foundation without patching runtime code.
+Foundation PR #301 accepted the corrective evidence package recording that failing proof.
+Foundation PR #303 provided the prior narrow downstream corrective runtime handoff authority for one later implementation-repo PR only.
+That allowance authorized only `docs/foundation_lock.md`, `apps/backend/crates/orchestration/src/postgres.rs`, `apps/backend/crates/orchestration/tests/postgres_contract.rs`, `apps/backend/docs/guardrails.md`, and `apps/backend/docs/raw_transaction_inventory.txt`.
+It allowed only updating this foundation lock to pin PR #303, correcting the existing PostgreSQL prune path so preexisting archive rows under the same keys must be evidence-equivalent before any additional archive rows are inserted or corresponding terminal hot coordination rows are deleted or reported as pruned, adding the deterministic PostgreSQL contract test named `postgres_prune_archive_conflict_mismatch_does_not_expand_archives`, preserving the accepted archive conflict mismatch fail-closed behavior, preserving the accepted matching archive conflict idempotency behavior, and updating the named backend-local guardrail documents.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #155 and closed out by foundation PR #305.
+Foundation PR #305 records that PR #303 is fully consumed and that no later work may reuse PR #303 as runtime implementation authority.
+Foundation PR #305 returns broad runtime implementation, runtime tests, DDL, migrations, implementation handoff, runtime handoff, gate invocation, backend code, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, provider guarantees, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring/display, paid romantic advantage, DM unlock by payment, and broader `pi-musubi-core` changes to NO-GO.
+Foundation PR #313 authorized one later downstream docs-only PR limited to this file, `docs/foundation_lock.md`, to pin foundation PR #305 closeout.
+This update consumes that one-use foundation lock alignment allowance.
 
 Implementation merge history, issue order, branch ancestry, and existing code are not foundation design proof.
 
@@ -800,11 +812,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `17ee7d95833d8e60b369b83bbf9c2e9f90c876ec` -> `5ceba0dd77031feda2f0dc385b6b101dc54d4dfa`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #293 (`docs: evaluate post-C2 orchestration prune archive conflict mismatch corrective handoff`).
-- New required docs: Post-C2 orchestration prune command inbox archive completeness formatting compliance implementation closeout ledger; Post-C2 orchestration prune archive conflict mismatch fail-closed evidence package; Post-C2 orchestration prune archive conflict mismatch fail-closed handoff gate decision; Post-C2 orchestration prune archive conflict mismatch corrective evidence package; Post-C2 orchestration prune archive conflict mismatch corrective handoff gate decision.
+- Updated from foundation SHA: `cac6b164ce21aa389c1dde7d6b867d2f60fac73c` -> `e793005fe6b72a3bc9bb67bea79eeb2d844bcaaf`
+- Reason: Align implementation-repo lock with the accepted foundation state after PR #305 (`docs: close archive conflict mismatch side-effect corrective handoff`), under the one-use docs-only lock-alignment allowance accepted by foundation PR #313.
+- New required docs: Post-C2 orchestration prune archive conflict mismatch side-effect containment corrective implementation closeout ledger.
 - Removed docs: None.
-- Implementation impact: PR #293 authorizes one later implementation-repo corrective runtime PR. This PR may update this foundation lock, add exactly one deterministic PostgreSQL contract test named `postgres_prune_archive_conflict_mismatch_fails_closed`, correct the existing PostgreSQL prune path in `apps/backend/crates/orchestration/src/postgres.rs` so preexisting archive rows under the same keys must be evidence-equivalent before corresponding terminal hot coordination rows are deleted or reported as pruned, preserve matching archive conflict idempotency, and update `apps/backend/docs/guardrails.md` and `apps/backend/docs/raw_transaction_inventory.txt`. Broad runtime implementation, DDL, migrations, backend runtime code outside `apps/backend/crates/orchestration/src/postgres.rs`, service source code, public API changes, mobile UI, projection refresh, new runtime orchestration behavior outside the exact prune correction, retry workers, queues, outbox schema changes, command inbox schema changes, archive schema changes, constraints, indexes, retention policy changes, manual-review provider evidence pruning behavior, lifecycle runtime behavior, broad pruning runtime behavior, broad archive runtime behavior, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, provider callbacks, network I/O, external guarantees, scheduled workers, repository workflow changes, secrets, credentials, self-hosted runners, branch protection changes, Relationship Depth behavior, Social Trust scoring/display, paid romantic advantage, and DM unlock by payment remain blocked.
+- Implementation impact: This docs-only update pins foundation PR #305 closeout and records that foundation PR #303 was consumed by `mt4110/pi-musubi-core` PR #155. PR #305 returns broad runtime implementation, runtime tests, DDL, migrations, implementation handoff, runtime handoff, gate invocation, backend code, backend docs outside `docs/foundation_lock.md`, public API changes, mobile UI, projection refresh, runtime orchestration, retry workers, queues, outbox changes, inbox changes, archive schema changes, retention policy changes, lifecycle runtime behavior, pruning runtime behavior, archive runtime behavior, deletion, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, provider guarantees, discovery, recommendation, room, settlement, Promise runtime, proof runtime, Relationship Depth, Social Trust scoring/display, paid romantic advantage, DM unlock by payment, and broader `pi-musubi-core` changes to NO-GO. This update consumes the one-use foundation PR #313 lock-alignment allowance and changes only `docs/foundation_lock.md`.
 - Review completed by: Masaki Takemura
 
 ---
