@@ -247,6 +247,69 @@ impl C2BoundedPromiseReliabilitySourceFact {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum C1FirstPositiveSourceScope {
+    FulfilledCommitmentPromiseFollowThrough,
+    AccountableCompletionBehavior,
+}
+
+impl C1FirstPositiveSourceScope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FulfilledCommitmentPromiseFollowThrough => {
+                "fulfilled_commitments_promise_follow_through"
+            }
+            Self::AccountableCompletionBehavior => "accountable_completion_behavior",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum C1FirstPositiveSourceScopeDecision {
+    Accept {
+        source_fact: C2BoundedPromiseReliabilitySourceFact,
+        source_scope: C1FirstPositiveSourceScope,
+    },
+    Reject(C1FirstPositiveSourceScopeRejection),
+}
+
+impl C1FirstPositiveSourceScopeDecision {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Accept { .. } => "accept",
+            Self::Reject(_) => "rejected",
+        }
+    }
+
+    pub const fn rejection_reason_code(&self) -> Option<&'static str> {
+        match self {
+            Self::Accept { .. } => None,
+            Self::Reject(rejection) => Some(rejection.as_str()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum C1FirstPositiveSourceScopeRejection {
+    RejectedSourceFact {
+        source: RejectedC2BoundedPromiseReliabilitySourceFact,
+    },
+    UnknownSourceFact,
+    NotFirstPositiveSource {
+        source: C2BoundedPromiseReliabilitySourceFact,
+    },
+}
+
+impl C1FirstPositiveSourceScopeRejection {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::RejectedSourceFact { .. } => "rejected_source_fact",
+            Self::UnknownSourceFact => "unknown_source_fact",
+            Self::NotFirstPositiveSource { .. } => "not_first_positive_source",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum C2BoundedPromiseReliabilityMutationFactCandidate {
     Accepted(C2BoundedPromiseReliabilityMutationFact),
     Unknown,
@@ -916,6 +979,41 @@ pub fn decide_social_trust_intake(
     }
 
     SocialTrustIntakeDecision::CandidateForWriterPersistence
+}
+
+#[must_use]
+pub const fn decide_c1_first_positive_source_scope(
+    candidate: C2BoundedPromiseReliabilitySourceFactCandidate,
+) -> C1FirstPositiveSourceScopeDecision {
+    match candidate {
+        C2BoundedPromiseReliabilitySourceFactCandidate::Accepted(
+            C2BoundedPromiseReliabilitySourceFact::CompletedAsAgreed,
+        ) => C1FirstPositiveSourceScopeDecision::Accept {
+            source_fact: C2BoundedPromiseReliabilitySourceFact::CompletedAsAgreed,
+            source_scope: C1FirstPositiveSourceScope::FulfilledCommitmentPromiseFollowThrough,
+        },
+        C2BoundedPromiseReliabilitySourceFactCandidate::Accepted(
+            C2BoundedPromiseReliabilitySourceFact::CompletedAfterGovernedReview,
+        ) => C1FirstPositiveSourceScopeDecision::Accept {
+            source_fact: C2BoundedPromiseReliabilitySourceFact::CompletedAfterGovernedReview,
+            source_scope: C1FirstPositiveSourceScope::AccountableCompletionBehavior,
+        },
+        C2BoundedPromiseReliabilitySourceFactCandidate::Accepted(source) => {
+            C1FirstPositiveSourceScopeDecision::Reject(
+                C1FirstPositiveSourceScopeRejection::NotFirstPositiveSource { source },
+            )
+        }
+        C2BoundedPromiseReliabilitySourceFactCandidate::Rejected(source) => {
+            C1FirstPositiveSourceScopeDecision::Reject(
+                C1FirstPositiveSourceScopeRejection::RejectedSourceFact { source },
+            )
+        }
+        C2BoundedPromiseReliabilitySourceFactCandidate::Unknown => {
+            C1FirstPositiveSourceScopeDecision::Reject(
+                C1FirstPositiveSourceScopeRejection::UnknownSourceFact,
+            )
+        }
+    }
 }
 
 #[must_use]
