@@ -87,6 +87,25 @@ fn rejected_source_facts_fail_closed() {
 }
 
 #[test]
+fn representable_hard_exclusion_source_families_fail_closed_for_c2_mutation() {
+    for (family, sources) in hard_exclusion_source_families() {
+        for source in sources {
+            let mut proposal = complete_proposal();
+            proposal.source_fact = C2BoundedPromiseReliabilitySourceFactCandidate::Rejected(source);
+
+            assert_eq!(
+                decide_c2_bounded_promise_reliability_mutation(&proposal),
+                C2BoundedPromiseReliabilityMutationDecision::Reject(
+                    C2BoundedPromiseReliabilityRejection::RejectedSourceFact { source }
+                ),
+                "{family} shortcut {} must fail closed for C2 mutation",
+                source.as_str(),
+            );
+        }
+    }
+}
+
+#[test]
 fn unknown_source_or_mutation_fact_fails_closed() {
     let mut unknown_source = complete_proposal();
     unknown_source.source_fact = C2BoundedPromiseReliabilitySourceFactCandidate::Unknown;
@@ -135,6 +154,24 @@ fn projection_authority_and_unresolved_boundaries_fail_closed() {
             }
         )
     );
+}
+
+#[test]
+fn ordinary_positive_completion_paths_fail_closed_on_each_boundary_intersection() {
+    for boundary in boundary_intersections() {
+        let mut proposal = complete_proposal();
+        proposal.boundary_posture =
+            C2BoundedPromiseReliabilityBoundaryPosture::Unresolved(boundary);
+
+        assert_eq!(
+            decide_c2_bounded_promise_reliability_mutation(&proposal),
+            C2BoundedPromiseReliabilityMutationDecision::Reject(
+                C2BoundedPromiseReliabilityRejection::BoundaryUnresolved { boundary }
+            ),
+            "ordinary positive completion path must not bypass {}",
+            boundary.as_str(),
+        );
+    }
 }
 
 #[test]
@@ -410,5 +447,117 @@ fn rejected_source_facts() -> Vec<RejectedC2BoundedPromiseReliabilitySourceFact>
         RejectedC2BoundedPromiseReliabilitySourceFact::AccountLifecycleStateByItself,
         RejectedC2BoundedPromiseReliabilitySourceFact::DeletionClosureTombstoneAnonymizationKeyShreddingOrReEntry,
         RejectedC2BoundedPromiseReliabilitySourceFact::ImplementationConvenience,
+    ]
+}
+
+fn hard_exclusion_source_families() -> Vec<(
+    &'static str,
+    Vec<RejectedC2BoundedPromiseReliabilitySourceFact>,
+)> {
+    vec![
+        (
+            "payment_support_and_settlement",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::PromiseEscrowCreation,
+                RejectedC2BoundedPromiseReliabilitySourceFact::EscrowAmount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::EscrowRelease,
+                RejectedC2BoundedPromiseReliabilitySourceFact::Forfeiture,
+                RejectedC2BoundedPromiseReliabilitySourceFact::PaymentAmount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::PaymentFrequency,
+                RejectedC2BoundedPromiseReliabilitySourceFact::SupportAmount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::SupportStatus,
+                RejectedC2BoundedPromiseReliabilitySourceFact::TokenHoldings,
+            ],
+        ),
+        (
+            "proof_provider_and_raw_presence",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::MeetingAttendanceClaimByOneParty,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RawVenuePresence,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RawGps,
+                RejectedC2BoundedPromiseReliabilitySourceFact::StaticQrScan,
+                RejectedC2BoundedPromiseReliabilitySourceFact::NfcTapAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::BleObservationAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::BleMacAddress,
+                RejectedC2BoundedPromiseReliabilitySourceFact::DeviceAttestationAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::MissingDeviceAttestationAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ProximityProofAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ProofEligibilityAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ProofCallbackAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::VendorCallbackAlone,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ProviderDashboardState,
+            ],
+        ),
+        (
+            "projection_client_model_and_observability",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::ProjectionReadiness,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RoomProjection,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ObservabilityState,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ModelOutput,
+                RejectedC2BoundedPromiseReliabilitySourceFact::FrontendState,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ClientState,
+            ],
+        ),
+        (
+            "subjective_narrative_and_operator_notes",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::ReflectionPraise,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ApologyText,
+                RejectedC2BoundedPromiseReliabilitySourceFact::SubjectiveGratitude,
+                RejectedC2BoundedPromiseReliabilitySourceFact::SinglePartyNarrative,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ReportCount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::MassReportCount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::OperatorNote,
+                RejectedC2BoundedPromiseReliabilitySourceFact::StewardEndorsementByItself,
+                RejectedC2BoundedPromiseReliabilitySourceFact::SupportTicket,
+                RejectedC2BoundedPromiseReliabilitySourceFact::IssueComment,
+            ],
+        ),
+        (
+            "popularity_engagement_and_relationship_depth",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::Popularity,
+                RejectedC2BoundedPromiseReliabilitySourceFact::FollowerCount,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ReplySpeed,
+                RejectedC2BoundedPromiseReliabilitySourceFact::DwellTime,
+                RejectedC2BoundedPromiseReliabilitySourceFact::MessageVolume,
+                RejectedC2BoundedPromiseReliabilitySourceFact::AccountTenure,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RomanticDesirability,
+                RejectedC2BoundedPromiseReliabilitySourceFact::EngagementTelemetry,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RelationshipDepth,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RoomStateByItself,
+                RejectedC2BoundedPromiseReliabilitySourceFact::DiscoveryRanking,
+                RejectedC2BoundedPromiseReliabilitySourceFact::RecommendationState,
+            ],
+        ),
+        (
+            "identity_lifecycle_and_convenience",
+            vec![
+                RejectedC2BoundedPromiseReliabilitySourceFact::ControlledExceptionalAccountActivity,
+                RejectedC2BoundedPromiseReliabilitySourceFact::AgeAssurancePosture,
+                RejectedC2BoundedPromiseReliabilitySourceFact::VerifiedAdultPosture,
+                RejectedC2BoundedPromiseReliabilitySourceFact::LegalHoldExistence,
+                RejectedC2BoundedPromiseReliabilitySourceFact::AntiAbuseContinuityMarkerExistence,
+                RejectedC2BoundedPromiseReliabilitySourceFact::AccountLifecycleStateByItself,
+                RejectedC2BoundedPromiseReliabilitySourceFact::DeletionClosureTombstoneAnonymizationKeyShreddingOrReEntry,
+                RejectedC2BoundedPromiseReliabilitySourceFact::ImplementationConvenience,
+            ],
+        ),
+    ]
+}
+
+fn boundary_intersections() -> Vec<C2BoundedPromiseReliabilityBoundaryIntersection> {
+    vec![
+        C2BoundedPromiseReliabilityBoundaryIntersection::Consent,
+        C2BoundedPromiseReliabilityBoundaryIntersection::BlockMuteRefusalOrWithdrawal,
+        C2BoundedPromiseReliabilityBoundaryIntersection::AgeAssurance,
+        C2BoundedPromiseReliabilityBoundaryIntersection::LegalHold,
+        C2BoundedPromiseReliabilityBoundaryIntersection::CriticalHarm,
+        C2BoundedPromiseReliabilityBoundaryIntersection::AccountLifecycle,
+        C2BoundedPromiseReliabilityBoundaryIntersection::AppealCorrectionOrSafetyReview,
+        C2BoundedPromiseReliabilityBoundaryIntersection::AntiAbuseSuppression,
+        C2BoundedPromiseReliabilityBoundaryIntersection::CollusionScamOrCoercion,
+        C2BoundedPromiseReliabilityBoundaryIntersection::SensitiveExposure,
     ]
 }
