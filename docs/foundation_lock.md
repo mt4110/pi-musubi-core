@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `bf7cde8`
+Status: Draft; aligned to accepted foundation commit `5f68437`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `bf7cde8bf351a1e204c0ce1e7114cd03a0894f40`
-- Foundation commit title: `Merge pull request #348 from mt4110/feat/core-authority-map-c1-social-trust-handoff`
-- Foundation PR title: `docs: map core authority and C1 Social Trust handoff`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/348`
-- Date pinned: `2026-06-15`
+- Foundation commit SHA: `5f68437696b8e2f6b7b6da908e431d6de9a04a77`
+- Foundation commit title: `Merge pull request #384 from mt4110/feat/promise-completion-downstream-gate-selection`
+- Foundation PR title: `docs: select Promise completion downstream gate route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/384`
+- Date pinned: `2026-06-16`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/bf7cde8bf351a1e204c0ce1e7114cd03a0894f40`
-- Previous pinned reference: `d54a644` / `Merge pull request #327 from mt4110/feat/c1-trust-depth-proof-test-only-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5f68437696b8e2f6b7b6da908e431d6de9a04a77`
+- Previous pinned reference: `bf7cde8` / `Merge pull request #348 from mt4110/feat/core-authority-map-c1-social-trust-handoff`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -136,6 +136,18 @@ Pinned reference for implementation work:
 - C1 Trust / Depth / Proof authority test-only handoff source: `d54a644` / `Merge pull request #327 from mt4110/feat/c1-trust-depth-proof-test-only-handoff`
 - C1 first positive source scope decision source: `0f926f9` / `Merge pull request #346 from mt4110/feat/c1-first-positive-source-scope`
 - Core implementation authority map and C1 Social Trust positive source implementation handoff source: `bf7cde8` / `Merge pull request #348 from mt4110/feat/core-authority-map-c1-social-trust-handoff`
+- C1 Social Trust positive source implementation closeout source: `e9b785e` / `Merge pull request #350 from mt4110/feat/close-c1-social-trust-positive-source-handoff`
+- C1 Social Trust writer record persistence preflight no-op closeout source: `7febf11` / `Merge pull request #358 from mt4110/feat/c1-social-trust-writer-record-no-op-closeout`
+- Promise Realm projection participant surface authority detail record source: `eb90be8` / `Merge pull request #364 from mt4110/feat/participant-surface-authority-sufficiency`
+- Promise completion proof eligibility authority detail record source: `ac20cf6` / `Merge pull request #366 from mt4110/feat/promise-completion-proof-eligibility-authority`
+- Promise completion source taxonomy active founder answer and detail record source: `9cc2d63` / `Merge pull request #370 from mt4110/feat/promise-completion-source-taxonomy-answer`
+- Promise completion state machine authority source: `fb73d1a` / `Merge pull request #372 from mt4110/feat/promise-completion-state-machine-authority`
+- Promise completion writer fact record family authority source: `9c9b741` / `Merge pull request #374 from mt4110/feat/promise-completion-writer-fact-record-family-authority`
+- Promise completion implementation gate readiness gap ledger source: `a75c66c` / `Merge pull request #376 from mt4110/feat/promise-completion-implementation-gate-readiness-gaps`
+- Promise completion downstream gate decision packet source: `810e1c4` / `Merge pull request #378 from mt4110/feat/promise-completion-downstream-gate-decision-packet`
+- Promise completion implementation-ready design envelope source: `8d1ee8e` / `Merge pull request #380 from mt4110/feat/promise-completion-implementation-ready-design-envelope`
+- Promise completion downstream gate sufficiency decision source: `48232bc` / `Merge pull request #382 from mt4110/feat/promise-completion-downstream-gate-sufficiency`
+- Promise completion downstream gate selection decision source: `5f68437` / `Merge pull request #384 from mt4110/feat/promise-completion-downstream-gate-selection`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -307,38 +319,51 @@ Before coding, read these upstream documents in order.
 151. `docs/readiness/c1_first_positive_source_scope_decision.md`
 152. `docs/readiness/core_implementation_authority_map.md`
 153. `docs/readiness/c1_social_trust_positive_source_implementation_handoff_gate_decision.md`
+154. `docs/readiness/c1_social_trust_positive_source_implementation_closeout_ledger.md`
+155. `docs/readiness/c1_social_trust_writer_record_persistence_preflight_handoff_no_op_closeout_ledger.md`
+156. `docs/readiness/promise_realm_projection_participant_surface_authority_detail_record.md`
+157. `docs/readiness/promise_completion_proof_eligibility_authority_detail_record.md`
+158. `docs/readiness/promise_completion_source_taxonomy_active_founder_answer_ledger.md`
+159. `docs/readiness/promise_completion_source_taxonomy_detail_record.md`
+160. `docs/readiness/promise_completion_state_machine_authority_detail_record.md`
+161. `docs/readiness/promise_completion_writer_fact_record_family_authority_detail_record.md`
+162. `docs/readiness/promise_completion_implementation_gate_readiness_gap_ledger.md`
+163. `docs/readiness/promise_completion_downstream_gate_decision_packet.md`
+164. `docs/readiness/promise_completion_implementation_ready_design_envelope.md`
+165. `docs/readiness/promise_completion_downstream_gate_sufficiency_decision.md`
+166. `docs/readiness/promise_completion_downstream_gate_selection_decision.md`
 
 ### Operations layer
-154. `docs/operations/readiness_routine.md`
-155. `docs/operations/runalways_readiness_orchestrator_design.md`
-156. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-157. `docs/operations/runalways_lane_controller_v0_1.md`
+167. `docs/operations/readiness_routine.md`
+168. `docs/operations/runalways_readiness_orchestrator_design.md`
+169. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+170. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-158. `docs/detail/accountability_matrix.md`
-159. `docs/detail/critical_incident_and_loss.md`
-160. `docs/detail/automated_decisioning_and_human_appeal.md`
-161. `docs/detail/youth_safety_and_age_assurance.md`
-162. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-163. `docs/detail/data_deletion_vs_legal_hold.md`
-164. `docs/detail/security_and_autonomy_hardening.md`
-165. `docs/detail/realm_model.md`
-166. `docs/detail/data_scope_model.md`
-167. `docs/detail/mobility_model.md`
-168. `docs/detail/settlement_model.md`
-169. `docs/detail/settlement_backend_trait.md`
-170. `docs/detail/proof_of_infrastructure.md`
-171. `docs/detail/protected_groups_and_translation_safety.md`
+171. `docs/detail/accountability_matrix.md`
+172. `docs/detail/critical_incident_and_loss.md`
+173. `docs/detail/automated_decisioning_and_human_appeal.md`
+174. `docs/detail/youth_safety_and_age_assurance.md`
+175. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+176. `docs/detail/data_deletion_vs_legal_hold.md`
+177. `docs/detail/security_and_autonomy_hardening.md`
+178. `docs/detail/realm_model.md`
+179. `docs/detail/data_scope_model.md`
+180. `docs/detail/mobility_model.md`
+181. `docs/detail/settlement_model.md`
+182. `docs/detail/settlement_backend_trait.md`
+183. `docs/detail/proof_of_infrastructure.md`
+184. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-172. `docs/whitepaper/01_executive_summary.md`
-173. `docs/whitepaper/02_realm_model.md`
-174. `docs/whitepaper/03_experience_model.md`
-175. `docs/whitepaper/04_dm_shield.md`
-176. `docs/whitepaper/05_trust_model.md`
-177. `docs/whitepaper/06_promise_protocol.md`
-178. `docs/whitepaper/07_realm_economy.md`
-179. `docs/whitepaper/08_unlock_engine.md`
+185. `docs/whitepaper/01_executive_summary.md`
+186. `docs/whitepaper/02_realm_model.md`
+187. `docs/whitepaper/03_experience_model.md`
+188. `docs/whitepaper/04_dm_shield.md`
+189. `docs/whitepaper/05_trust_model.md`
+190. `docs/whitepaper/06_promise_protocol.md`
+191. `docs/whitepaper/07_realm_economy.md`
+192. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -378,14 +403,22 @@ That allowance was consumed by `mt4110/pi-musubi-core` PR #158.
 No remaining work may inherit permission from foundation PR #327 or implementation PR #158.
 Foundation PR #346 recorded the C1 first positive source scope as Social Trust only: fulfilled commitments / Promise follow-through plus accountable completion behavior.
 Foundation PR #346 did not authorize foundation lock alignment, downstream work, runtime implementation, runtime tests, DDL, migrations, schema-only work, public API, mobile UI, projection, scoring, display, Relationship Depth mutation, proof runtime, or `pi-musubi-core` changes.
-Foundation PR #348 provides the current one-use downstream handoff authority for this implementation-repo PR only.
-This implementation-repo PR consumes that allowance.
-That allowance authorizes only `docs/foundation_lock.md`, `apps/backend/crates/social-trust-domain/src/lib.rs`, `apps/backend/crates/social-trust-domain/tests/c1_first_positive_source_scope_contract.rs`, and existing `apps/backend/crates/social-trust-domain/tests/*.rs` only if extending an existing Social Trust domain contract is smaller and clearer.
-It authorizes only pure Social Trust domain classification for the C1 first positive source scope plus deterministic Social Trust domain contract verification.
+Foundation PR #348 provided the prior one-use downstream handoff authority for C1 first positive source scope implementation-repo work only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #160.
+No remaining work may inherit permission from foundation PR #348 or implementation PR #160.
+The PR #348 allowance authorized only `docs/foundation_lock.md`, `apps/backend/crates/social-trust-domain/src/lib.rs`, `apps/backend/crates/social-trust-domain/tests/c1_first_positive_source_scope_contract.rs`, and existing `apps/backend/crates/social-trust-domain/tests/*.rs` only if extending an existing Social Trust domain contract is smaller and clearer.
+It authorized only pure Social Trust domain classification for the C1 first positive source scope plus deterministic Social Trust domain contract verification.
 The only accepted positive source labels for this PR are `promise_reliability_outcome.completed_as_agreed` and `promise_reliability_outcome.completed_after_governed_review`.
 No other source label may be treated as part of the C1 first positive source scope.
-This handoff does not authorize new source facts, new mutation facts, numeric Social Trust scores, weights, ranks, display levels, public display, recommendation boost, discovery priority, contact unlock, room transition, settlement progression, Promise runtime behavior, proof runtime behavior, proof-derived Social Trust or Relationship Depth behavior, Relationship Depth facts or mutation behavior, projection rows, projection refresh, public API routes, mobile UI, schema-only work, DDL, migrations, provider guarantees, new durable product vocabulary in core docs, or broader `pi-musubi-core` changes.
-After the downstream PR is merged, closed, abandoned, or replaced by a no-op decision, foundation must receive a separate closeout ledger.
+That handoff did not authorize new source facts, new mutation facts, numeric Social Trust scores, weights, ranks, display levels, public display, recommendation boost, discovery priority, contact unlock, room transition, settlement progression, Promise runtime behavior, proof runtime behavior, proof-derived Social Trust or Relationship Depth behavior, Relationship Depth facts or mutation behavior, projection rows, projection refresh, public API routes, mobile UI, schema-only work, DDL, migrations, provider guarantees, new durable product vocabulary in core docs, or broader `pi-musubi-core` changes.
+The foundation closeout for that consumed allowance is recorded in `docs/readiness/c1_social_trust_positive_source_implementation_closeout_ledger.md`.
+
+Foundation PR #384 provides the current one-use downstream docs-only lock alignment authority for this implementation-repo PR only.
+This implementation-repo PR consumes that allowance.
+That allowance authorizes only `docs/foundation_lock.md`.
+It authorizes only Promise completion foundation lock alignment to the merge commit of foundation PR #384.
+It does not authorize runtime implementation, runtime tests, gate invocation for implementation, test-only handoff, implementation handoff beyond the exact docs-only lock-alignment scope, DDL, migrations, schema-only work, backend code, backend docs outside `docs/foundation_lock.md`, frontend code, public API, mobile UI, projection refresh, Promise runtime behavior, proof runtime behavior, proof eligibility runtime behavior, provider guarantees, writer fact persistence, state transition runtime behavior, participant display implementation, raw Personal Data in immutable truth, raw evidence in immutable truth, hidden distributed transactions, destructive migration, Social Trust source fact persistence, Social Trust mutation facts, Social Trust score, weight, rank, public display, or recovery ceiling, Relationship Depth mutation, Relationship Depth display, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, discovery priority, recommendation boost, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_foundation_lock_alignment_closeout_ledger.md` before test-only, preflight, persistence, state transition, participant display, runtime, or implementation routes may be considered.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -843,11 +876,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `d54a644ffc52867eb5c432a5e234242977770acc` -> `bf7cde8bf351a1e204c0ce1e7114cd03a0894f40`
-- Reason: Align implementation-repo lock with the accepted foundation state after PR #348 (`docs: map core authority and C1 Social Trust handoff`), under the one-use narrow implementation allowance accepted by foundation PR #348.
-- New required docs: C1 first positive source scope decision, core implementation authority map, and C1 Social Trust positive source implementation handoff gate decision.
+- Updated from foundation SHA: `bf7cde8bf351a1e204c0ce1e7114cd03a0894f40` -> `5f68437696b8e2f6b7b6da908e431d6de9a04a77`
+- Reason: Align implementation-repo lock with the accepted Promise completion downstream gate selection decision after foundation PR #384 (`docs: select Promise completion downstream gate route`), under the one-use docs-only foundation lock alignment allowance accepted by foundation PR #384.
+- New required docs: C1 Social Trust positive source implementation closeout ledger, C1 Social Trust writer record persistence preflight handoff no-op closeout ledger, Promise Realm projection participant surface authority detail record, Promise completion proof eligibility authority detail record, Promise completion source taxonomy active founder answer ledger, Promise completion source taxonomy detail record, Promise completion state machine authority detail record, Promise completion writer fact record family authority detail record, Promise completion implementation gate readiness gap ledger, Promise completion downstream gate decision packet, Promise completion implementation-ready design envelope, Promise completion downstream gate sufficiency decision, and Promise completion downstream gate selection decision.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #348 allowance. It pins foundation PR #348 and permits only pure Social Trust domain classification for the C1 first positive source scope plus deterministic Social Trust domain contract verification in the allowed files named above. Broad runtime implementation, DDL, migrations, schema-only work, public API changes, mobile UI changes, projection refresh, scoring, display, Relationship Depth mutation behavior, proof runtime behavior, Promise runtime behavior, provider guarantees, paid romantic advantage, payment-based direct-message unlock, new core product-meaning docs, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update consumes the one-use foundation PR #384 allowance. It pins foundation PR #384 and permits only `docs/foundation_lock.md` alignment. Runtime implementation, runtime tests, gate invocation for implementation, DDL, migrations, schema-only work, backend code, backend docs outside `docs/foundation_lock.md`, frontend code, public API changes, mobile UI changes, projection refresh, Promise runtime behavior, proof runtime behavior, proof eligibility runtime behavior, writer fact persistence, state transition runtime behavior, participant display implementation, Social Trust source fact persistence, Social Trust mutation facts, Social Trust scoring, display, Relationship Depth mutation behavior, settlement movement, provider guarantees, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
