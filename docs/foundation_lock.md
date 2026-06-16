@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `5f68437`
+Status: Draft; aligned to accepted foundation commit `81e127b`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `5f68437696b8e2f6b7b6da908e431d6de9a04a77`
-- Foundation commit title: `Merge pull request #384 from mt4110/feat/promise-completion-downstream-gate-selection`
-- Foundation PR title: `docs: select Promise completion downstream gate route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/384`
-- Date pinned: `2026-06-16`
+- Foundation commit SHA: `81e127b0abcb87fb29621bef0bb5e4eb5603588c`
+- Foundation commit title: `Merge pull request #430 from mt4110/feat/promise-completion-post-test-exclusion-route`
+- Foundation PR title: `docs: select Promise completion post-test-exclusion route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/430`
+- Date pinned: `2026-06-17`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5f68437696b8e2f6b7b6da908e431d6de9a04a77`
-- Previous pinned reference: `bf7cde8` / `Merge pull request #348 from mt4110/feat/core-authority-map-c1-social-trust-handoff`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/81e127b0abcb87fb29621bef0bb5e4eb5603588c`
+- Previous pinned reference: `5f68437` / `Merge pull request #384 from mt4110/feat/promise-completion-downstream-gate-selection`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -148,6 +148,29 @@ Pinned reference for implementation work:
 - Promise completion implementation-ready design envelope source: `8d1ee8e` / `Merge pull request #380 from mt4110/feat/promise-completion-implementation-ready-design-envelope`
 - Promise completion downstream gate sufficiency decision source: `48232bc` / `Merge pull request #382 from mt4110/feat/promise-completion-downstream-gate-sufficiency`
 - Promise completion downstream gate selection decision source: `5f68437` / `Merge pull request #384 from mt4110/feat/promise-completion-downstream-gate-selection`
+- Promise completion foundation lock alignment closeout source: `eeb38fc` / `Merge pull request #386 from mt4110/feat/promise-completion-lock-alignment-closeout`
+- Promise completion post-closeout route selection source: `fcfa7a8` / `Merge pull request #388 from mt4110/feat/promise-completion-post-closeout-route-selection`
+- Promise completion persistence preflight design packet source: `f95cd94` / `Merge pull request #390 from mt4110/feat/promise-completion-persistence-preflight-packet`
+- Promise completion persistence preflight sufficiency decision source: `7203c2b` / `Merge pull request #392 from mt4110/feat/promise-completion-persistence-preflight-sufficiency`
+- Promise completion post-sufficiency route selection source: `d69c257` / `Merge pull request #394 from mt4110/feat/promise-completion-post-sufficiency-route-selection`
+- Promise completion persistence authority detail record source: `6600863` / `Merge pull request #396 from mt4110/feat/promise-completion-persistence-authority`
+- Promise completion persistence authority sufficiency decision source: `06eda80` / `Merge pull request #398 from mt4110/feat/promise-completion-persistence-authority-sufficiency`
+- Promise completion post-persistence-authority route selection source: `ce89d9c` / `Merge pull request #400 from mt4110/feat/promise-completion-post-persistence-authority-route-selection`
+- Promise completion preflight route decision packet source: `dacddab` / `Merge pull request #402 from mt4110/feat/promise-completion-preflight-route-decision-packet`
+- Promise completion preflight route packet sufficiency decision source: `f9beabc` / `Merge pull request #404 from mt4110/feat/promise-completion-preflight-route-packet-sufficiency`
+- Promise completion preflight route selection source: `0e33cea` / `Merge pull request #406 from mt4110/feat/promise-completion-preflight-route-selection`
+- Promise completion writer fact persistence preflight source: `00f88bf` / `Merge pull request #408 from mt4110/feat/promise-completion-writer-fact-persistence-preflight`
+- Promise completion writer fact persistence preflight sufficiency decision source: `6c52333` / `Merge pull request #410 from mt4110/feat/promise-completion-persistence-preflight-sufficiency-v2`
+- Promise completion post-preflight route selection source: `d3dbac2` / `Merge pull request #412 from mt4110/feat/promise-completion-post-preflight-route-selection`
+- Promise completion narrow handoff decision packet source: `62dfc07` / `Merge pull request #414 from mt4110/feat/promise-completion-narrow-handoff-decision-packet`
+- Promise completion narrow handoff packet sufficiency decision source: `a000b1a` / `Merge pull request #416 from mt4110/feat/promise-completion-narrow-handoff-packet-sufficiency`
+- Promise completion post-narrow-handoff route selection source: `ea50bac` / `Merge pull request #418 from mt4110/feat/promise-completion-post-narrow-handoff-route-selection`
+- Promise completion core touch precondition matrix source: `2da36cd` / `Merge pull request #420 from mt4110/feat/promise-completion-core-touch-preconditions`
+- Promise completion core touch precondition matrix sufficiency decision source: `f766909` / `Merge pull request #422 from mt4110/feat/promise-completion-core-touch-precondition-sufficiency`
+- Promise completion post-precondition route selection source: `e29c45d` / `Merge pull request #424 from mt4110/feat/promise-completion-post-precondition-route`
+- Promise completion test-only hard-exclusion decision packet source: `d8f6ece` / `Merge pull request #426 from mt4110/feat/promise-completion-test-only-exclusion-packet`
+- Promise completion test-only hard-exclusion packet sufficiency decision source: `4840779` / `Merge pull request #428 from mt4110/feat/promise-completion-test-only-exclusion-sufficiency`
+- Promise completion post-test-only-exclusion route selection source: `81e127b` / `Merge pull request #430 from mt4110/feat/promise-completion-post-test-exclusion-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -332,38 +355,61 @@ Before coding, read these upstream documents in order.
 164. `docs/readiness/promise_completion_implementation_ready_design_envelope.md`
 165. `docs/readiness/promise_completion_downstream_gate_sufficiency_decision.md`
 166. `docs/readiness/promise_completion_downstream_gate_selection_decision.md`
+167. `docs/readiness/promise_completion_foundation_lock_alignment_closeout_ledger.md`
+168. `docs/readiness/promise_completion_post_closeout_next_downstream_route_selection.md`
+169. `docs/readiness/promise_completion_persistence_preflight_design_packet.md`
+170. `docs/readiness/promise_completion_persistence_preflight_sufficiency_decision.md`
+171. `docs/readiness/promise_completion_post_sufficiency_next_route_selection.md`
+172. `docs/readiness/promise_completion_persistence_authority_detail_record.md`
+173. `docs/readiness/promise_completion_persistence_authority_sufficiency_decision.md`
+174. `docs/readiness/promise_completion_post_persistence_authority_route_selection.md`
+175. `docs/readiness/promise_completion_preflight_route_decision_packet.md`
+176. `docs/readiness/promise_completion_preflight_route_packet_sufficiency_decision.md`
+177. `docs/readiness/promise_completion_preflight_route_selection_decision.md`
+178. `docs/readiness/promise_completion_writer_fact_persistence_representability_preflight.md`
+179. `docs/readiness/promise_completion_writer_fact_persistence_preflight_sufficiency_decision.md`
+180. `docs/readiness/promise_completion_post_preflight_route_selection.md`
+181. `docs/readiness/promise_completion_narrow_handoff_decision_packet.md`
+182. `docs/readiness/promise_completion_narrow_handoff_packet_sufficiency_decision.md`
+183. `docs/readiness/promise_completion_post_narrow_handoff_route_selection.md`
+184. `docs/readiness/promise_completion_core_touch_precondition_matrix.md`
+185. `docs/readiness/promise_completion_core_touch_precondition_matrix_sufficiency_decision.md`
+186. `docs/readiness/promise_completion_post_precondition_route_selection.md`
+187. `docs/readiness/promise_completion_test_only_hard_exclusion_decision_packet.md`
+188. `docs/readiness/promise_completion_test_only_hard_exclusion_packet_sufficiency_decision.md`
+189. `docs/readiness/promise_completion_post_test_only_exclusion_sufficiency_route_selection.md`
 
 ### Operations layer
-167. `docs/operations/readiness_routine.md`
-168. `docs/operations/runalways_readiness_orchestrator_design.md`
-169. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-170. `docs/operations/runalways_lane_controller_v0_1.md`
+190. `docs/operations/readiness_routine.md`
+191. `docs/operations/runalways_readiness_orchestrator_design.md`
+192. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+193. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-171. `docs/detail/accountability_matrix.md`
-172. `docs/detail/critical_incident_and_loss.md`
-173. `docs/detail/automated_decisioning_and_human_appeal.md`
-174. `docs/detail/youth_safety_and_age_assurance.md`
-175. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-176. `docs/detail/data_deletion_vs_legal_hold.md`
-177. `docs/detail/security_and_autonomy_hardening.md`
-178. `docs/detail/realm_model.md`
-179. `docs/detail/data_scope_model.md`
-180. `docs/detail/mobility_model.md`
-181. `docs/detail/settlement_model.md`
-182. `docs/detail/settlement_backend_trait.md`
-183. `docs/detail/proof_of_infrastructure.md`
-184. `docs/detail/protected_groups_and_translation_safety.md`
+194. `docs/detail/accountability_matrix.md`
+195. `docs/detail/critical_incident_and_loss.md`
+196. `docs/detail/automated_decisioning_and_human_appeal.md`
+197. `docs/detail/youth_safety_and_age_assurance.md`
+198. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+199. `docs/detail/data_deletion_vs_legal_hold.md`
+200. `docs/detail/security_and_autonomy_hardening.md`
+201. `docs/detail/realm_model.md`
+202. `docs/detail/data_scope_model.md`
+203. `docs/detail/mobility_model.md`
+204. `docs/detail/settlement_model.md`
+205. `docs/detail/settlement_backend_trait.md`
+206. `docs/detail/proof_of_infrastructure.md`
+207. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-185. `docs/whitepaper/01_executive_summary.md`
-186. `docs/whitepaper/02_realm_model.md`
-187. `docs/whitepaper/03_experience_model.md`
-188. `docs/whitepaper/04_dm_shield.md`
-189. `docs/whitepaper/05_trust_model.md`
-190. `docs/whitepaper/06_promise_protocol.md`
-191. `docs/whitepaper/07_realm_economy.md`
-192. `docs/whitepaper/08_unlock_engine.md`
+208. `docs/whitepaper/01_executive_summary.md`
+209. `docs/whitepaper/02_realm_model.md`
+210. `docs/whitepaper/03_experience_model.md`
+211. `docs/whitepaper/04_dm_shield.md`
+212. `docs/whitepaper/05_trust_model.md`
+213. `docs/whitepaper/06_promise_protocol.md`
+214. `docs/whitepaper/07_realm_economy.md`
+215. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -413,12 +459,14 @@ No other source label may be treated as part of the C1 first positive source sco
 That handoff did not authorize new source facts, new mutation facts, numeric Social Trust scores, weights, ranks, display levels, public display, recommendation boost, discovery priority, contact unlock, room transition, settlement progression, Promise runtime behavior, proof runtime behavior, proof-derived Social Trust or Relationship Depth behavior, Relationship Depth facts or mutation behavior, projection rows, projection refresh, public API routes, mobile UI, schema-only work, DDL, migrations, provider guarantees, new durable product vocabulary in core docs, or broader `pi-musubi-core` changes.
 The foundation closeout for that consumed allowance is recorded in `docs/readiness/c1_social_trust_positive_source_implementation_closeout_ledger.md`.
 
-Foundation PR #384 provides the current one-use downstream docs-only lock alignment authority for this implementation-repo PR only.
+Foundation PR #430 provides the current one-use downstream docs-only lock alignment authority for this implementation-repo PR only.
 This implementation-repo PR consumes that allowance.
 That allowance authorizes only `docs/foundation_lock.md`.
-It authorizes only Promise completion foundation lock alignment to the merge commit of foundation PR #384.
+It authorizes only Promise completion foundation lock alignment to the merge commit of foundation PR #430.
+Foundation PR #430 replaces the older unconsumed post-narrow lock-alignment allowance recorded by foundation PR #418.
+The older PR #418 allowance must not be consumed separately after this alignment.
 It does not authorize runtime implementation, runtime tests, gate invocation for implementation, test-only handoff, implementation handoff beyond the exact docs-only lock-alignment scope, DDL, migrations, schema-only work, backend code, backend docs outside `docs/foundation_lock.md`, frontend code, public API, mobile UI, projection refresh, Promise runtime behavior, proof runtime behavior, proof eligibility runtime behavior, provider guarantees, writer fact persistence, state transition runtime behavior, participant display implementation, raw Personal Data in immutable truth, raw evidence in immutable truth, hidden distributed transactions, destructive migration, Social Trust source fact persistence, Social Trust mutation facts, Social Trust score, weight, rank, public display, or recovery ceiling, Relationship Depth mutation, Relationship Depth display, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, discovery priority, recommendation boost, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_foundation_lock_alignment_closeout_ledger.md` before test-only, preflight, persistence, state transition, participant display, runtime, or implementation routes may be considered.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_post_test_only_exclusion_foundation_lock_alignment_closeout_ledger.md` before test-only, preflight, persistence, state transition, participant display, runtime, or implementation routes may be considered.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -876,11 +924,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `bf7cde8bf351a1e204c0ce1e7114cd03a0894f40` -> `5f68437696b8e2f6b7b6da908e431d6de9a04a77`
-- Reason: Align implementation-repo lock with the accepted Promise completion downstream gate selection decision after foundation PR #384 (`docs: select Promise completion downstream gate route`), under the one-use docs-only foundation lock alignment allowance accepted by foundation PR #384.
-- New required docs: C1 Social Trust positive source implementation closeout ledger, C1 Social Trust writer record persistence preflight handoff no-op closeout ledger, Promise Realm projection participant surface authority detail record, Promise completion proof eligibility authority detail record, Promise completion source taxonomy active founder answer ledger, Promise completion source taxonomy detail record, Promise completion state machine authority detail record, Promise completion writer fact record family authority detail record, Promise completion implementation gate readiness gap ledger, Promise completion downstream gate decision packet, Promise completion implementation-ready design envelope, Promise completion downstream gate sufficiency decision, and Promise completion downstream gate selection decision.
+- Updated from foundation SHA: `5f68437696b8e2f6b7b6da908e431d6de9a04a77` -> `81e127b0abcb87fb29621bef0bb5e4eb5603588c`
+- Reason: Align implementation-repo lock with the accepted Promise completion post-test-exclusion route selection after foundation PR #430 (`docs: select Promise completion post-test-exclusion route`), under the one-use docs-only foundation lock alignment allowance accepted by foundation PR #430.
+- New required docs: Promise completion foundation lock alignment closeout ledger, Promise completion post-closeout route selection, Promise completion persistence preflight design packet, Promise completion persistence preflight sufficiency decision, Promise completion post-sufficiency route selection, Promise completion persistence authority detail record, Promise completion persistence authority sufficiency decision, Promise completion post-persistence-authority route selection, Promise completion preflight route decision packet, Promise completion preflight route packet sufficiency decision, Promise completion preflight route selection decision, Promise completion writer fact persistence representability preflight, Promise completion writer fact persistence preflight sufficiency decision, Promise completion post-preflight route selection, Promise completion narrow handoff decision packet, Promise completion narrow handoff packet sufficiency decision, Promise completion post-narrow-handoff route selection, Promise completion core touch precondition matrix, Promise completion core touch precondition matrix sufficiency decision, Promise completion post-precondition route selection, Promise completion test-only hard-exclusion decision packet, Promise completion test-only hard-exclusion packet sufficiency decision, and Promise completion post-test-only-exclusion sufficiency route selection.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #384 allowance. It pins foundation PR #384 and permits only `docs/foundation_lock.md` alignment. Runtime implementation, runtime tests, gate invocation for implementation, DDL, migrations, schema-only work, backend code, backend docs outside `docs/foundation_lock.md`, frontend code, public API changes, mobile UI changes, projection refresh, Promise runtime behavior, proof runtime behavior, proof eligibility runtime behavior, writer fact persistence, state transition runtime behavior, participant display implementation, Social Trust source fact persistence, Social Trust mutation facts, Social Trust scoring, display, Relationship Depth mutation behavior, settlement movement, provider guarantees, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update consumes the one-use foundation PR #430 allowance and replaces the older unconsumed PR #418 lock-alignment allowance for this Promise completion chain. It pins foundation PR #430 and permits only `docs/foundation_lock.md` alignment. Runtime implementation, runtime tests, gate invocation for implementation, downstream test-only coverage, DDL, migrations, schema-only work, backend code, backend docs outside `docs/foundation_lock.md`, frontend code, public API changes, mobile UI changes, projection refresh, Promise runtime behavior, proof runtime behavior, proof eligibility runtime behavior, writer fact persistence, state transition runtime behavior, participant display implementation, Social Trust source fact persistence, Social Trust mutation facts, Social Trust scoring, display, Relationship Depth mutation behavior, settlement movement, provider guarantees, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
