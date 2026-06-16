@@ -73,6 +73,22 @@ fn rejected_promise_reliability_sources_fail_closed_for_c1_first_positive_scope(
 }
 
 #[test]
+fn hard_exclusion_shortcuts_never_enter_c1_first_positive_scope() {
+    for source in hard_exclusion_shortcuts() {
+        assert_eq!(
+            decide_c1_first_positive_source_scope(
+                C2BoundedPromiseReliabilitySourceFactCandidate::Rejected(source),
+            ),
+            C1FirstPositiveSourceScopeDecision::Reject(
+                C1FirstPositiveSourceScopeRejection::RejectedSourceFact { source }
+            ),
+            "{} must not become a C1 first positive source",
+            source.as_str(),
+        );
+    }
+}
+
+#[test]
 fn unknown_source_fact_fails_closed_for_c1_first_positive_scope() {
     assert_eq!(
         decide_c1_first_positive_source_scope(
@@ -173,6 +189,35 @@ fn rejected_source_facts() -> Vec<RejectedC2BoundedPromiseReliabilitySourceFact>
         RejectedC2BoundedPromiseReliabilitySourceFact::AntiAbuseContinuityMarkerExistence,
         RejectedC2BoundedPromiseReliabilitySourceFact::AccountLifecycleStateByItself,
         RejectedC2BoundedPromiseReliabilitySourceFact::DeletionClosureTombstoneAnonymizationKeyShreddingOrReEntry,
+        RejectedC2BoundedPromiseReliabilitySourceFact::ImplementationConvenience,
+    ]
+}
+
+fn hard_exclusion_shortcuts() -> Vec<RejectedC2BoundedPromiseReliabilitySourceFact> {
+    vec![
+        RejectedC2BoundedPromiseReliabilitySourceFact::EscrowRelease,
+        RejectedC2BoundedPromiseReliabilitySourceFact::Forfeiture,
+        RejectedC2BoundedPromiseReliabilitySourceFact::PaymentAmount,
+        RejectedC2BoundedPromiseReliabilitySourceFact::SupportStatus,
+        RejectedC2BoundedPromiseReliabilitySourceFact::TokenHoldings,
+        RejectedC2BoundedPromiseReliabilitySourceFact::RawVenuePresence,
+        RejectedC2BoundedPromiseReliabilitySourceFact::RawGps,
+        RejectedC2BoundedPromiseReliabilitySourceFact::StaticQrScan,
+        RejectedC2BoundedPromiseReliabilitySourceFact::DeviceAttestationAlone,
+        RejectedC2BoundedPromiseReliabilitySourceFact::ProximityProofAlone,
+        RejectedC2BoundedPromiseReliabilitySourceFact::ProofCallbackAlone,
+        RejectedC2BoundedPromiseReliabilitySourceFact::VendorCallbackAlone,
+        RejectedC2BoundedPromiseReliabilitySourceFact::ProjectionReadiness,
+        RejectedC2BoundedPromiseReliabilitySourceFact::OperatorNote,
+        RejectedC2BoundedPromiseReliabilitySourceFact::SinglePartyNarrative,
+        RejectedC2BoundedPromiseReliabilitySourceFact::Popularity,
+        RejectedC2BoundedPromiseReliabilitySourceFact::MessageVolume,
+        RejectedC2BoundedPromiseReliabilitySourceFact::RomanticDesirability,
+        RejectedC2BoundedPromiseReliabilitySourceFact::RelationshipDepth,
+        RejectedC2BoundedPromiseReliabilitySourceFact::ControlledExceptionalAccountActivity,
+        RejectedC2BoundedPromiseReliabilitySourceFact::AgeAssurancePosture,
+        RejectedC2BoundedPromiseReliabilitySourceFact::LegalHoldExistence,
+        RejectedC2BoundedPromiseReliabilitySourceFact::AntiAbuseContinuityMarkerExistence,
         RejectedC2BoundedPromiseReliabilitySourceFact::ImplementationConvenience,
     ]
 }

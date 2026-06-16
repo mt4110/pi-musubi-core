@@ -5,6 +5,8 @@ use musubi_social_trust_domain::{
     SocialTrustAuthorityPosture, decide_c2_categorical_fact_consumption,
 };
 
+type TargetFamily = (&'static str, C2CategoricalFactConsumptionTarget);
+
 #[test]
 fn exact_c2_pairs_may_remain_internal_writer_fact_references_only() {
     for (source_fact, mutation_fact) in accepted_mappings() {
@@ -64,6 +66,26 @@ fn blocked_consumption_targets_fail_closed_for_all_c2_facts() {
                     C2CategoricalFactConsumptionRejection::BlockedConsumptionTarget { target }
                 ),
                 "target {} must remain blocked for {} / {}",
+                target.as_str(),
+                source_fact.as_str(),
+                mutation_fact.as_str(),
+            );
+        }
+    }
+}
+
+#[test]
+fn promise_completion_product_effect_shortcuts_remain_blocked() {
+    for (source_fact, mutation_fact) in positive_completion_mappings() {
+        for (family, target) in hard_exclusion_product_effect_targets() {
+            let attempt = attempt(source_fact, mutation_fact, target);
+
+            assert_eq!(
+                decide_c2_categorical_fact_consumption(&attempt),
+                C2CategoricalFactConsumptionDecision::Reject(
+                    C2CategoricalFactConsumptionRejection::BlockedConsumptionTarget { target }
+                ),
+                "{family} target {} must remain blocked for {} / {}",
                 target.as_str(),
                 source_fact.as_str(),
                 mutation_fact.as_str(),
@@ -208,6 +230,22 @@ fn accepted_mappings() -> Vec<(
     ]
 }
 
+fn positive_completion_mappings() -> Vec<(
+    C2BoundedPromiseReliabilitySourceFact,
+    C2BoundedPromiseReliabilityMutationFact,
+)> {
+    vec![
+        (
+            C2BoundedPromiseReliabilitySourceFact::CompletedAsAgreed,
+            C2BoundedPromiseReliabilityMutationFact::BoundedPromiseReliabilityPositive,
+        ),
+        (
+            C2BoundedPromiseReliabilitySourceFact::CompletedAfterGovernedReview,
+            C2BoundedPromiseReliabilityMutationFact::BoundedPromiseReliabilityPositive,
+        ),
+    ]
+}
+
 fn accepted_mutation_facts() -> Vec<C2BoundedPromiseReliabilityMutationFact> {
     vec![
         C2BoundedPromiseReliabilityMutationFact::BoundedPromiseReliabilityPositive,
@@ -240,5 +278,56 @@ fn blocked_targets() -> Vec<C2CategoricalFactConsumptionTarget> {
         C2CategoricalFactConsumptionTarget::ProjectionRefresh,
         C2CategoricalFactConsumptionTarget::PublicApiResponse,
         C2CategoricalFactConsumptionTarget::MobileUiState,
+    ]
+}
+
+fn hard_exclusion_product_effect_targets() -> Vec<TargetFamily> {
+    vec![
+        (
+            "social_trust_display",
+            C2CategoricalFactConsumptionTarget::PublicSocialTrustDisplay,
+        ),
+        (
+            "social_trust_scoring",
+            C2CategoricalFactConsumptionTarget::NumericSocialTrustScore,
+        ),
+        (
+            "relationship_depth",
+            C2CategoricalFactConsumptionTarget::RelationshipDepthFact,
+        ),
+        (
+            "settlement",
+            C2CategoricalFactConsumptionTarget::SettlementProgression,
+        ),
+        ("contact", C2CategoricalFactConsumptionTarget::ContactUnlock),
+        (
+            "discovery",
+            C2CategoricalFactConsumptionTarget::DiscoveryPriority,
+        ),
+        (
+            "recommendation",
+            C2CategoricalFactConsumptionTarget::RecommendationBoost,
+        ),
+        ("room", C2CategoricalFactConsumptionTarget::RoomTransition),
+        (
+            "projection",
+            C2CategoricalFactConsumptionTarget::ProjectionRefresh,
+        ),
+        (
+            "public_api",
+            C2CategoricalFactConsumptionTarget::PublicApiResponse,
+        ),
+        (
+            "mobile_ui",
+            C2CategoricalFactConsumptionTarget::MobileUiState,
+        ),
+        (
+            "promise_runtime",
+            C2CategoricalFactConsumptionTarget::PromiseRuntimeOutcome,
+        ),
+        (
+            "proof_runtime",
+            C2CategoricalFactConsumptionTarget::ProofRuntimeOutcome,
+        ),
     ]
 }
