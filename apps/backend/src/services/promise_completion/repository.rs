@@ -397,6 +397,39 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
                     .to_owned(),
             )
         })?;
+    let promise_terms_reference = fact
+        .promise_terms_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition requires Promise terms reference"
+                    .to_owned(),
+            )
+        })?;
+    let participant_set_reference = fact
+        .participant_set_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition requires participant set reference"
+                    .to_owned(),
+            )
+        })?;
+    let ordinary_participant_acknowledgement_reference = fact
+        .ordinary_participant_acknowledgement_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition requires Ordinary Account participant acknowledgement reference"
+                    .to_owned(),
+            )
+        })?;
 
     let row = {
         let client = client.lock().await;
@@ -408,7 +441,10 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
                     realm_id,
                     fact_family,
                     source_route_class,
-                    completion_state_class
+                    completion_state_class,
+                    promise_terms_reference,
+                    participant_set_reference,
+                    ordinary_participant_acknowledgement_reference
                 FROM promise_completion.writer_fact_records
                 WHERE writer_fact_id = $1
                 ",
@@ -429,10 +465,25 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
     let prior_fact_family: String = row.get("fact_family");
     let prior_source_route_class: String = row.get("source_route_class");
     let prior_completion_state_class: String = row.get("completion_state_class");
+    let prior_promise_terms_reference: String = row.get("promise_terms_reference");
+    let prior_participant_set_reference: String = row.get("participant_set_reference");
+    let prior_ordinary_participant_acknowledgement_reference: Option<String> =
+        row.get("ordinary_participant_acknowledgement_reference");
 
     if prior_promise_reference != promise_reference || prior_realm_id != realm_id {
         return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
             "Promise completion mutual acknowledgement accepted transition prior writer fact must match Promise reference and realm_id"
+                .to_owned(),
+        ));
+    }
+
+    if prior_promise_terms_reference != promise_terms_reference
+        || prior_participant_set_reference != participant_set_reference
+        || prior_ordinary_participant_acknowledgement_reference.as_deref()
+            != Some(ordinary_participant_acknowledgement_reference)
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition prior writer fact must match Promise terms, participant set, and Ordinary Account acknowledgement references"
                 .to_owned(),
         ));
     }

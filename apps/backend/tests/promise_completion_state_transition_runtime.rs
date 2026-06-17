@@ -417,6 +417,61 @@ async fn accepted_transition_requires_matching_prior_writer_truth_posture() {
 }
 
 #[tokio::test]
+async fn accepted_transition_requires_matching_prior_boundary_references() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let cases: &[(&str, fn(&mut ProposedPromiseCompletionWriterFact))] = &[
+        (
+            "drifted-terms",
+            |fact: &mut ProposedPromiseCompletionWriterFact| {
+                fact.promise_terms_reference = Some("promise-terms-drifted".to_owned());
+            },
+        ),
+        (
+            "drifted-participant-set",
+            |fact: &mut ProposedPromiseCompletionWriterFact| {
+                fact.participant_set_reference = Some("participant-set-drifted".to_owned());
+            },
+        ),
+        (
+            "drifted-ordinary-ack",
+            |fact: &mut ProposedPromiseCompletionWriterFact| {
+                fact.ordinary_participant_acknowledgement_reference =
+                    Some("ordinary-acknowledgement-drifted".to_owned());
+            },
+        ),
+    ];
+
+    for &(suffix, mutation) in cases {
+        let idempotency_key = unique_idempotency_key(suffix);
+        let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+        let mut fact = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+        mutation(&mut fact);
+
+        let error = store
+            .record_mutual_acknowledgement_accepted_transition(transition_input(fact))
+            .await
+            .expect_err("prior boundary reference drift should fail closed");
+
+        assert!(matches!(
+            error,
+            PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+        ));
+        assert_eq!(
+            writer_fact_count_for_promise_and_family(
+                &client,
+                &prior.promise_reference,
+                "completion_state_transition",
+            )
+            .await,
+            0
+        );
+    }
+}
+
+#[tokio::test]
 async fn accepted_transition_creates_no_projection_trust_depth_settlement_or_coordination_effects()
 {
     let (_test_state, config, client) = test_context().await;
