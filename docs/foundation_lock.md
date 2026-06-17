@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `800a69c`
+Status: Draft; aligned to accepted foundation commit `a5a55ee`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `800a69c810e48646c583d2cdd657001d011ff759`
-- Foundation commit title: `Merge pull request #438 from mt4110/feat/promise-completion-writer-fact-persistence-route`
-- Foundation PR title: `docs: select Promise completion writer fact persistence route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/438`
-- Date pinned: `2026-06-17`
+- Foundation commit SHA: `a5a55ee8b86dc20b04890f302bc062301e2e1f6c`
+- Foundation commit title: `Merge pull request #447 from mt4110/feat/promise-completion-state-transition-route`
+- Foundation PR title: `docs: select Promise completion state transition route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/447`
+- Date pinned: `2026-06-18`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/800a69c810e48646c583d2cdd657001d011ff759`
-- Previous pinned reference: `81e127b` / `Merge pull request #430 from mt4110/feat/promise-completion-post-test-exclusion-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/a5a55ee8b86dc20b04890f302bc062301e2e1f6c`
+- Previous pinned reference: `800a69c` / `Merge pull request #438 from mt4110/feat/promise-completion-writer-fact-persistence-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -175,6 +175,11 @@ Pinned reference for implementation work:
 - Promise completion test-only hard-exclusion route selection source: `9e500b2` / `Merge pull request #434 from mt4110/feat/promise-completion-test-only-hard-exclusion-route`
 - Promise completion test-only hard-exclusion closeout source: `69488af` / `Merge pull request #436 from mt4110/feat/promise-completion-hard-exclusion-closeout`
 - Promise completion narrow writer fact persistence route selection source: `800a69c` / `Merge pull request #438 from mt4110/feat/promise-completion-writer-fact-persistence-route`
+- Promise completion narrow writer fact persistence closeout source: `fbc68a8` / `Merge pull request #439 from mt4110/feat/promise-completion-writer-fact-persistence-closeout`
+- Promise completion post-writer-fact-persistence route selection source: `89b4228` / `Merge pull request #441 from mt4110/feat/promise-completion-post-writer-fact-persistence-route`
+- Promise completion state transition runtime preflight packet source: `fbca981` / `Merge pull request #443 from mt4110/feat/promise-completion-state-transition-preflight-packet`
+- Promise completion state transition runtime preflight packet sufficiency decision source: `3fd5294` / `Merge pull request #445 from mt4110/feat/promise-completion-state-transition-preflight-sufficiency`
+- Promise completion narrow state transition runtime route selection source: `a5a55ee` / `Merge pull request #447 from mt4110/feat/promise-completion-state-transition-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -386,38 +391,43 @@ Before coding, read these upstream documents in order.
 191. `docs/readiness/promise_completion_post_lock_alignment_test_only_hard_exclusion_route_selection.md`
 192. `docs/readiness/promise_completion_test_only_hard_exclusion_closeout_ledger.md`
 193. `docs/readiness/promise_completion_narrow_writer_fact_persistence_route_selection.md`
+194. `docs/readiness/promise_completion_narrow_writer_fact_persistence_closeout_ledger.md`
+195. `docs/readiness/promise_completion_post_writer_fact_persistence_closeout_route_selection.md`
+196. `docs/readiness/promise_completion_state_transition_runtime_preflight_decision_packet.md`
+197. `docs/readiness/promise_completion_state_transition_runtime_preflight_packet_sufficiency_decision.md`
+198. `docs/readiness/promise_completion_post_state_transition_preflight_sufficiency_route_selection.md`
 
 ### Operations layer
-194. `docs/operations/readiness_routine.md`
-195. `docs/operations/runalways_readiness_orchestrator_design.md`
-196. `docs/operations/runalways_readiness_orchestrator_stage0.md`
-197. `docs/operations/runalways_lane_controller_v0_1.md`
+199. `docs/operations/readiness_routine.md`
+200. `docs/operations/runalways_readiness_orchestrator_design.md`
+201. `docs/operations/runalways_readiness_orchestrator_stage0.md`
+202. `docs/operations/runalways_lane_controller_v0_1.md`
 
 ### Detail layer
-198. `docs/detail/accountability_matrix.md`
-199. `docs/detail/critical_incident_and_loss.md`
-200. `docs/detail/automated_decisioning_and_human_appeal.md`
-201. `docs/detail/youth_safety_and_age_assurance.md`
-202. `docs/detail/off_platform_handoff_and_scam_prevention.md`
-203. `docs/detail/data_deletion_vs_legal_hold.md`
-204. `docs/detail/security_and_autonomy_hardening.md`
-205. `docs/detail/realm_model.md`
-206. `docs/detail/data_scope_model.md`
-207. `docs/detail/mobility_model.md`
-208. `docs/detail/settlement_model.md`
-209. `docs/detail/settlement_backend_trait.md`
-210. `docs/detail/proof_of_infrastructure.md`
-211. `docs/detail/protected_groups_and_translation_safety.md`
+203. `docs/detail/accountability_matrix.md`
+204. `docs/detail/critical_incident_and_loss.md`
+205. `docs/detail/automated_decisioning_and_human_appeal.md`
+206. `docs/detail/youth_safety_and_age_assurance.md`
+207. `docs/detail/off_platform_handoff_and_scam_prevention.md`
+208. `docs/detail/data_deletion_vs_legal_hold.md`
+209. `docs/detail/security_and_autonomy_hardening.md`
+210. `docs/detail/realm_model.md`
+211. `docs/detail/data_scope_model.md`
+212. `docs/detail/mobility_model.md`
+213. `docs/detail/settlement_model.md`
+214. `docs/detail/settlement_backend_trait.md`
+215. `docs/detail/proof_of_infrastructure.md`
+216. `docs/detail/protected_groups_and_translation_safety.md`
 
 ### Whitepaper layer (contextual, not higher than detail/ADR)
-212. `docs/whitepaper/01_executive_summary.md`
-213. `docs/whitepaper/02_realm_model.md`
-214. `docs/whitepaper/03_experience_model.md`
-215. `docs/whitepaper/04_dm_shield.md`
-216. `docs/whitepaper/05_trust_model.md`
-217. `docs/whitepaper/06_promise_protocol.md`
-218. `docs/whitepaper/07_realm_economy.md`
-219. `docs/whitepaper/08_unlock_engine.md`
+217. `docs/whitepaper/01_executive_summary.md`
+218. `docs/whitepaper/02_realm_model.md`
+219. `docs/whitepaper/03_experience_model.md`
+220. `docs/whitepaper/04_dm_shield.md`
+221. `docs/whitepaper/05_trust_model.md`
+222. `docs/whitepaper/06_promise_protocol.md`
+223. `docs/whitepaper/07_realm_economy.md`
+224. `docs/whitepaper/08_unlock_engine.md`
 
 If any of the above are unavailable or materially inconsistent, stop and escalate.
 
@@ -471,23 +481,39 @@ Foundation PR #430 provided the consumed one-use downstream docs-only lock align
 That allowance was consumed by `mt4110/pi-musubi-core` PR #164 and closed out by foundation PR #432.
 Foundation PR #434 provided the consumed one-use downstream test-only hard-exclusion authority for one implementation-repo PR only.
 That allowance was consumed by `mt4110/pi-musubi-core` PR #166 and closed out by foundation PR #436.
-Foundation PR #438 provides the current one-use downstream narrow writer fact persistence handoff authority for this implementation-repo PR only.
+Foundation PR #438 provided the consumed one-use downstream narrow writer fact persistence handoff authority for one implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #167 and closed out by foundation PR #439.
+No remaining work may inherit permission from foundation PR #438 or implementation PR #167.
+Foundation PR #441 selected post-writer-fact-persistence foundation continuation only.
+Foundation PR #443 prepared state transition runtime preflight decision materials only.
+Foundation PR #445 found that preflight packet sufficient for later route selection only.
+Foundation PR #447 provides the current one-use downstream narrow state transition runtime handoff authority for this implementation-repo PR only.
 This implementation-repo PR consumes that allowance.
-The PR #438 allowance authorizes only:
+The PR #447 allowance authorizes only:
 
 - `docs/foundation_lock.md`
-- `apps/backend/migrations/0023_promise_completion_writer_fact_persistence.sql`
-- `apps/backend/src/services/mod.rs`
 - `apps/backend/src/services/promise_completion/mod.rs`
 - `apps/backend/src/services/promise_completion/repository.rs`
 - `apps/backend/src/services/promise_completion/types.rs`
-- `apps/backend/tests/promise_completion_writer_fact_persistence.rs`
+- `apps/backend/tests/promise_completion_state_transition_runtime.rs`
 
-It authorizes only append-only PostgreSQL Promise completion writer fact envelope persistence with durable database-enforced idempotency, identical replay, payload-drift fail-closed behavior, PII / raw-evidence / provider-payload segregation, and database contract tests.
-It authorizes only source routes `mutual_accountable_completion_acknowledgement` and `governed_review_completion`.
-It authorizes only the state classes accepted by the foundation Promise completion state-machine authority, and `completed_reference_eligible = true` only for `completion_accepted`.
-It does not authorize source-route evaluation runtime, API, UI, projection, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, outbox, inbox, worker behavior, provider I/O, provider callbacks, state transition runtime behavior, participant display implementation, raw Personal Data in immutable truth, raw evidence in immutable truth, hidden distributed transactions, destructive migration, Social Trust score, weight, rank, public display, recovery ceiling, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, discovery priority, recommendation boost, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_narrow_writer_fact_persistence_closeout_ledger.md` before any broader Promise completion route may be considered.
+It authorizes only an internal Promise completion helper for the pre-bounded mutual acknowledgement accepted transition:
+
+```text
+completion_pending_mutual_acknowledgement -> completion_accepted
+```
+
+under:
+
+```text
+mutual_accountable_completion_acknowledgement
+```
+
+It must use the existing `promise_completion.writer_fact_records` table only.
+It authorizes only one append-only `completion_state_transition` writer fact record for the selected transition attempt, with durable database-enforced idempotency, identical replay, payload-drift fail-closed behavior, writer-truth prior posture validation, PII / raw-evidence / provider-payload segregation, and database contract tests.
+It must set `completed_reference_eligible = true` only because the next state is `completion_accepted`.
+It does not authorize migrations, DDL, new tables, mutable current-state tables, `apps/backend/src/services/mod.rs`, `apps/backend/src/lib.rs`, handlers, routers, `AppState`, source-route evaluation runtime, participant acknowledgement collection runtime, governed review runtime workflow, governed review accepted transition runtime, correction or supersession runtime, API, UI, projection, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, discovery, recommendation, proof runtime behavior, proof eligibility runtime behavior, outbox, inbox, worker behavior, provider I/O, provider callbacks, raw Personal Data in immutable truth, raw evidence in immutable truth, hidden distributed transactions, destructive migration, Social Trust score, weight, rank, public display, recovery ceiling, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_narrow_state_transition_runtime_closeout_ledger.md` before any broader Promise completion route may be considered.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -945,11 +971,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `81e127b0abcb87fb29621bef0bb5e4eb5603588c` -> `800a69c810e48646c583d2cdd657001d011ff759`
-- Reason: Align implementation-repo lock with the accepted Promise completion narrow writer fact persistence route selection after foundation PR #438 (`docs: select Promise completion writer fact persistence route`) and consume its one-use downstream narrow writer fact persistence allowance.
-- New required docs: Promise completion post-test-only-exclusion foundation lock alignment closeout ledger, Promise completion post-lock-alignment test-only hard-exclusion route selection, Promise completion test-only hard-exclusion closeout ledger, and Promise completion narrow writer fact persistence route selection.
+- Updated from foundation SHA: `800a69c810e48646c583d2cdd657001d011ff759` -> `a5a55ee8b86dc20b04890f302bc062301e2e1f6c`
+- Reason: Align implementation-repo lock with the accepted Promise completion narrow state transition runtime route selection after foundation PR #447 (`docs: select Promise completion state transition route`) and consume its one-use downstream mutual acknowledgement accepted transition allowance.
+- New required docs: Promise completion narrow writer fact persistence closeout ledger, Promise completion post-writer-fact-persistence closeout route selection, Promise completion state transition runtime preflight decision packet, Promise completion state transition runtime preflight packet sufficiency decision, and Promise completion post-state-transition-preflight sufficiency route selection.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #438 allowance and permits only the exact seven-file narrow persistence scope listed above. It authorizes only append-only PostgreSQL Promise completion writer fact envelope persistence with durable database-enforced idempotency, identical replay, payload drift fail-closed behavior, PII / raw-evidence / provider-payload segregation, and database contract tests. Source-route evaluation runtime, API, UI, projection, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, outbox, inbox, worker behavior, provider I/O, provider callbacks, state transition runtime behavior, participant display implementation, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update consumes the one-use foundation PR #447 allowance and permits only the exact five-file narrow state transition scope listed above. It authorizes only an internal mutual acknowledgement accepted transition helper that writes one append-only `completion_state_transition` fact to the existing `promise_completion.writer_fact_records` table, with durable database-enforced idempotency, identical replay, payload drift fail-closed behavior, writer-truth prior posture validation, PII / raw-evidence / provider-payload segregation, and database contract tests. Migrations, DDL, new tables, source-route evaluation runtime, participant acknowledgement collection runtime, governed review runtime, correction/supersession runtime, API, UI, projection, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, discovery, recommendation, outbox, inbox, worker behavior, provider I/O, provider callbacks, participant display implementation, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---

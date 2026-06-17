@@ -181,6 +181,16 @@ pub struct RecordPromiseCompletionWriterFactInput {
 }
 
 #[derive(Clone, Debug)]
+pub struct RecordMutualAcknowledgementAcceptedTransitionInput {
+    pub transition: ProposedMutualAcknowledgementAcceptedTransition,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProposedMutualAcknowledgementAcceptedTransition {
+    pub fact: ProposedPromiseCompletionWriterFact,
+}
+
+#[derive(Clone, Debug)]
 pub struct ProposedPromiseCompletionWriterFact {
     pub promise_reference: Option<String>,
     pub realm_id: Option<String>,
