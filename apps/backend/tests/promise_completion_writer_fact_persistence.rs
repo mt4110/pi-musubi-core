@@ -14,6 +14,16 @@ use musubi_backend::{
 use musubi_db_runtime::DbConfig;
 use tokio_postgres::NoTls;
 
+fn assert_append_only_error(error: &tokio_postgres::Error) {
+    let db_error = error
+        .as_db_error()
+        .expect("append-only guard should return a database error");
+    assert_eq!(
+        db_error.message(),
+        "promise_completion.writer_fact_records is append-only"
+    );
+}
+
 fn lookup(database_url: &str, migrations_dir: &str, name: &'static str) -> Option<String> {
     match name {
         "APP_ENV" => Some("test".to_owned()),
@@ -386,11 +396,7 @@ async fn writer_fact_records_reject_update_and_delete() {
         )
         .await
         .expect_err("writer fact updates must be rejected by the database");
-    assert!(
-        update_error
-            .to_string()
-            .contains("promise_completion.writer_fact_records is append-only")
-    );
+    assert_append_only_error(&update_error);
 
     let delete_error = client
         .execute(
@@ -402,11 +408,7 @@ async fn writer_fact_records_reject_update_and_delete() {
         )
         .await
         .expect_err("writer fact deletes must be rejected by the database");
-    assert!(
-        delete_error
-            .to_string()
-            .contains("promise_completion.writer_fact_records is append-only")
-    );
+    assert_append_only_error(&delete_error);
     assert_eq!(
         writer_fact_count_for_promise(&client, &snapshot.promise_reference).await,
         1
