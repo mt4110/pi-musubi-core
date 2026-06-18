@@ -1,0 +1,185 @@
+name: Core Review
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-static-review:
+    name: Backend static review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo target
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/backend/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: core-review-cargo-${{ runner.os }}-${{ hashFiles('apps/backend/Cargo.lock') }}
+          restore-keys: |
+            core-review-cargo-${{ runner.os }}-
+
+      - name: Backend guardrail sweep self-test
+        working-directory: apps/backend
+        run: make guardrail-sweep-self-test
+
+      - name: Backend guardrail sweep
+        working-directory: apps/backend
+        run: make guardrail-sweep
+
+      - name: Rust compile surface
+        working-directory: apps/backend
+        run: cargo check --workspace --all-targets
+
+      - name: Rust clippy review
+        working-directory: apps/backend
+        run: cargo clippy --workspace --all-targets
+
+      - name: Rust formatting advisory
+        working-directory: apps/backend
+        continue-on-error: true
+        run: cargo fmt --all --check
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Rust dependency advisory audit
+        working-directory: apps/backend
+        run: cargo audit
+
+      - name: Secret pattern scan
+        run: |
+          set -euo pipefail
+          patterns=(
+            'AKIA[0-9A-Z]{16}'
+            'AIza[0-9A-Za-z_-]{35}'
+            'gh[pousr]_[A-Za-z0-9_]{30,}'
+          )
+          for pattern in "${patterns[@]}"; do
+            if git grep -nE "$pattern" -- . \
+              ':!.github/workflows/core-review.yml' \
+              ':!apps/backend/Cargo.lock'; then
+              echo "Potential secret pattern matched: $pattern"
+              exit 1
+            fi
+          done
+
+      - name: Backend panic and debug marker review
+        run: |
+          set -euo pipefail
+          rust_files="$(mktemp)"
+          rust_markers="$(mktemp)"
+          find apps/backend/src apps/backend/crates \
+            -type f \
+            -path '*/src/*' \
+            -name '*.rs' \
+            -print > "$rust_files"
+
+          xargs grep -nE \
+            '(panic!|unwrap\(|expect\(|todo!\(|unimplemented!\(|dbg!\()' \
+            < "$rust_files" > "$rust_markers" || true
+
+          {
+            echo "### Backend panic/debug marker inventory"
+            echo
+            if [ -s "$rust_markers" ]; then
+              echo '```text'
+              cat "$rust_markers"
+              echo '```'
+            else
+              echo "No production Rust panic/debug markers found."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if xargs grep -nE '(panic!|todo!\(|unimplemented!\(|dbg!\()' \
+            < "$rust_files"; then
+            echo "Production Rust contains panic/todo/unimplemented/dbg markers."
+            exit 1
+          fi
+
+  mobile-web-review:
+    name: Mobile web review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.2"
+          cache: true
+
+      - name: Flutter version
+        working-directory: apps/mobile
+        run: flutter --version
+
+      - name: Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Dart and Flutter static analysis
+        working-directory: apps/mobile
+        run: flutter analyze
+
+      - name: Flutter widget and model tests
+        working-directory: apps/mobile
+        run: flutter test
+
+      - name: Flutter web release build
+        working-directory: apps/mobile
+        run: flutter build web --release --wasm
+
+      - name: Dart UI and debug marker review
+        run: |
+          set -euo pipefail
+          dart_markers="$(mktemp)"
+          layout_markers="$(mktemp)"
+
+          find apps/mobile/lib \
+            -type f \
+            -name '*.dart' \
+            -print0 | xargs -0 grep -nE \
+              '(print\(|debugPrint\(|TODO|FIXME|OverflowBox|FittedBox|IntrinsicWidth|IntrinsicHeight|SingleChildScrollView|LayoutBuilder|MediaQuery|Row\(|Wrap\()' \
+              > "$dart_markers" || true
+
+          find apps/mobile/lib \
+            -type f \
+            -name '*.dart' \
+            -print0 | xargs -0 grep -nE \
+              '(OverflowBox|FittedBox|IntrinsicWidth|IntrinsicHeight|SingleChildScrollView|LayoutBuilder|MediaQuery|Row\(|Wrap\()' \
+              > "$layout_markers" || true
+
+          {
+            echo "### Dart UI/debug marker inventory"
+            echo
+            if [ -s "$dart_markers" ]; then
+              echo '```text'
+              cat "$dart_markers"
+              echo '```'
+            else
+              echo "No Dart UI/debug markers found."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -nE '(OverflowBox|IntrinsicWidth|IntrinsicHeight)' "$layout_markers"; then
+            echo "High-risk Flutter layout primitives require explicit review."
+            exit 1
+          fi

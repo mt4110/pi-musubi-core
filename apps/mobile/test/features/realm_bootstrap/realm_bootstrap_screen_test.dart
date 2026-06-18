@@ -202,7 +202,7 @@ void main() {
     expect(find.text('Tokyo slow coffee'), findsOneWidget);
     expect(find.text('限定受付'), findsOneWidget);
     expect(find.text('Admission request'), findsOneWidget);
-    expect(find.text('確認キュー'), findsOneWidget);
+    expect(find.text('確定済み'), findsOneWidget);
     expect(find.text('Operator / Steward review'), findsOneWidget);
     expect(find.textContaining('証跡の所在'), findsOneWidget);
     expect(find.textContaining('private://'), findsNothing);
