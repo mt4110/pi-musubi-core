@@ -1046,10 +1046,44 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
     let rows = client
         .query(
             "
-            WITH eligible AS (
+            WITH accepted_boundary AS (
                 SELECT
                     accepted.writer_fact_id AS accepted_writer_fact_id,
                     accepted.prior_writer_fact_id AS prior_writer_fact_id,
+                    accepted.promise_reference,
+                    accepted.realm_id,
+                    accepted.fact_family,
+                    accepted.previous_completion_state_class,
+                    accepted.promise_terms_reference,
+                    accepted.participant_set_reference,
+                    accepted.ordinary_participant_acknowledgement_reference,
+                    accepted.source_route_class,
+                    accepted.completion_state_class,
+                    accepted.completed_reference_eligible,
+                    accepted.fact_idempotency_key,
+                    accepted.policy_version,
+                    accepted.governed_review_reference,
+                    accepted.review_authority_reference,
+                    accepted.projection_non_authority_posture,
+                    accepted.authority_posture,
+                    accepted.created_at AS writer_recorded_at,
+                    COUNT(*) OVER (
+                        PARTITION BY
+                            accepted.promise_reference,
+                            accepted.realm_id,
+                            accepted.promise_terms_reference,
+                            accepted.participant_set_reference
+                    ) AS boundary_accepted_count
+                FROM promise_completion.writer_fact_records accepted
+                WHERE accepted.promise_reference = $1
+                  AND accepted.realm_id = $2
+                  AND accepted.fact_family = 'completion_state_transition'
+                  AND accepted.completion_state_class = 'completion_accepted'
+            ),
+            eligible AS (
+                SELECT
+                    accepted.accepted_writer_fact_id,
+                    accepted.prior_writer_fact_id,
                     accepted.promise_reference,
                     accepted.realm_id,
                     accepted.promise_terms_reference,
@@ -1060,25 +1094,16 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     accepted.policy_version,
                     accepted.projection_non_authority_posture,
                     accepted.authority_posture,
-                    accepted.created_at AS writer_recorded_at,
-                    COUNT(*) OVER (
-                        PARTITION BY
-                            accepted.promise_reference,
-                            accepted.realm_id,
-                            accepted.promise_terms_reference,
-                            accepted.participant_set_reference
-                    ) AS boundary_snapshot_count
-                FROM promise_completion.writer_fact_records accepted
+                    accepted.writer_recorded_at,
+                    accepted.boundary_accepted_count
+                FROM accepted_boundary accepted
                 JOIN promise_completion.writer_fact_records prior
                   ON prior.writer_fact_id = accepted.prior_writer_fact_id
-                WHERE accepted.promise_reference = $1
-                  AND accepted.realm_id = $2
-                  AND accepted.fact_family = 'completion_state_transition'
+                WHERE accepted.fact_family = 'completion_state_transition'
                   AND accepted.previous_completion_state_class =
                       'completion_pending_mutual_acknowledgement'
                   AND accepted.source_route_class =
                       'mutual_accountable_completion_acknowledgement'
-                  AND accepted.completion_state_class = 'completion_accepted'
                   AND accepted.completed_reference_eligible = TRUE
                   AND accepted.prior_writer_fact_id IS NOT NULL
                   AND accepted.fact_idempotency_key =
@@ -1118,7 +1143,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                 projection_non_authority_posture,
                 authority_posture,
                 writer_recorded_at,
-                boundary_snapshot_count
+                boundary_accepted_count
             FROM eligible
             ORDER BY writer_recorded_at ASC, accepted_writer_fact_id ASC
             ",
@@ -1129,8 +1154,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
 
     let mut snapshots = Vec::with_capacity(rows.len());
     for row in rows {
-        let boundary_snapshot_count: i64 = row.get("boundary_snapshot_count");
-        if boundary_snapshot_count > 1 {
+        let boundary_accepted_count: i64 = row.get("boundary_accepted_count");
+        if boundary_accepted_count > 1 {
             return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
                 "Promise completion non-authority projection refuses contradictory accepted writer truth"
                     .to_owned(),

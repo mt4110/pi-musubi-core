@@ -325,6 +325,43 @@ async fn contradictory_writer_truth_for_same_boundary_fails_closed() {
 }
 
 #[tokio::test]
+async fn wrong_key_accepted_writer_truth_coexisting_with_valid_acceptance_fails_closed() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-wrong-key-coexists");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+    let mut wrong_key = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    wrong_key.fact_idempotency_key = Some(format!("unbound-accepted-{idempotency_key}"));
+    record_writer_fact(&store, wrong_key).await;
+
+    let error = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &prior.promise_reference,
+            &prior.realm_id,
+        )
+        .await
+        .expect_err("coexisting wrong-key accepted writer truth must fail closed");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+    assert_eq!(
+        writer_fact_count_for_promise(&client, &prior.promise_reference).await,
+        3
+    );
+}
+
+#[tokio::test]
 async fn duplicate_projection_reads_are_deterministic_and_side_effect_free() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
