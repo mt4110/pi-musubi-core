@@ -1072,7 +1072,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                             accepted.promise_reference,
                             accepted.realm_id,
                             accepted.promise_terms_reference,
-                            accepted.participant_set_reference
+                            accepted.participant_set_reference,
+                            accepted.policy_version
                     ) AS boundary_accepted_count
                 FROM promise_completion.writer_fact_records accepted
                 WHERE accepted.promise_reference = $1

@@ -362,6 +362,53 @@ async fn wrong_key_accepted_writer_truth_coexisting_with_valid_acceptance_fails_
 }
 
 #[tokio::test]
+async fn distinct_policy_versions_for_same_boundary_do_not_conflict() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-policy-boundary");
+    let policy_one_prior =
+        record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let policy_one = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &policy_one_prior.writer_fact_id),
+        ))
+        .await
+        .expect("policy one accepted transition should persist");
+
+    let mut policy_two_prior = prior_mutual_acknowledgement_fact(
+        &idempotency_key,
+        PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement,
+    );
+    policy_two_prior.policy_version = Some(2);
+    let policy_two_prior = record_writer_fact(&store, policy_two_prior).await;
+    let mut policy_two_fact =
+        accepted_transition_fact(&idempotency_key, &policy_two_prior.writer_fact_id);
+    policy_two_fact.policy_version = Some(2);
+    let _policy_two = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(policy_two_fact))
+        .await
+        .expect("policy two accepted transition should persist");
+
+    let snapshots = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &policy_one.promise_reference,
+            &policy_one.realm_id,
+        )
+        .await
+        .expect("distinct policy versions should remain distinct projection boundaries");
+
+    assert_eq!(snapshots.len(), 2);
+    let policy_versions: Vec<i32> = snapshots
+        .iter()
+        .map(|snapshot| snapshot.policy_version)
+        .collect();
+    assert!(policy_versions.contains(&1));
+    assert!(policy_versions.contains(&2));
+}
+
+#[tokio::test]
 async fn duplicate_projection_reads_are_deterministic_and_side_effect_free() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
