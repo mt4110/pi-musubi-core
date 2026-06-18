@@ -7,6 +7,7 @@ pub use types::{
     PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
     PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
     PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,
-    PromiseCompletionWriterFactSnapshot, ProposedPromiseCompletionWriterFact,
+    PromiseCompletionWriterFactSnapshot, ProposedMutualAcknowledgementAcceptedTransition,
+    ProposedPromiseCompletionWriterFact, RecordMutualAcknowledgementAcceptedTransitionInput,
     RecordPromiseCompletionWriterFactInput,
 };

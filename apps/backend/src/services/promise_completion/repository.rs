@@ -11,7 +11,8 @@ use super::types::{
     PromiseCompletionSourceRouteClass, PromiseCompletionStateClass,
     PromiseCompletionWriterFactFamily, PromiseCompletionWriterFactPersistenceError,
     PromiseCompletionWriterFactReplayStatus, PromiseCompletionWriterFactSnapshot,
-    ProposedPromiseCompletionWriterFact, RecordPromiseCompletionWriterFactInput,
+    ProposedPromiseCompletionWriterFact, RecordMutualAcknowledgementAcceptedTransitionInput,
+    RecordPromiseCompletionWriterFactInput,
 };
 
 const DECISION_KIND: &str = "accepted_for_writer_fact_persistence";
@@ -213,6 +214,289 @@ impl PromiseCompletionWriterFactStore {
             load_snapshot_by_writer_fact_id(&*client, &writer_fact_id, replay_status).await?;
         Ok(snapshot)
     }
+
+    pub async fn record_mutual_acknowledgement_accepted_transition(
+        &self,
+        input: RecordMutualAcknowledgementAcceptedTransitionInput,
+    ) -> Result<PromiseCompletionWriterFactSnapshot, PromiseCompletionWriterFactPersistenceError>
+    {
+        let fact = validate_mutual_acknowledgement_accepted_transition(input.transition.fact)?;
+        let normalized = normalize_writer_fact(&fact)?;
+        {
+            let client = self.client.lock().await;
+            ensure_mutual_acknowledgement_prior_writer_fact(&*client, &normalized).await?;
+        }
+        self.record_writer_fact(RecordPromiseCompletionWriterFactInput { fact })
+            .await
+    }
+}
+
+fn validate_mutual_acknowledgement_accepted_transition(
+    fact: ProposedPromiseCompletionWriterFact,
+) -> Result<ProposedPromiseCompletionWriterFact, PromiseCompletionWriterFactPersistenceError> {
+    if fact.fact_family != PromiseCompletionWriterFactFamily::CompletionStateTransition {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires completion_state_transition fact family"
+                .to_owned(),
+        ));
+    }
+
+    if fact.source_route_class
+        != PromiseCompletionSourceRouteClass::MutualAccountableCompletionAcknowledgement
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition rejects non-mutual acknowledgement source routes"
+                .to_owned(),
+        ));
+    }
+
+    if fact.previous_completion_state_class
+        != Some(PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement)
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires previous state completion_pending_mutual_acknowledgement"
+                .to_owned(),
+        ));
+    }
+
+    if fact.completion_state_class != PromiseCompletionStateClass::CompletionAccepted {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires next state completion_accepted"
+                .to_owned(),
+        ));
+    }
+
+    if !fact.completed_reference_eligible {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires completed reference eligibility for completion_accepted"
+                .to_owned(),
+        ));
+    }
+
+    if fact
+        .ordinary_participant_acknowledgement_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires Ordinary Account participant acknowledgement reference"
+                .to_owned(),
+        ));
+    }
+
+    if fact
+        .governed_review_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+        || fact
+            .review_authority_reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition does not accept governed review references"
+                .to_owned(),
+        ));
+    }
+
+    if fact
+        .proof_eligibility_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+        || fact
+            .proof_evidence_writer_fact_reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition does not accept proof references"
+                .to_owned(),
+        ));
+    }
+
+    if fact
+        .correction_or_supersession_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition does not accept correction or supersession references"
+                .to_owned(),
+        ));
+    }
+
+    if fact
+        .prior_writer_fact_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires prior writer fact reference"
+                .to_owned(),
+        ));
+    }
+
+    Ok(fact)
+}
+
+async fn ensure_mutual_acknowledgement_prior_writer_fact(
+    client: &impl GenericClient,
+    normalized: &NormalizedWriterFact,
+) -> Result<(), PromiseCompletionWriterFactPersistenceError> {
+    let prior_writer_fact_id = normalized.prior_writer_fact_id.ok_or_else(|| {
+        PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires prior writer fact reference"
+                .to_owned(),
+        )
+    })?;
+    let ordinary_participant_acknowledgement_reference = normalized
+        .ordinary_participant_acknowledgement_reference
+        .as_deref()
+        .ok_or_else(|| {
+            PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition requires Ordinary Account participant acknowledgement reference"
+                    .to_owned(),
+            )
+        })?;
+    let expected_fact_idempotency_key =
+        prior_bound_accepted_transition_idempotency_key(&prior_writer_fact_id);
+
+    // Bind consumption to the prior fact so the existing DB idempotency index is the atomic guard.
+    if normalized.fact_idempotency_key != expected_fact_idempotency_key {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires prior-bound fact idempotency key"
+                .to_owned(),
+        ));
+    }
+
+    let row = client
+        .query_opt(
+            "
+            SELECT
+                promise_reference,
+                realm_id,
+                fact_family,
+                source_route_class,
+                completion_state_class,
+                promise_terms_reference,
+                participant_set_reference,
+                ordinary_participant_acknowledgement_reference,
+                policy_version
+            FROM promise_completion.writer_fact_records
+            WHERE writer_fact_id = $1
+            ",
+            &[&prior_writer_fact_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    let row = row.ok_or_else(|| {
+        PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition requires existing prior writer fact posture"
+                .to_owned(),
+        )
+    })?;
+    let prior_promise_reference: String = row.get("promise_reference");
+    let prior_realm_id: String = row.get("realm_id");
+    let prior_fact_family: String = row.get("fact_family");
+    let prior_source_route_class: String = row.get("source_route_class");
+    let prior_completion_state_class: String = row.get("completion_state_class");
+    let prior_promise_terms_reference: String = row.get("promise_terms_reference");
+    let prior_participant_set_reference: String = row.get("participant_set_reference");
+    let prior_ordinary_participant_acknowledgement_reference: Option<String> =
+        row.get("ordinary_participant_acknowledgement_reference");
+    let prior_policy_version: i32 = row.get("policy_version");
+
+    if prior_promise_reference != normalized.promise_reference
+        || prior_realm_id != normalized.realm_id
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition prior writer fact must match Promise reference and realm_id"
+                .to_owned(),
+        ));
+    }
+
+    if prior_promise_terms_reference != normalized.promise_terms_reference
+        || prior_participant_set_reference != normalized.participant_set_reference
+        || prior_ordinary_participant_acknowledgement_reference.as_deref()
+            != Some(ordinary_participant_acknowledgement_reference)
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition prior writer fact must match Promise terms, participant set, and Ordinary Account acknowledgement references"
+                .to_owned(),
+        ));
+    }
+
+    if prior_policy_version != normalized.policy_version {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition prior writer fact must match policy version"
+                .to_owned(),
+        ));
+    }
+
+    let existing_transition = client
+        .query_opt(
+            "
+            SELECT fact_idempotency_key, policy_version
+            FROM promise_completion.writer_fact_records
+            WHERE prior_writer_fact_id = $1
+              AND fact_family = 'completion_state_transition'
+              AND source_route_class = 'mutual_accountable_completion_acknowledgement'
+              AND completion_state_class = 'completion_accepted'
+            ORDER BY created_at ASC, writer_fact_id ASC
+            LIMIT 1
+            ",
+            &[&prior_writer_fact_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    if let Some(existing_transition) = existing_transition {
+        let existing_transition_idempotency_key: String =
+            existing_transition.get("fact_idempotency_key");
+        let existing_transition_policy_version: i32 = existing_transition.get("policy_version");
+        if existing_transition_idempotency_key != normalized.fact_idempotency_key
+            || existing_transition_policy_version != normalized.policy_version
+        {
+            return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition prior writer fact is already consumed by another accepted transition"
+                    .to_owned(),
+            ));
+        }
+    }
+
+    if prior_fact_family != PromiseCompletionWriterFactFamily::SourceRouteCandidate.as_str()
+        || prior_source_route_class
+            != PromiseCompletionSourceRouteClass::MutualAccountableCompletionAcknowledgement
+                .as_str()
+        || prior_completion_state_class
+            != PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement.as_str()
+    {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion mutual acknowledgement accepted transition prior writer fact must be mutual acknowledgement pending posture"
+                .to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn prior_bound_accepted_transition_idempotency_key(prior_writer_fact_id: &Uuid) -> String {
+    format!("completion-accepted-from-prior-{prior_writer_fact_id}")
 }
 
 fn normalize_writer_fact(
