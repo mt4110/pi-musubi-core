@@ -430,6 +430,9 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
                     .to_owned(),
             )
         })?;
+    let policy_version = required_policy_version(fact.policy_version)?;
+    let fact_idempotency_key =
+        required_ref(fact.fact_idempotency_key.as_deref(), "fact idempotency key")?;
 
     let row = {
         let client = client.lock().await;
@@ -444,9 +447,29 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
                     completion_state_class,
                     promise_terms_reference,
                     participant_set_reference,
-                    ordinary_participant_acknowledgement_reference
-                FROM promise_completion.writer_fact_records
-                WHERE writer_fact_id = $1
+                    ordinary_participant_acknowledgement_reference,
+                    (
+                        SELECT existing.fact_idempotency_key
+                        FROM promise_completion.writer_fact_records existing
+                        WHERE existing.prior_writer_fact_id = prior.writer_fact_id
+                          AND existing.fact_family = 'completion_state_transition'
+                          AND existing.source_route_class = 'mutual_accountable_completion_acknowledgement'
+                          AND existing.completion_state_class = 'completion_accepted'
+                        ORDER BY existing.created_at ASC, existing.writer_fact_id ASC
+                        LIMIT 1
+                    ) AS existing_transition_idempotency_key,
+                    (
+                        SELECT existing.policy_version
+                        FROM promise_completion.writer_fact_records existing
+                        WHERE existing.prior_writer_fact_id = prior.writer_fact_id
+                          AND existing.fact_family = 'completion_state_transition'
+                          AND existing.source_route_class = 'mutual_accountable_completion_acknowledgement'
+                          AND existing.completion_state_class = 'completion_accepted'
+                        ORDER BY existing.created_at ASC, existing.writer_fact_id ASC
+                        LIMIT 1
+                    ) AS existing_transition_policy_version
+                FROM promise_completion.writer_fact_records prior
+                WHERE prior.writer_fact_id = $1
                 ",
                 &[&prior_writer_fact_id],
             )
@@ -469,6 +492,10 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
     let prior_participant_set_reference: String = row.get("participant_set_reference");
     let prior_ordinary_participant_acknowledgement_reference: Option<String> =
         row.get("ordinary_participant_acknowledgement_reference");
+    let existing_transition_idempotency_key: Option<String> =
+        row.get("existing_transition_idempotency_key");
+    let existing_transition_policy_version: Option<i32> =
+        row.get("existing_transition_policy_version");
 
     if prior_promise_reference != promise_reference || prior_realm_id != realm_id {
         return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
@@ -486,6 +513,20 @@ async fn ensure_mutual_acknowledgement_prior_writer_fact(
             "Promise completion mutual acknowledgement accepted transition prior writer fact must match Promise terms, participant set, and Ordinary Account acknowledgement references"
                 .to_owned(),
         ));
+    }
+
+    if let (Some(existing_transition_idempotency_key), Some(existing_transition_policy_version)) = (
+        existing_transition_idempotency_key,
+        existing_transition_policy_version,
+    ) {
+        if existing_transition_idempotency_key != fact_idempotency_key
+            || existing_transition_policy_version != policy_version
+        {
+            return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion mutual acknowledgement accepted transition prior writer fact is already consumed by another accepted transition"
+                    .to_owned(),
+            ));
+        }
     }
 
     if prior_fact_family != PromiseCompletionWriterFactFamily::SourceRouteCandidate.as_str()

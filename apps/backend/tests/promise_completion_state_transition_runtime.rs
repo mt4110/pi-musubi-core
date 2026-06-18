@@ -113,6 +113,42 @@ async fn duplicate_accepted_transition_with_payload_drift_fails_closed() {
 }
 
 #[tokio::test]
+async fn accepted_transition_with_new_idempotency_key_cannot_reconsume_prior_fact() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("prior-consumed");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let first = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    let mut reconsume = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    reconsume.fact_idempotency_key = Some(format!("reconsume-{idempotency_key}"));
+
+    let snapshot = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(first))
+        .await
+        .expect("first accepted transition should persist");
+    let error = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(reconsume))
+        .await
+        .expect_err("same prior writer fact cannot be consumed by a new idempotency key");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+    assert_eq!(
+        writer_fact_count_for_promise_and_family(
+            &client,
+            &snapshot.promise_reference,
+            "completion_state_transition",
+        )
+        .await,
+        1
+    );
+}
+
+#[tokio::test]
 async fn governed_review_completion_is_rejected_before_transition_persistence() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
