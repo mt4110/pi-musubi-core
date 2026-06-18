@@ -407,6 +407,50 @@ async fn non_accepted_transition_truth_coexisting_with_valid_acceptance_fails_cl
 }
 
 #[tokio::test]
+async fn correction_or_supersession_truth_coexisting_with_valid_acceptance_fails_closed() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-correction-coexists");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+
+    let mut correction = accepted_transition_fact(&idempotency_key, &accepted.writer_fact_id);
+    correction.fact_family = PromiseCompletionWriterFactFamily::CorrectionOrSupersession;
+    correction.previous_completion_state_class =
+        Some(PromiseCompletionStateClass::CompletionAccepted);
+    correction.completion_state_class =
+        PromiseCompletionStateClass::CompletionCorrectedOrSuperseded;
+    correction.completed_reference_eligible = false;
+    correction.fact_idempotency_key = Some(format!("correction-or-supersession-{idempotency_key}"));
+    correction.reason_code_class = Some(format!("correction-or-supersession-{idempotency_key}"));
+    correction.correction_or_supersession_reference = Some(format!(
+        "correction-or-supersession-reference-{idempotency_key}"
+    ));
+    record_writer_fact(&store, correction).await;
+
+    let error = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &prior.promise_reference,
+            &prior.realm_id,
+        )
+        .await
+        .expect_err("coexisting correction or supersession writer truth must fail closed");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+}
+
+#[tokio::test]
 async fn distinct_policy_versions_for_same_boundary_do_not_conflict() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)

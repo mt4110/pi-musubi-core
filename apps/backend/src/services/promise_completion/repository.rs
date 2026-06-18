@@ -1046,43 +1046,46 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
     let rows = client
         .query(
             "
-            WITH transition_boundary AS (
+            WITH writer_truth_boundary AS (
                 SELECT
-                    transition.writer_fact_id AS transition_writer_fact_id,
-                    transition.prior_writer_fact_id AS prior_writer_fact_id,
-                    transition.promise_reference,
-                    transition.realm_id,
-                    transition.fact_family,
-                    transition.previous_completion_state_class,
-                    transition.promise_terms_reference,
-                    transition.participant_set_reference,
-                    transition.ordinary_participant_acknowledgement_reference,
-                    transition.source_route_class,
-                    transition.completion_state_class,
-                    transition.completed_reference_eligible,
-                    transition.fact_idempotency_key,
-                    transition.policy_version,
-                    transition.governed_review_reference,
-                    transition.review_authority_reference,
-                    transition.projection_non_authority_posture,
-                    transition.authority_posture,
-                    transition.created_at AS writer_recorded_at,
+                    writer_truth.writer_fact_id AS boundary_writer_fact_id,
+                    writer_truth.prior_writer_fact_id AS prior_writer_fact_id,
+                    writer_truth.promise_reference,
+                    writer_truth.realm_id,
+                    writer_truth.fact_family,
+                    writer_truth.previous_completion_state_class,
+                    writer_truth.promise_terms_reference,
+                    writer_truth.participant_set_reference,
+                    writer_truth.ordinary_participant_acknowledgement_reference,
+                    writer_truth.source_route_class,
+                    writer_truth.completion_state_class,
+                    writer_truth.completed_reference_eligible,
+                    writer_truth.fact_idempotency_key,
+                    writer_truth.policy_version,
+                    writer_truth.governed_review_reference,
+                    writer_truth.review_authority_reference,
+                    writer_truth.projection_non_authority_posture,
+                    writer_truth.authority_posture,
+                    writer_truth.created_at AS writer_recorded_at,
                     COUNT(*) OVER (
                         PARTITION BY
-                            transition.promise_reference,
-                            transition.realm_id,
-                            transition.promise_terms_reference,
-                            transition.participant_set_reference,
-                            transition.policy_version
-                    ) AS boundary_transition_count
-                FROM promise_completion.writer_fact_records transition
-                WHERE transition.promise_reference = $1
-                  AND transition.realm_id = $2
-                  AND transition.fact_family = 'completion_state_transition'
+                            writer_truth.promise_reference,
+                            writer_truth.realm_id,
+                            writer_truth.promise_terms_reference,
+                            writer_truth.participant_set_reference,
+                            writer_truth.policy_version
+                    ) AS boundary_writer_truth_count
+                FROM promise_completion.writer_fact_records writer_truth
+                WHERE writer_truth.promise_reference = $1
+                  AND writer_truth.realm_id = $2
+                  AND writer_truth.fact_family IN (
+                      'completion_state_transition',
+                      'correction_or_supersession'
+                  )
             ),
             eligible AS (
                 SELECT
-                    accepted.transition_writer_fact_id AS accepted_writer_fact_id,
+                    accepted.boundary_writer_fact_id AS accepted_writer_fact_id,
                     accepted.prior_writer_fact_id,
                     accepted.promise_reference,
                     accepted.realm_id,
@@ -1095,8 +1098,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     accepted.projection_non_authority_posture,
                     accepted.authority_posture,
                     accepted.writer_recorded_at,
-                    accepted.boundary_transition_count
-                FROM transition_boundary accepted
+                    accepted.boundary_writer_truth_count
+                FROM writer_truth_boundary accepted
                 JOIN promise_completion.writer_fact_records prior
                   ON prior.writer_fact_id = accepted.prior_writer_fact_id
                 WHERE accepted.fact_family = 'completion_state_transition'
@@ -1144,7 +1147,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                 projection_non_authority_posture,
                 authority_posture,
                 writer_recorded_at,
-                boundary_transition_count
+                boundary_writer_truth_count
             FROM eligible
             ORDER BY writer_recorded_at ASC, accepted_writer_fact_id ASC
             ",
@@ -1155,10 +1158,10 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
 
     let mut snapshots = Vec::with_capacity(rows.len());
     for row in rows {
-        let boundary_transition_count: i64 = row.get("boundary_transition_count");
-        if boundary_transition_count > 1 {
+        let boundary_writer_truth_count: i64 = row.get("boundary_writer_truth_count");
+        if boundary_writer_truth_count > 1 {
             return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
-                "Promise completion non-authority projection refuses contradictory transition writer truth"
+                "Promise completion non-authority projection refuses contradictory writer truth"
                     .to_owned(),
             ));
         }
