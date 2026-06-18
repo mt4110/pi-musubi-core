@@ -1078,10 +1078,21 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                 FROM promise_completion.writer_fact_records writer_truth
                 WHERE writer_truth.promise_reference = $1
                   AND writer_truth.realm_id = $2
-                  AND writer_truth.fact_family IN (
-                      'completion_state_transition',
-                      'completion_outcome_reference',
-                      'correction_or_supersession'
+                  AND (
+                      writer_truth.fact_family IN (
+                          'completion_state_transition',
+                          'completion_outcome_reference',
+                          'correction_or_supersession'
+                      )
+                      OR (
+                          writer_truth.fact_family = 'source_route_candidate'
+                          AND (
+                              writer_truth.source_route_class =
+                                  'governed_review_completion'
+                              OR writer_truth.governed_review_reference IS NOT NULL
+                              OR writer_truth.review_authority_reference IS NOT NULL
+                          )
+                      )
                   )
             ),
             eligible AS (

@@ -278,6 +278,52 @@ async fn governed_review_and_forbidden_routes_do_not_enter_first_projection_rout
 }
 
 #[tokio::test]
+async fn governed_source_candidate_coexisting_with_valid_acceptance_fails_closed() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-governed-candidate-coexists");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+
+    let mut governed_candidate = prior_mutual_acknowledgement_fact(
+        &idempotency_key,
+        PromiseCompletionStateClass::CompletionUnderGovernedReview,
+    );
+    governed_candidate.source_route_class =
+        PromiseCompletionSourceRouteClass::GovernedReviewCompletion;
+    governed_candidate.governed_review_reference =
+        Some(format!("governed-review-{idempotency_key}"));
+    governed_candidate.review_authority_reference =
+        Some(format!("review-authority-{idempotency_key}"));
+    governed_candidate.fact_idempotency_key =
+        Some(format!("governed-source-candidate-{idempotency_key}"));
+    governed_candidate.reason_code_class =
+        Some(format!("governed-source-candidate-{idempotency_key}"));
+    record_writer_fact(&store, governed_candidate).await;
+
+    let error = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &prior.promise_reference,
+            &prior.realm_id,
+        )
+        .await
+        .expect_err("coexisting governed source candidate writer truth must fail closed");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+}
+
+#[tokio::test]
 async fn contradictory_writer_truth_for_same_boundary_fails_closed() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
