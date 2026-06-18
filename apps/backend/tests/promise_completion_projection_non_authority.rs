@@ -324,6 +324,46 @@ async fn governed_source_candidate_coexisting_with_valid_acceptance_fails_closed
 }
 
 #[tokio::test]
+async fn non_prior_source_candidate_coexisting_with_valid_acceptance_fails_closed() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-source-candidate-coexists");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+
+    let mut rejected_candidate = prior_mutual_acknowledgement_fact(
+        &idempotency_key,
+        PromiseCompletionStateClass::CompletionRejected,
+    );
+    rejected_candidate.fact_idempotency_key =
+        Some(format!("rejected-source-candidate-{idempotency_key}"));
+    rejected_candidate.reason_code_class =
+        Some(format!("rejected-source-candidate-{idempotency_key}"));
+    record_writer_fact(&store, rejected_candidate).await;
+
+    let error = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &prior.promise_reference,
+            &prior.realm_id,
+        )
+        .await
+        .expect_err("coexisting non-prior source candidate writer truth must fail closed");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+}
+
+#[tokio::test]
 async fn contradictory_writer_truth_for_same_boundary_fails_closed() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)

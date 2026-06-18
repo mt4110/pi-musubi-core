@@ -1066,34 +1066,16 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     writer_truth.review_authority_reference,
                     writer_truth.projection_non_authority_posture,
                     writer_truth.authority_posture,
-                    writer_truth.created_at AS writer_recorded_at,
-                    COUNT(*) OVER (
-                        PARTITION BY
-                            writer_truth.promise_reference,
-                            writer_truth.realm_id,
-                            writer_truth.promise_terms_reference,
-                            writer_truth.participant_set_reference,
-                            writer_truth.policy_version
-                    ) AS boundary_writer_truth_count
+                    writer_truth.created_at AS writer_recorded_at
                 FROM promise_completion.writer_fact_records writer_truth
                 WHERE writer_truth.promise_reference = $1
                   AND writer_truth.realm_id = $2
-                  AND (
-                      writer_truth.fact_family IN (
+                  AND writer_truth.fact_family IN (
                           'completion_state_transition',
                           'completion_outcome_reference',
-                          'correction_or_supersession'
+                          'correction_or_supersession',
+                          'source_route_candidate'
                       )
-                      OR (
-                          writer_truth.fact_family = 'source_route_candidate'
-                          AND (
-                              writer_truth.source_route_class =
-                                  'governed_review_completion'
-                              OR writer_truth.governed_review_reference IS NOT NULL
-                              OR writer_truth.review_authority_reference IS NOT NULL
-                          )
-                      )
-                  )
             ),
             eligible AS (
                 SELECT
@@ -1110,7 +1092,24 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     accepted.projection_non_authority_posture,
                     accepted.authority_posture,
                     accepted.writer_recorded_at,
-                    accepted.boundary_writer_truth_count
+                    (
+                        SELECT COUNT(*)
+                        FROM writer_truth_boundary boundary_truth
+                        WHERE boundary_truth.promise_reference =
+                              accepted.promise_reference
+                          AND boundary_truth.realm_id = accepted.realm_id
+                          AND boundary_truth.promise_terms_reference =
+                              accepted.promise_terms_reference
+                          AND boundary_truth.participant_set_reference =
+                              accepted.participant_set_reference
+                          AND boundary_truth.policy_version =
+                              accepted.policy_version
+                          AND (
+                              boundary_truth.fact_family <> 'source_route_candidate'
+                              OR boundary_truth.boundary_writer_fact_id <>
+                                  prior.writer_fact_id
+                          )
+                    ) AS boundary_writer_truth_count
                 FROM writer_truth_boundary accepted
                 JOIN promise_completion.writer_fact_records prior
                   ON prior.writer_fact_id = accepted.prior_writer_fact_id
