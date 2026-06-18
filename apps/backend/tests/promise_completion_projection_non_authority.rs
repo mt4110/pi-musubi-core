@@ -196,6 +196,55 @@ async fn governed_review_and_forbidden_routes_do_not_enter_first_projection_rout
             .is_empty()
     );
 
+    let accepted_with_review_key = unique_idempotency_key("projection-accepted-review-fields");
+    let accepted_with_review_prior =
+        record_prior_pending_mutual_acknowledgement(&store, &accepted_with_review_key).await;
+    let mut accepted_with_review = accepted_transition_fact(
+        &accepted_with_review_key,
+        &accepted_with_review_prior.writer_fact_id,
+    );
+    accepted_with_review.governed_review_reference =
+        Some(format!("governed-review-{accepted_with_review_key}"));
+    accepted_with_review.review_authority_reference =
+        Some(format!("review-authority-{accepted_with_review_key}"));
+    let accepted_with_review = record_writer_fact(&store, accepted_with_review).await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_with_review.promise_reference,
+                &accepted_with_review.realm_id,
+            )
+            .await
+            .expect("mutual route with accepted governed review fields should be readable")
+            .is_empty()
+    );
+
+    let prior_with_review_key = unique_idempotency_key("projection-prior-review-fields");
+    let mut prior_with_review = prior_mutual_acknowledgement_fact(
+        &prior_with_review_key,
+        PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement,
+    );
+    prior_with_review.governed_review_reference =
+        Some(format!("governed-review-{prior_with_review_key}"));
+    prior_with_review.review_authority_reference =
+        Some(format!("review-authority-{prior_with_review_key}"));
+    let prior_with_review = record_writer_fact(&store, prior_with_review).await;
+    let accepted_after_review_prior = record_writer_fact(
+        &store,
+        accepted_transition_fact(&prior_with_review_key, &prior_with_review.writer_fact_id),
+    )
+    .await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_after_review_prior.promise_reference,
+                &accepted_after_review_prior.realm_id,
+            )
+            .await
+            .expect("mutual route with prior governed review fields should be readable")
+            .is_empty()
+    );
+
     let forbidden_key = unique_idempotency_key("projection-forbidden");
     let forbidden_prior = record_prior_pending_mutual_acknowledgement(&store, &forbidden_key).await;
     let mut forbidden = accepted_transition_fact(&forbidden_key, &forbidden_prior.writer_fact_id);

@@ -238,8 +238,8 @@ impl PromiseCompletionWriterFactStore {
         Vec<PromiseCompletionNonAuthorityProjectionSnapshot>,
         PromiseCompletionWriterFactPersistenceError,
     > {
-        let promise_reference = required_ref(Some(promise_reference), "Promise reference")?;
-        let realm_id = required_ref(Some(realm_id), "realm_id")?;
+        let promise_reference = required_projection_ref(promise_reference, "Promise reference")?;
+        let realm_id = required_projection_ref(realm_id, "realm_id")?;
         let client = self.client.lock().await;
         load_accepted_completion_non_authority_projection_snapshots(
             &*client,
@@ -906,6 +906,19 @@ fn required_ref(
         })
 }
 
+fn required_projection_ref(
+    value: &str,
+    label: &'static str,
+) -> Result<String, PromiseCompletionWriterFactPersistenceError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            format!("Promise completion non-authority projection read requires {label}"),
+        ));
+    }
+    Ok(value.to_owned())
+}
+
 fn optional_ref(
     value: Option<&str>,
     label: &'static str,
@@ -1074,6 +1087,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                   AND accepted.projection_non_authority_posture =
                       'projection_non_authoritative'
                   AND accepted.authority_posture = 'writer_truth_only'
+                  AND accepted.governed_review_reference IS NULL
+                  AND accepted.review_authority_reference IS NULL
                   AND prior.promise_reference = accepted.promise_reference
                   AND prior.realm_id = accepted.realm_id
                   AND prior.promise_terms_reference = accepted.promise_terms_reference
@@ -1086,6 +1101,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                       'mutual_accountable_completion_acknowledgement'
                   AND prior.completion_state_class =
                       'completion_pending_mutual_acknowledgement'
+                  AND prior.governed_review_reference IS NULL
+                  AND prior.review_authority_reference IS NULL
             )
             SELECT
                 accepted_writer_fact_id,
