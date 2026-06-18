@@ -1080,6 +1080,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                   AND writer_truth.realm_id = $2
                   AND writer_truth.fact_family IN (
                       'completion_state_transition',
+                      'completion_outcome_reference',
                       'correction_or_supersession'
                   )
             ),
