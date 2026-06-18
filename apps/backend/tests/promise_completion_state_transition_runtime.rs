@@ -149,6 +149,99 @@ async fn accepted_transition_with_new_idempotency_key_cannot_reconsume_prior_fac
 }
 
 #[tokio::test]
+async fn concurrent_payload_drift_for_same_prior_uses_database_idempotency_guard() {
+    let (_test_state, config, client) = test_context().await;
+    let prior_store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("prior store should connect");
+    let idempotency_key = unique_idempotency_key("concurrent-drift");
+    let prior = record_prior_pending_mutual_acknowledgement(&prior_store, &idempotency_key).await;
+    let store_a = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("first competing store should connect");
+    let store_b = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("second competing store should connect");
+    let input_a = transition_input(accepted_transition_fact(
+        &idempotency_key,
+        &prior.writer_fact_id,
+    ));
+    let mut drifted = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    drifted.reason_code_class = Some(format!("completion-accepted-drifted-{idempotency_key}"));
+    let input_b = transition_input(drifted);
+
+    let (result_a, result_b) = tokio::join!(
+        store_a.record_mutual_acknowledgement_accepted_transition(input_a),
+        store_b.record_mutual_acknowledgement_accepted_transition(input_b)
+    );
+
+    let mut inserted_count = 0;
+    let mut conflict_count = 0;
+
+    for result in [result_a, result_b] {
+        match result {
+            Ok(snapshot) => {
+                inserted_count += 1;
+                assert_eq!(
+                    snapshot.replay_status,
+                    PromiseCompletionWriterFactReplayStatus::Inserted
+                );
+                assert_eq!(snapshot.promise_reference, prior.promise_reference);
+            }
+            Err(PromiseCompletionWriterFactPersistenceError::IdempotencyConflict { .. }) => {
+                conflict_count += 1;
+            }
+            other => {
+                panic!("expected one insert and one idempotency conflict, got {other:?}")
+            }
+        }
+    }
+
+    assert_eq!(inserted_count, 1);
+    assert_eq!(conflict_count, 1);
+    assert_eq!(
+        writer_fact_count_for_promise_and_family(
+            &client,
+            &prior.promise_reference,
+            "completion_state_transition",
+        )
+        .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn accepted_transition_requires_prior_policy_version_for_consumption_scope() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("prior-policy");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let mut fact = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    fact.policy_version = Some(2);
+
+    let error = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(fact))
+        .await
+        .expect_err("transition policy version must match the prior writer fact");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+    assert_eq!(
+        writer_fact_count_for_promise_and_family(
+            &client,
+            &prior.promise_reference,
+            "completion_state_transition",
+        )
+        .await,
+        0
+    );
+}
+
+#[tokio::test]
 async fn governed_review_completion_is_rejected_before_transition_persistence() {
     let (_test_state, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
@@ -622,9 +715,15 @@ fn accepted_transition_fact(
     fact.completion_state_class = PromiseCompletionStateClass::CompletionAccepted;
     fact.completed_reference_eligible = true;
     fact.prior_writer_fact_id = Some(prior_writer_fact_id.to_owned());
-    fact.fact_idempotency_key = Some(format!("accepted-transition-{idempotency_key}"));
+    fact.fact_idempotency_key = Some(accepted_transition_fact_idempotency_key(
+        prior_writer_fact_id,
+    ));
     fact.reason_code_class = Some(format!("completion-accepted-{idempotency_key}"));
     fact
+}
+
+fn accepted_transition_fact_idempotency_key(prior_writer_fact_id: &str) -> String {
+    format!("completion-accepted-from-prior-{prior_writer_fact_id}")
 }
 
 fn base_fact(idempotency_key: &str) -> ProposedPromiseCompletionWriterFact {
