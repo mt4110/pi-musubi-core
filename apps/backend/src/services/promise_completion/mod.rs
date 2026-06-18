@@ -4,6 +4,7 @@ mod types;
 pub use repository::PromiseCompletionWriterFactStore;
 pub use types::{
     PromiseCompletionAuthorityPosture, PromiseCompletionForbiddenSourceRouteClass,
+    PromiseCompletionNonAuthorityProjectionSnapshot,
     PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
     PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
     PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,
