@@ -278,6 +278,63 @@ async fn governed_review_and_forbidden_routes_do_not_enter_first_projection_rout
 }
 
 #[tokio::test]
+async fn proof_backed_mutual_rows_do_not_enter_first_projection_route() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+
+    let accepted_with_proof_key = unique_idempotency_key("projection-accepted-proof-fields");
+    let accepted_with_proof_prior =
+        record_prior_pending_mutual_acknowledgement(&store, &accepted_with_proof_key).await;
+    let mut accepted_with_proof = accepted_transition_fact(
+        &accepted_with_proof_key,
+        &accepted_with_proof_prior.writer_fact_id,
+    );
+    accepted_with_proof.proof_eligibility_reference =
+        Some(format!("proof-eligibility-{accepted_with_proof_key}"));
+    accepted_with_proof.proof_evidence_writer_fact_reference =
+        Some(format!("proof-evidence-{accepted_with_proof_key}"));
+    let accepted_with_proof = record_writer_fact(&store, accepted_with_proof).await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_with_proof.promise_reference,
+                &accepted_with_proof.realm_id,
+            )
+            .await
+            .expect("mutual route with accepted proof fields should be readable")
+            .is_empty()
+    );
+
+    let prior_with_proof_key = unique_idempotency_key("projection-prior-proof-fields");
+    let mut prior_with_proof = prior_mutual_acknowledgement_fact(
+        &prior_with_proof_key,
+        PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement,
+    );
+    prior_with_proof.proof_eligibility_reference =
+        Some(format!("proof-eligibility-{prior_with_proof_key}"));
+    prior_with_proof.proof_evidence_writer_fact_reference =
+        Some(format!("proof-evidence-{prior_with_proof_key}"));
+    let prior_with_proof = record_writer_fact(&store, prior_with_proof).await;
+    let accepted_after_proof_prior = record_writer_fact(
+        &store,
+        accepted_transition_fact(&prior_with_proof_key, &prior_with_proof.writer_fact_id),
+    )
+    .await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_after_proof_prior.promise_reference,
+                &accepted_after_proof_prior.realm_id,
+            )
+            .await
+            .expect("mutual route with prior proof fields should be readable")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn governed_source_candidate_coexisting_with_valid_acceptance_fails_closed() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
