@@ -241,3 +241,20 @@ pub struct PromiseCompletionWriterFactSnapshot {
     pub replay_status: PromiseCompletionWriterFactReplayStatus,
     pub created_at: DateTime<Utc>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromiseCompletionNonAuthorityProjectionSnapshot {
+    pub accepted_writer_fact_id: String,
+    pub prior_writer_fact_id: String,
+    pub promise_reference: String,
+    pub realm_id: String,
+    pub promise_terms_reference: String,
+    pub participant_set_reference: String,
+    pub source_route_class: String,
+    pub completion_state_class: String,
+    pub completed_reference_eligible: bool,
+    pub policy_version: i32,
+    pub projection_non_authority_posture: String,
+    pub authority_posture: String,
+    pub writer_recorded_at: DateTime<Utc>,
+}

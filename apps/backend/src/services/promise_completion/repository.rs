@@ -7,12 +7,12 @@ use tokio_postgres::{Client, GenericClient, Row, error::SqlState};
 use uuid::Uuid;
 
 use super::types::{
-    PromiseCompletionAuthorityPosture, PromiseCompletionProjectionNonAuthorityPosture,
-    PromiseCompletionSourceRouteClass, PromiseCompletionStateClass,
-    PromiseCompletionWriterFactFamily, PromiseCompletionWriterFactPersistenceError,
-    PromiseCompletionWriterFactReplayStatus, PromiseCompletionWriterFactSnapshot,
-    ProposedPromiseCompletionWriterFact, RecordMutualAcknowledgementAcceptedTransitionInput,
-    RecordPromiseCompletionWriterFactInput,
+    PromiseCompletionAuthorityPosture, PromiseCompletionNonAuthorityProjectionSnapshot,
+    PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
+    PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
+    PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,
+    PromiseCompletionWriterFactSnapshot, ProposedPromiseCompletionWriterFact,
+    RecordMutualAcknowledgementAcceptedTransitionInput, RecordPromiseCompletionWriterFactInput,
 };
 
 const DECISION_KIND: &str = "accepted_for_writer_fact_persistence";
@@ -228,6 +228,25 @@ impl PromiseCompletionWriterFactStore {
         }
         self.record_writer_fact(RecordPromiseCompletionWriterFactInput { fact })
             .await
+    }
+
+    pub async fn derive_accepted_completion_non_authority_projection_snapshots(
+        &self,
+        promise_reference: &str,
+        realm_id: &str,
+    ) -> Result<
+        Vec<PromiseCompletionNonAuthorityProjectionSnapshot>,
+        PromiseCompletionWriterFactPersistenceError,
+    > {
+        let promise_reference = required_projection_ref(promise_reference, "Promise reference")?;
+        let realm_id = required_projection_ref(realm_id, "realm_id")?;
+        let client = self.client.lock().await;
+        load_accepted_completion_non_authority_projection_snapshots(
+            &*client,
+            &promise_reference,
+            &realm_id,
+        )
+        .await
     }
 }
 
@@ -887,6 +906,19 @@ fn required_ref(
         })
 }
 
+fn required_projection_ref(
+    value: &str,
+    label: &'static str,
+) -> Result<String, PromiseCompletionWriterFactPersistenceError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            format!("Promise completion non-authority projection read requires {label}"),
+        ));
+    }
+    Ok(value.to_owned())
+}
+
 fn optional_ref(
     value: Option<&str>,
     label: &'static str,
@@ -1001,6 +1033,191 @@ async fn load_snapshot_by_writer_fact_id(
         replay_status,
         created_at: row.get("created_at"),
     })
+}
+
+async fn load_accepted_completion_non_authority_projection_snapshots(
+    client: &impl GenericClient,
+    promise_reference: &str,
+    realm_id: &str,
+) -> Result<
+    Vec<PromiseCompletionNonAuthorityProjectionSnapshot>,
+    PromiseCompletionWriterFactPersistenceError,
+> {
+    let rows = client
+        .query(
+            "
+            WITH writer_truth_boundary AS (
+                SELECT
+                    writer_truth.writer_fact_id AS boundary_writer_fact_id,
+                    writer_truth.prior_writer_fact_id AS prior_writer_fact_id,
+                    writer_truth.promise_reference,
+                    writer_truth.realm_id,
+                    writer_truth.fact_family,
+                    writer_truth.previous_completion_state_class,
+                    writer_truth.promise_terms_reference,
+                    writer_truth.participant_set_reference,
+                    writer_truth.ordinary_participant_acknowledgement_reference,
+                    writer_truth.source_route_class,
+                    writer_truth.completion_state_class,
+                    writer_truth.completed_reference_eligible,
+                    writer_truth.fact_idempotency_key,
+                    writer_truth.policy_version,
+                    writer_truth.governed_review_reference,
+                    writer_truth.review_authority_reference,
+                    writer_truth.proof_eligibility_reference,
+                    writer_truth.proof_evidence_writer_fact_reference,
+                    writer_truth.correction_or_supersession_reference,
+                    writer_truth.projection_non_authority_posture,
+                    writer_truth.authority_posture,
+                    writer_truth.created_at AS writer_recorded_at
+                FROM promise_completion.writer_fact_records writer_truth
+                WHERE writer_truth.promise_reference = $1
+                  AND writer_truth.realm_id = $2
+                  AND writer_truth.fact_family IN (
+                          'completion_state_transition',
+                          'completion_outcome_reference',
+                          'correction_or_supersession',
+                          'source_route_candidate'
+                      )
+            ),
+            eligible AS (
+                SELECT
+                    accepted.boundary_writer_fact_id AS accepted_writer_fact_id,
+                    accepted.prior_writer_fact_id,
+                    accepted.promise_reference,
+                    accepted.realm_id,
+                    accepted.promise_terms_reference,
+                    accepted.participant_set_reference,
+                    accepted.source_route_class,
+                    accepted.completion_state_class,
+                    accepted.completed_reference_eligible,
+                    accepted.policy_version,
+                    accepted.projection_non_authority_posture,
+                    accepted.authority_posture,
+                    accepted.writer_recorded_at,
+                    (
+                        SELECT COUNT(*)
+                        FROM promise_completion.writer_fact_records boundary_truth
+                        WHERE boundary_truth.fact_family IN (
+                                  'completion_state_transition',
+                                  'completion_outcome_reference',
+                                  'correction_or_supersession',
+                                  'source_route_candidate'
+                              )
+                          AND (
+                              (
+                                  boundary_truth.promise_reference =
+                                      accepted.promise_reference
+                                  AND boundary_truth.realm_id = accepted.realm_id
+                                  AND boundary_truth.promise_terms_reference =
+                                      accepted.promise_terms_reference
+                                  AND boundary_truth.participant_set_reference =
+                                      accepted.participant_set_reference
+                                  AND boundary_truth.policy_version =
+                                      accepted.policy_version
+                              )
+                              OR boundary_truth.prior_writer_fact_id =
+                                  accepted.boundary_writer_fact_id
+                              OR boundary_truth.prior_writer_fact_id =
+                                  prior.writer_fact_id
+                          )
+                          AND (
+                              boundary_truth.fact_family <> 'source_route_candidate'
+                              OR boundary_truth.writer_fact_id <>
+                                  prior.writer_fact_id
+                          )
+                    ) AS boundary_writer_truth_count
+                FROM writer_truth_boundary accepted
+                JOIN promise_completion.writer_fact_records prior
+                  ON prior.writer_fact_id = accepted.prior_writer_fact_id
+                WHERE accepted.fact_family = 'completion_state_transition'
+                  AND accepted.previous_completion_state_class =
+                      'completion_pending_mutual_acknowledgement'
+                  AND accepted.source_route_class =
+                      'mutual_accountable_completion_acknowledgement'
+                  AND accepted.completion_state_class = 'completion_accepted'
+                  AND accepted.completed_reference_eligible = TRUE
+                  AND accepted.prior_writer_fact_id IS NOT NULL
+                  AND accepted.fact_idempotency_key =
+                      'completion-accepted-from-prior-' ||
+                      accepted.prior_writer_fact_id::text
+                  AND accepted.projection_non_authority_posture =
+                      'projection_non_authoritative'
+                  AND accepted.authority_posture = 'writer_truth_only'
+                  AND accepted.governed_review_reference IS NULL
+                  AND accepted.review_authority_reference IS NULL
+                  AND accepted.proof_eligibility_reference IS NULL
+                  AND accepted.proof_evidence_writer_fact_reference IS NULL
+                  AND accepted.correction_or_supersession_reference IS NULL
+                  AND prior.promise_reference = accepted.promise_reference
+                  AND prior.realm_id = accepted.realm_id
+                  AND prior.promise_terms_reference = accepted.promise_terms_reference
+                  AND prior.participant_set_reference = accepted.participant_set_reference
+                  AND prior.ordinary_participant_acknowledgement_reference =
+                      accepted.ordinary_participant_acknowledgement_reference
+                  AND prior.policy_version = accepted.policy_version
+                  AND prior.fact_family = 'source_route_candidate'
+                  AND prior.source_route_class =
+                      'mutual_accountable_completion_acknowledgement'
+                  AND prior.completion_state_class =
+                      'completion_pending_mutual_acknowledgement'
+                  AND prior.governed_review_reference IS NULL
+                  AND prior.review_authority_reference IS NULL
+                  AND prior.proof_eligibility_reference IS NULL
+                  AND prior.proof_evidence_writer_fact_reference IS NULL
+                  AND prior.correction_or_supersession_reference IS NULL
+            )
+            SELECT
+                accepted_writer_fact_id,
+                prior_writer_fact_id,
+                promise_reference,
+                realm_id,
+                promise_terms_reference,
+                participant_set_reference,
+                source_route_class,
+                completion_state_class,
+                completed_reference_eligible,
+                policy_version,
+                projection_non_authority_posture,
+                authority_posture,
+                writer_recorded_at,
+                boundary_writer_truth_count
+            FROM eligible
+            ORDER BY writer_recorded_at ASC, accepted_writer_fact_id ASC
+            ",
+            &[&promise_reference, &realm_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    let mut snapshots = Vec::with_capacity(rows.len());
+    for row in rows {
+        let boundary_writer_truth_count: i64 = row.get("boundary_writer_truth_count");
+        if boundary_writer_truth_count > 1 {
+            return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+                "Promise completion non-authority projection refuses contradictory writer truth"
+                    .to_owned(),
+            ));
+        }
+
+        snapshots.push(PromiseCompletionNonAuthorityProjectionSnapshot {
+            accepted_writer_fact_id: row.get::<_, Uuid>("accepted_writer_fact_id").to_string(),
+            prior_writer_fact_id: row.get::<_, Uuid>("prior_writer_fact_id").to_string(),
+            promise_reference: row.get("promise_reference"),
+            realm_id: row.get("realm_id"),
+            promise_terms_reference: row.get("promise_terms_reference"),
+            participant_set_reference: row.get("participant_set_reference"),
+            source_route_class: row.get("source_route_class"),
+            completion_state_class: row.get("completion_state_class"),
+            completed_reference_eligible: row.get("completed_reference_eligible"),
+            policy_version: row.get("policy_version"),
+            projection_non_authority_posture: row.get("projection_non_authority_posture"),
+            authority_posture: row.get("authority_posture"),
+            writer_recorded_at: row.get("writer_recorded_at"),
+        });
+    }
+
+    Ok(snapshots)
 }
 
 fn replay_writer_fact_id(
