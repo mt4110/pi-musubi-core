@@ -1118,6 +1118,8 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                               )
                               OR boundary_truth.prior_writer_fact_id =
                                   accepted.boundary_writer_fact_id
+                              OR boundary_truth.prior_writer_fact_id =
+                                  prior.writer_fact_id
                           )
                           AND (
                               boundary_truth.fact_family <> 'source_route_candidate'

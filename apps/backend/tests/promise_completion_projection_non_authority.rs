@@ -701,6 +701,58 @@ async fn prior_linked_correction_truth_with_boundary_drift_fails_closed() {
 }
 
 #[tokio::test]
+async fn source_prior_linked_correction_truth_with_boundary_drift_fails_closed() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-source-prior-correction-drift");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+
+    let mut correction = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    correction.fact_family = PromiseCompletionWriterFactFamily::CorrectionOrSupersession;
+    correction.completion_state_class =
+        PromiseCompletionStateClass::CompletionCorrectedOrSuperseded;
+    correction.completed_reference_eligible = false;
+    correction.promise_terms_reference = Some(format!("drifted-promise-terms-{idempotency_key}"));
+    correction.participant_set_reference =
+        Some(format!("drifted-participant-set-{idempotency_key}"));
+    correction.policy_version = Some(2);
+    correction.fact_idempotency_key = Some(format!(
+        "source-prior-linked-correction-drift-{idempotency_key}"
+    ));
+    correction.reason_code_class = Some(format!(
+        "source-prior-linked-correction-drift-{idempotency_key}"
+    ));
+    correction.correction_or_supersession_reference = Some(format!(
+        "source-prior-linked-correction-reference-{idempotency_key}"
+    ));
+    record_writer_fact(&store, correction).await;
+
+    let error = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &prior.promise_reference,
+            &prior.realm_id,
+        )
+        .await
+        .expect_err(
+            "source-prior-linked correction writer truth with boundary drift must fail closed",
+        );
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+}
+
+#[tokio::test]
 async fn outcome_reference_truth_coexisting_with_valid_acceptance_fails_closed() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
