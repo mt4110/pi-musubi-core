@@ -156,6 +156,7 @@ async fn participant_safe_display_availability_is_redacted_and_side_effect_free(
             &accepted.promise_reference,
             &accepted.realm_id,
             &format!("participant-set-{idempotency_key}"),
+            &format!("ordinary-acknowledgement-{idempotency_key}"),
         )
         .await
         .expect("participant-safe display availability should derive")
@@ -208,9 +209,38 @@ async fn participant_safe_display_availability_is_unavailable_for_non_involved_p
             &accepted.promise_reference,
             &accepted.realm_id,
             &format!("participant-set-outsider-{idempotency_key}"),
+            &format!("ordinary-acknowledgement-{idempotency_key}"),
         )
         .await
         .expect("non-involved participant set should be handled as unavailable");
+
+    assert!(display.is_none());
+}
+
+#[tokio::test]
+async fn participant_safe_display_availability_requires_matching_ordinary_acknowledgement() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("participant-display-wrong-ack");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("accepted transition should persist");
+
+    let display = store
+        .derive_participant_safe_completed_reference_display_availability(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+            &format!("participant-set-{idempotency_key}"),
+            &format!("ordinary-acknowledgement-outsider-{idempotency_key}"),
+        )
+        .await
+        .expect("wrong Ordinary Account acknowledgement should be handled as unavailable");
 
     assert!(display.is_none());
 }
@@ -245,6 +275,7 @@ async fn participant_safe_display_availability_is_unavailable_for_suppressed_wri
             &accepted.promise_reference,
             &accepted.realm_id,
             &format!("participant-set-{idempotency_key}"),
+            &format!("ordinary-acknowledgement-{idempotency_key}"),
         )
         .await
         .expect("suppressed writer truth should be handled as unavailable");
@@ -287,6 +318,7 @@ async fn participant_safe_display_availability_fails_closed_when_current_project
             &policy_one_prior.promise_reference,
             &policy_one_prior.realm_id,
             &format!("participant-set-{idempotency_key}"),
+            &format!("ordinary-acknowledgement-{idempotency_key}"),
         )
         .await
         .expect_err("ambiguous current projection availability must fail closed");

@@ -255,6 +255,7 @@ impl PromiseCompletionWriterFactStore {
         promise_reference: &str,
         realm_id: &str,
         participant_set_reference: &str,
+        ordinary_participant_acknowledgement_reference: &str,
     ) -> Result<
         Option<PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot>,
         PromiseCompletionWriterFactPersistenceError,
@@ -263,6 +264,10 @@ impl PromiseCompletionWriterFactStore {
         let realm_id = required_projection_ref(realm_id, "realm_id")?;
         let participant_set_reference =
             required_projection_ref(participant_set_reference, "participant set reference")?;
+        let ordinary_participant_acknowledgement_reference = required_projection_ref(
+            ordinary_participant_acknowledgement_reference,
+            "Ordinary Account participant acknowledgement reference",
+        )?;
         let client = self.client.lock().await;
         let snapshots = load_accepted_completion_non_authority_projection_snapshots(
             &*client,
@@ -275,7 +280,13 @@ impl PromiseCompletionWriterFactStore {
         else {
             return Ok(None);
         };
-        if !participant_safe_display_boundary_is_unsuppressed(&*client, &snapshot).await? {
+        if !participant_safe_display_boundary_is_authorized_and_unsuppressed(
+            &*client,
+            &snapshot,
+            &ordinary_participant_acknowledgement_reference,
+        )
+        .await?
+        {
             return Ok(None);
         }
 
@@ -1290,9 +1301,10 @@ fn participant_safe_display_projection_snapshot(
     Ok(Some(snapshot))
 }
 
-async fn participant_safe_display_boundary_is_unsuppressed(
+async fn participant_safe_display_boundary_is_authorized_and_unsuppressed(
     client: &impl GenericClient,
     snapshot: &PromiseCompletionNonAuthorityProjectionSnapshot,
+    ordinary_participant_acknowledgement_reference: &str,
 ) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
     let accepted_writer_fact_id =
         required_projection_uuid_ref(&snapshot.accepted_writer_fact_id, "accepted writer fact id")?;
@@ -1302,6 +1314,8 @@ async fn participant_safe_display_boundary_is_unsuppressed(
         .query_opt(
             "
             SELECT
+                accepted.ordinary_participant_acknowledgement_reference
+                    AS accepted_ordinary_participant_acknowledgement_reference,
                 accepted.block_withdrawal_state_reference
                     AS accepted_block_withdrawal_state_reference,
                 accepted.age_assurance_state_reference
@@ -1316,6 +1330,8 @@ async fn participant_safe_display_boundary_is_unsuppressed(
                     AS accepted_anti_abuse_continuity_reference,
                 accepted.safety_case_reference
                     AS accepted_safety_case_reference,
+                prior.ordinary_participant_acknowledgement_reference
+                    AS prior_ordinary_participant_acknowledgement_reference,
                 prior.block_withdrawal_state_reference
                     AS prior_block_withdrawal_state_reference,
                 prior.age_assurance_state_reference
@@ -1347,10 +1363,30 @@ async fn participant_safe_display_boundary_is_unsuppressed(
         ));
     };
 
-    Ok(participant_safe_display_boundary_row_is_unsuppressed(&row))
+    Ok(
+        participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
+            &row,
+            ordinary_participant_acknowledgement_reference,
+        ),
+    )
 }
 
-fn participant_safe_display_boundary_row_is_unsuppressed(row: &Row) -> bool {
+fn participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
+    row: &Row,
+    ordinary_participant_acknowledgement_reference: &str,
+) -> bool {
+    if !row_optional_reference_equals(
+        row,
+        "accepted_ordinary_participant_acknowledgement_reference",
+        ordinary_participant_acknowledgement_reference,
+    ) || !row_optional_reference_equals(
+        row,
+        "prior_ordinary_participant_acknowledgement_reference",
+        ordinary_participant_acknowledgement_reference,
+    ) {
+        return false;
+    }
+
     [
         (
             "accepted_block_withdrawal_state_reference",
@@ -1399,6 +1435,11 @@ fn participant_safe_display_boundary_row_is_unsuppressed(row: &Row) -> bool {
     ]
     .into_iter()
     .all(|(column, posture)| row_reference_has_posture(row, column, posture))
+}
+
+fn row_optional_reference_equals(row: &Row, column: &str, expected: &str) -> bool {
+    let value: Option<String> = row.get(column);
+    value.as_deref() == Some(expected)
 }
 
 fn row_reference_has_posture(row: &Row, column: &str, posture: &str) -> bool {
