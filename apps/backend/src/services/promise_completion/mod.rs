@@ -5,6 +5,7 @@ pub use repository::PromiseCompletionWriterFactStore;
 pub use types::{
     PromiseCompletionAuthorityPosture, PromiseCompletionForbiddenSourceRouteClass,
     PromiseCompletionNonAuthorityProjectionSnapshot,
+    PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot,
     PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
     PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
     PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,

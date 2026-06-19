@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `e1080dd`
+Status: Draft; aligned to accepted foundation commit `0cd0e2b`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `e1080dd21b8fb16041520e7ee68e6edbae4ba46f`
-- Foundation commit title: `Merge pull request #462 from mt4110/feat/promise-completion-display-runway`
-- Foundation PR title: `docs: map Promise completion display runway`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/462`
-- Date pinned: `2026-06-19`
+- Foundation commit SHA: `0cd0e2b2d2cee4470480b5e499b918d6e46573b4`
+- Foundation commit title: `Merge pull request #472 from mt4110/feat/promise-completion-display-implementation-handoff-route`
+- Foundation PR title: `docs: select Promise completion display implementation handoff route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/472`
+- Date pinned: `2026-06-20`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e1080dd21b8fb16041520e7ee68e6edbae4ba46f`
-- Previous pinned reference: `0c7d0c5` / `Merge pull request #454 from mt4110/feat/promise-completion-projection-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0cd0e2b2d2cee4470480b5e499b918d6e46573b4`
+- Previous pinned reference: `e1080dd` / `Merge pull request #462 from mt4110/feat/promise-completion-display-runway`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -189,6 +189,16 @@ Pinned reference for implementation work:
 - Promise completion participant-safe completed reference display preflight packet sufficiency decision source: `e19a5ab` / `Merge pull request #458 from mt4110/feat/promise-completion-display-sufficiency`
 - Promise completion display non-exposure test-only route selection source: `104f45a` / `Merge pull request #460 from mt4110/feat/promise-completion-display-route`
 - Promise completion display readiness runway map source: `e1080dd` / `Merge pull request #462 from mt4110/feat/promise-completion-display-runway`
+- Promise completion display non-exposure test-only closeout source: `4ebac53` / `Merge pull request #463 from mt4110/feat/promise-completion-display-non-exposure-closeout`
+- Promise completion display non-exposure closeout sufficiency decision source: `2b45c47` / `Merge pull request #464 from mt4110/feat/promise-completion-display-closeout-sufficiency`
+- Promise completion display post-sufficiency readiness runway source: `9629405` / `Merge pull request #465 from mt4110/feat/promise-completion-display-post-sufficiency-runway`
+- Promise completion display post-non-exposure route selection source: `569962c` / `Merge pull request #466 from mt4110/feat/promise-completion-display-post-non-exposure-route`
+- Promise completion participant-safe display audience and redaction packet source: `333dc8f` / `Merge pull request #467 from mt4110/feat/promise-completion-display-audience-redaction-packet`
+- Promise completion participant-safe display audience and redaction packet sufficiency decision source: `46efc26` / `Merge pull request #468 from mt4110/feat/promise-completion-display-audience-redaction-sufficiency`
+- Promise completion participant-safe display handoff packet route selection source: `c7a06ac` / `Merge pull request #469 from mt4110/feat/promise-completion-display-handoff-packet-route`
+- Promise completion participant-safe display handoff decision packet source: `ef2915e` / `Merge pull request #470 from mt4110/feat/promise-completion-display-handoff-packet`
+- Promise completion participant-safe display handoff packet sufficiency decision source: `f2e23e4` / `Merge pull request #471 from mt4110/feat/promise-completion-display-handoff-packet-sufficiency`
+- Promise completion participant-safe display implementation handoff route source: `0cd0e2b` / `Merge pull request #472 from mt4110/feat/promise-completion-display-implementation-handoff-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -417,6 +427,16 @@ Current Promise completion display chain:
 - `docs/readiness/promise_completion_participant_safe_completed_reference_display_preflight_packet_sufficiency_decision.md`
 - `docs/readiness/promise_completion_post_display_preflight_sufficiency_route_selection.md`
 - `docs/readiness/promise_completion_display_readiness_runway_design.md`
+- `docs/readiness/promise_completion_display_non_exposure_test_only_closeout_ledger.md`
+- `docs/readiness/promise_completion_display_non_exposure_closeout_sufficiency_decision.md`
+- `docs/readiness/promise_completion_display_post_sufficiency_readiness_runway.md`
+- `docs/readiness/promise_completion_display_post_non_exposure_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_audience_redaction_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_audience_redaction_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_audience_redaction_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_handoff_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_handoff_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_handoff_packet_sufficiency_route_selection.md`
 
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
@@ -543,8 +563,7 @@ It did not authorize migrations, DDL, new tables, new indexes, triggers, functio
 No remaining work may inherit permission from foundation PR #454 or implementation PR #171.
 Foundation PR #456 prepared Promise completion participant-safe completed reference display preflight decision materials only.
 Foundation PR #458 found that preflight packet sufficient for later route selection only.
-Foundation PR #460 provides the current one-use downstream display non-exposure test-only authority for this implementation-repo PR only.
-This implementation-repo PR consumes that allowance.
+Foundation PR #460 provided the consumed one-use downstream display non-exposure test-only authority for one implementation-repo PR only.
 The PR #460 allowance authorizes only:
 
 - `docs/foundation_lock.md`
@@ -552,11 +571,35 @@ The PR #460 allowance authorizes only:
 
 It authorizes only test coverage proving that the existing accepted completion non-authority projection snapshot remains non-exposed and non-converting before any participant-safe display implementation route exists.
 It authorizes no production backend code, frontend code, mobile code, schema files, migrations, fixtures that alter product meaning, public API routes, UI routes, outbox, inbox, worker, provider, queue, adapter, external side-effect code, Social Trust source fact persistence code, Social Trust mutation code, Relationship Depth code, settlement code, room or contact code, discovery code, recommendation code, additional writer fact persistence, additional state transition runtime behavior, projection refresh, durable projection schema, participant display behavior, public completed-reference display, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, sensitive-trait visibility, shame labels, public accusation labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_display_non_exposure_test_only_closeout_ledger.md` before any later Promise completion participant display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #173 and closed out by foundation PR #463.
+No remaining work may inherit permission from foundation PR #460 or implementation PR #173.
 Foundation PR #462 maps the Promise completion display readiness runway only.
 It does not consume the PR #460 allowance.
 It does not create a new downstream allowance, test-only handoff, implementation handoff, runtime implementation authority, or `pi-musubi-core` authority.
 It keeps `readiness runway` as an operational planning label only, not a MUSUBI product term, domain term, Glossary term, or canonical noun.
+Foundation PR #463 recorded that the PR #460 test-only allowance was consumed by `mt4110/pi-musubi-core` PR #173 and returned participant display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, and broader core surfaces to NO-GO.
+Foundation PR #464 found the non-exposure closeout sufficient for later route selection only.
+Foundation PR #465 maps the post-sufficiency readiness runway only and does not create product or domain vocabulary.
+Foundation PR #466 selected the participant-safe display audience and redaction packet route only.
+Foundation PR #467 prepared the audience and redaction packet.
+Foundation PR #468 found that packet sufficient for later route selection only.
+Foundation PR #469 selected the participant-safe display handoff packet route only.
+Foundation PR #470 prepared the participant-safe display handoff packet.
+Foundation PR #471 found that handoff packet sufficient for later route selection only.
+Foundation PR #472 provides the current one-use downstream narrow participant-safe display implementation handoff authority for one later implementation-repo PR only.
+This implementation-repo PR consumes that allowance.
+The PR #472 allowance authorizes only:
+
+- `docs/foundation_lock.md`
+- `apps/backend/src/services/promise_completion/mod.rs`
+- `apps/backend/src/services/promise_completion/repository.rs`
+- `apps/backend/src/services/promise_completion/types.rs`
+- `apps/backend/tests/promise_completion_projection_non_authority.rs`
+
+It authorizes only a narrow participant-safe completed reference availability display path for already accepted, current, unsuppressed, writer-backed Promise completion projection availability, visible only to directly involved Ordinary Accounts subject to suppression, plus deterministic verification inside the same implementation-repo PR.
+It may update this foundation lock before consuming the allowance.
+It does not authorize public completed-reference display, public profile display, public count, public badge, public trust label, public accusation label, public API behavior, mobile UI behavior, DDL, migrations, durable projection schema, projection refresh, Promise completion source-route evaluation from raw user input, participant acknowledgement collection, governed review runtime workflow, governed review accepted transition runtime, correction or supersession runtime, proof runtime behavior, proof eligibility runtime behavior, additional writer fact persistence, additional state transition runtime behavior, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement release, refund, forfeiture, escrow movement, reward movement, room progression, contact unlock, discovery priority, recommendation boost, outbox, inbox, worker, provider, queue, adapter, external side-effect behavior, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, shame labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 

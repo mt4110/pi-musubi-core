@@ -258,3 +258,15 @@ pub struct PromiseCompletionNonAuthorityProjectionSnapshot {
     pub authority_posture: String,
     pub writer_recorded_at: DateTime<Utc>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot {
+    pub promise_reference: String,
+    pub realm_id: String,
+    pub display_class: String,
+    pub display_audience: String,
+    pub display_availability: String,
+    pub display_meaning: String,
+    pub completed_reference_available: bool,
+    pub policy_version: i32,
+}

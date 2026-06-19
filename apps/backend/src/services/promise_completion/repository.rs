@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use super::types::{
     PromiseCompletionAuthorityPosture, PromiseCompletionNonAuthorityProjectionSnapshot,
+    PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot,
     PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
     PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
     PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,
@@ -247,6 +248,29 @@ impl PromiseCompletionWriterFactStore {
             &realm_id,
         )
         .await
+    }
+
+    pub async fn derive_participant_safe_completed_reference_display_availability(
+        &self,
+        promise_reference: &str,
+        realm_id: &str,
+        participant_set_reference: &str,
+    ) -> Result<
+        Option<PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot>,
+        PromiseCompletionWriterFactPersistenceError,
+    > {
+        let participant_set_reference =
+            required_projection_ref(participant_set_reference, "participant set reference")?;
+        let snapshots = self
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                promise_reference,
+                realm_id,
+            )
+            .await?;
+        participant_safe_display_availability_from_projection_snapshots(
+            snapshots,
+            &participant_set_reference,
+        )
     }
 }
 
@@ -1218,6 +1242,40 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
     }
 
     Ok(snapshots)
+}
+
+fn participant_safe_display_availability_from_projection_snapshots(
+    snapshots: Vec<PromiseCompletionNonAuthorityProjectionSnapshot>,
+    participant_set_reference: &str,
+) -> Result<
+    Option<PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot>,
+    PromiseCompletionWriterFactPersistenceError,
+> {
+    let mut matching = snapshots
+        .into_iter()
+        .filter(|snapshot| snapshot.participant_set_reference == participant_set_reference);
+    let Some(snapshot) = matching.next() else {
+        return Ok(None);
+    };
+    if matching.next().is_some() {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion participant-safe display refuses ambiguous projection availability"
+                .to_owned(),
+        ));
+    }
+
+    Ok(Some(
+        PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot {
+            promise_reference: snapshot.promise_reference,
+            realm_id: snapshot.realm_id,
+            display_class: "promise_completed_reference".to_owned(),
+            display_audience: "involved_participant_only".to_owned(),
+            display_availability: "available".to_owned(),
+            display_meaning: "availability_posture_only".to_owned(),
+            completed_reference_available: true,
+            policy_version: snapshot.policy_version,
+        },
+    ))
 }
 
 fn replay_writer_fact_id(

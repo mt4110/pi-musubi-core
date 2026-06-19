@@ -133,6 +133,134 @@ async fn accepted_projection_snapshot_remains_non_display_and_non_converting() {
 }
 
 #[tokio::test]
+async fn participant_safe_display_availability_is_redacted_and_side_effect_free() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("participant-display-available");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("accepted transition should persist");
+    let writer_fact_count_before =
+        writer_fact_count_for_promise(&client, &accepted.promise_reference).await;
+    let side_effects_before = side_effect_counts(&client).await;
+    let display_catalog_entries_before = blocked_completion_display_catalog_entries(&client).await;
+
+    let display = store
+        .derive_participant_safe_completed_reference_display_availability(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+            &format!("participant-set-{idempotency_key}"),
+        )
+        .await
+        .expect("participant-safe display availability should derive")
+        .expect("involved participant set should receive availability");
+
+    assert_eq!(display.promise_reference, accepted.promise_reference);
+    assert_eq!(display.realm_id, accepted.realm_id);
+    assert_eq!(display.display_class, "promise_completed_reference");
+    assert_eq!(display.display_audience, "involved_participant_only");
+    assert_eq!(display.display_availability, "available");
+    assert_eq!(display.display_meaning, "availability_posture_only");
+    assert!(display.completed_reference_available);
+    assert_eq!(display.policy_version, 1);
+
+    let debug_display = format!("{display:?}");
+    assert!(!debug_display.contains(&accepted.writer_fact_id));
+    assert!(!debug_display.contains(&prior.writer_fact_id));
+    assert!(!debug_display.contains("mutual_accountable_completion_acknowledgement"));
+    assert!(!debug_display.contains("participant-set-"));
+    assert!(!debug_display.contains("ordinary-acknowledgement-"));
+    assert!(!debug_display.contains("completion-accepted-"));
+    assert_eq!(
+        writer_fact_count_for_promise(&client, &accepted.promise_reference).await,
+        writer_fact_count_before
+    );
+    assert_eq!(side_effect_counts(&client).await, side_effects_before);
+    assert_eq!(
+        blocked_completion_display_catalog_entries(&client).await,
+        display_catalog_entries_before
+    );
+}
+
+#[tokio::test]
+async fn participant_safe_display_availability_is_unavailable_for_non_involved_participant_set() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("participant-display-outsider");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("accepted transition should persist");
+
+    let display = store
+        .derive_participant_safe_completed_reference_display_availability(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+            &format!("participant-set-outsider-{idempotency_key}"),
+        )
+        .await
+        .expect("non-involved participant set should be handled as unavailable");
+
+    assert!(display.is_none());
+}
+
+#[tokio::test]
+async fn participant_safe_display_availability_fails_closed_when_current_projection_is_ambiguous() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("participant-display-ambiguous");
+    let policy_one_prior =
+        record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &policy_one_prior.writer_fact_id),
+        ))
+        .await
+        .expect("policy one accepted transition should persist");
+
+    let mut policy_two_prior = prior_mutual_acknowledgement_fact(
+        &idempotency_key,
+        PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement,
+    );
+    policy_two_prior.policy_version = Some(2);
+    let policy_two_prior = record_writer_fact(&store, policy_two_prior).await;
+    let mut policy_two_fact =
+        accepted_transition_fact(&idempotency_key, &policy_two_prior.writer_fact_id);
+    policy_two_fact.policy_version = Some(2);
+    store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(policy_two_fact))
+        .await
+        .expect("policy two accepted transition should persist");
+
+    let error = store
+        .derive_participant_safe_completed_reference_display_availability(
+            &policy_one_prior.promise_reference,
+            &policy_one_prior.realm_id,
+            &format!("participant-set-{idempotency_key}"),
+        )
+        .await
+        .expect_err("ambiguous current projection availability must fail closed");
+
+    assert!(matches!(
+        error,
+        PromiseCompletionWriterFactPersistenceError::BadRequest(_)
+    ));
+}
+
+#[tokio::test]
 async fn missing_required_writer_posture_returns_no_projection_snapshot() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
