@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `0c7d0c5`
+Status: Draft; aligned to accepted foundation commit `e1080dd`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `0c7d0c5a0470bd406432d9318ad5248ad2f1850a`
-- Foundation commit title: `Merge pull request #454 from mt4110/feat/promise-completion-projection-route`
-- Foundation PR title: `docs: select Promise completion projection route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/454`
+- Foundation commit SHA: `e1080dd21b8fb16041520e7ee68e6edbae4ba46f`
+- Foundation commit title: `Merge pull request #462 from mt4110/feat/promise-completion-display-runway`
+- Foundation PR title: `docs: map Promise completion display runway`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/462`
 - Date pinned: `2026-06-19`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/0c7d0c5a0470bd406432d9318ad5248ad2f1850a`
-- Previous pinned reference: `a5a55ee` / `Merge pull request #447 from mt4110/feat/promise-completion-state-transition-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/e1080dd21b8fb16041520e7ee68e6edbae4ba46f`
+- Previous pinned reference: `0c7d0c5` / `Merge pull request #454 from mt4110/feat/promise-completion-projection-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -184,6 +184,11 @@ Pinned reference for implementation work:
 - Promise completion projection non-authority preflight packet source: `dfa07f9` / `Merge pull request #450 from mt4110/feat/promise-completion-projection-non-authority-preflight`
 - Promise completion projection non-authority preflight packet sufficiency decision source: `684cfd5` / `Merge pull request #452 from mt4110/feat/promise-completion-projection-preflight-sufficiency`
 - Promise completion narrow projection non-authority route selection source: `0c7d0c5` / `Merge pull request #454 from mt4110/feat/promise-completion-projection-route`
+- Promise completion narrow projection non-authority closeout source: `bfd1275` / `Merge pull request #455 from mt4110/feat/promise-completion-projection-closeout`
+- Promise completion participant-safe completed reference display preflight packet source: `473ea7a` / `Merge pull request #456 from mt4110/feat/promise-completion-display-preflight`
+- Promise completion participant-safe completed reference display preflight packet sufficiency decision source: `e19a5ab` / `Merge pull request #458 from mt4110/feat/promise-completion-display-sufficiency`
+- Promise completion display non-exposure test-only route selection source: `104f45a` / `Merge pull request #460 from mt4110/feat/promise-completion-display-route`
+- Promise completion display readiness runway map source: `e1080dd` / `Merge pull request #462 from mt4110/feat/promise-completion-display-runway`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -405,6 +410,14 @@ Before coding, read these upstream documents in order.
 201. `docs/readiness/promise_completion_projection_non_authority_preflight_packet_sufficiency_decision.md`
 202. `docs/readiness/promise_completion_post_projection_non_authority_preflight_sufficiency_route_selection.md`
 
+Current Promise completion display chain:
+
+- `docs/readiness/promise_completion_narrow_projection_non_authority_closeout_ledger.md`
+- `docs/readiness/promise_completion_participant_safe_completed_reference_display_preflight_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_completed_reference_display_preflight_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_post_display_preflight_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_display_readiness_runway_design.md`
+
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
 204. `docs/operations/runalways_readiness_orchestrator_design.md`
@@ -500,9 +513,9 @@ That allowance was consumed by `mt4110/pi-musubi-core` PR #169 and closed out by
 No remaining work may inherit permission from foundation PR #447 or implementation PR #169.
 Foundation PR #450 prepared Promise completion projection non-authority preflight decision materials only.
 Foundation PR #452 found that preflight packet sufficient for later route selection only.
-Foundation PR #454 provides the current one-use downstream narrow projection non-authority handoff authority for this implementation-repo PR only.
-This implementation-repo PR consumes that allowance.
-The PR #454 allowance authorizes only:
+Foundation PR #454 provided the consumed one-use downstream narrow projection non-authority handoff authority for one implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #171 and closed out by foundation PR #455.
+The consumed PR #454 allowance authorized only:
 
 - `docs/foundation_lock.md`
 - `apps/backend/src/services/promise_completion/mod.rs`
@@ -510,7 +523,7 @@ The PR #454 allowance authorizes only:
 - `apps/backend/src/services/promise_completion/types.rs`
 - `apps/backend/tests/promise_completion_projection_non_authority.rs`
 
-It authorizes only an internal repository-derived, read-only, non-authoritative Promise completion projection snapshot helper for:
+It authorized only an internal repository-derived, read-only, non-authoritative Promise completion projection snapshot helper for:
 
 ```text
 completion_accepted
@@ -522,12 +535,28 @@ under:
 mutual_accountable_completion_acknowledgement
 ```
 
-It must use the existing `promise_completion.writer_fact_records` table only.
-It authorizes only derived snapshots when writer truth shows `fact_family = completion_state_transition`, `source_route_class = mutual_accountable_completion_acknowledgement`, `completion_state_class = completion_accepted`, `completed_reference_eligible = true`, a present prior writer fact reference, and matching Promise / Realm / terms / participant set / policy references carried from writer truth.
-It authorizes no writer fact writes in the projection helper and no durable projection rows.
-It requires fail-closed or no-snapshot behavior when the required writer posture is missing, governed review is supplied, a forbidden source-route shortcut is supplied, or writer truth is contradictory for the same Promise / Realm / terms / participant set boundary.
-It does not authorize migrations, DDL, new tables, new indexes, triggers, functions, caches, mutable current-state tables, durable projection tables, projection refresh, `apps/backend/src/services/mod.rs`, `apps/backend/src/lib.rs`, handlers, routers, `AppState`, source-route evaluation runtime, participant acknowledgement collection runtime, governed review runtime workflow, governed review accepted transition runtime, correction or supersession runtime, API, UI, participant display, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, discovery, recommendation, proof runtime behavior, proof eligibility runtime behavior, outbox, inbox, worker behavior, provider I/O, provider callbacks, raw Personal Data in immutable truth or derived snapshots, raw evidence in immutable truth or derived snapshots, hidden distributed transactions, destructive migration, Social Trust score, weight, rank, public display, recovery ceiling, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_narrow_projection_non_authority_closeout_ledger.md` before any later Promise completion projection, display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+It had to use the existing `promise_completion.writer_fact_records` table only.
+It authorized only derived snapshots when writer truth shows `fact_family = completion_state_transition`, `source_route_class = mutual_accountable_completion_acknowledgement`, `completion_state_class = completion_accepted`, `completed_reference_eligible = true`, a present prior writer fact reference, and matching Promise / Realm / terms / participant set / policy references carried from writer truth.
+It authorized no writer fact writes in the projection helper and no durable projection rows.
+It required fail-closed or no-snapshot behavior when the required writer posture is missing, governed review is supplied, a forbidden source-route shortcut is supplied, or writer truth is contradictory for the same Promise / Realm / terms / participant set boundary.
+It did not authorize migrations, DDL, new tables, new indexes, triggers, functions, caches, mutable current-state tables, durable projection tables, projection refresh, `apps/backend/src/services/mod.rs`, `apps/backend/src/lib.rs`, handlers, routers, `AppState`, source-route evaluation runtime, participant acknowledgement collection runtime, governed review runtime workflow, governed review accepted transition runtime, correction or supersession runtime, API, UI, participant display, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, discovery, recommendation, proof runtime behavior, proof eligibility runtime behavior, outbox, inbox, worker behavior, provider I/O, provider callbacks, raw Personal Data in immutable truth or derived snapshots, raw evidence in immutable truth or derived snapshots, hidden distributed transactions, destructive migration, Social Trust score, weight, rank, public display, recovery ceiling, settlement release, settlement refund, settlement forfeiture, escrow movement, reward movement, room progression, direct-message unlock, public accusation labels, sensitive-trait visibility changes, paid romantic advantage, payment-based direct-message unlock, or broad `pi-musubi-core` changes.
+No remaining work may inherit permission from foundation PR #454 or implementation PR #171.
+Foundation PR #456 prepared Promise completion participant-safe completed reference display preflight decision materials only.
+Foundation PR #458 found that preflight packet sufficient for later route selection only.
+Foundation PR #460 provides the current one-use downstream display non-exposure test-only authority for this implementation-repo PR only.
+This implementation-repo PR consumes that allowance.
+The PR #460 allowance authorizes only:
+
+- `docs/foundation_lock.md`
+- `apps/backend/tests/promise_completion_projection_non_authority.rs`
+
+It authorizes only test coverage proving that the existing accepted completion non-authority projection snapshot remains non-exposed and non-converting before any participant-safe display implementation route exists.
+It authorizes no production backend code, frontend code, mobile code, schema files, migrations, fixtures that alter product meaning, public API routes, UI routes, outbox, inbox, worker, provider, queue, adapter, external side-effect code, Social Trust source fact persistence code, Social Trust mutation code, Relationship Depth code, settlement code, room or contact code, discovery code, recommendation code, additional writer fact persistence, additional state transition runtime behavior, projection refresh, durable projection schema, participant display behavior, public completed-reference display, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, sensitive-trait visibility, shame labels, public accusation labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a separate closeout ledger at `docs/readiness/promise_completion_display_non_exposure_test_only_closeout_ledger.md` before any later Promise completion participant display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+Foundation PR #462 maps the Promise completion display readiness runway only.
+It does not consume the PR #460 allowance.
+It does not create a new downstream allowance, test-only handoff, implementation handoff, runtime implementation authority, or `pi-musubi-core` authority.
+It keeps `readiness runway` as an operational planning label only, not a MUSUBI product term, domain term, Glossary term, or canonical noun.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
