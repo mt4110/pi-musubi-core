@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use super::types::{
     PromiseCompletionAuthorityPosture, PromiseCompletionNonAuthorityProjectionSnapshot,
+    PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot,
     PromiseCompletionProjectionNonAuthorityPosture, PromiseCompletionSourceRouteClass,
     PromiseCompletionStateClass, PromiseCompletionWriterFactFamily,
     PromiseCompletionWriterFactPersistenceError, PromiseCompletionWriterFactReplayStatus,
@@ -247,6 +248,51 @@ impl PromiseCompletionWriterFactStore {
             &realm_id,
         )
         .await
+    }
+
+    pub async fn derive_participant_safe_completed_reference_display_availability(
+        &self,
+        promise_reference: &str,
+        realm_id: &str,
+        participant_set_reference: &str,
+        ordinary_participant_acknowledgement_reference: &str,
+    ) -> Result<
+        Option<PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot>,
+        PromiseCompletionWriterFactPersistenceError,
+    > {
+        let promise_reference = required_projection_ref(promise_reference, "Promise reference")?;
+        let realm_id = required_projection_ref(realm_id, "realm_id")?;
+        let participant_set_reference =
+            required_projection_ref(participant_set_reference, "participant set reference")?;
+        let ordinary_participant_acknowledgement_reference = required_projection_ref(
+            ordinary_participant_acknowledgement_reference,
+            "Ordinary Account participant acknowledgement reference",
+        )?;
+        let client = self.client.lock().await;
+        let snapshots = load_accepted_completion_non_authority_projection_snapshots(
+            &*client,
+            &promise_reference,
+            &realm_id,
+        )
+        .await?;
+        let Some(snapshot) =
+            participant_safe_display_projection_snapshot(snapshots, &participant_set_reference)?
+        else {
+            return Ok(None);
+        };
+        if !participant_safe_display_boundary_is_authorized_and_unsuppressed(
+            &*client,
+            &snapshot,
+            &ordinary_participant_acknowledgement_reference,
+        )
+        .await?
+        {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            participant_safe_display_availability_from_projection_snapshot(snapshot),
+        ))
     }
 }
 
@@ -919,6 +965,18 @@ fn required_projection_ref(
     Ok(value.to_owned())
 }
 
+fn required_projection_uuid_ref(
+    value: &str,
+    label: &'static str,
+) -> Result<Uuid, PromiseCompletionWriterFactPersistenceError> {
+    let value = required_projection_ref(value, label)?;
+    Uuid::parse_str(&value).map_err(|_| {
+        PromiseCompletionWriterFactPersistenceError::BadRequest(format!(
+            "Promise completion non-authority projection read requires {label} to be a valid UUID"
+        ))
+    })
+}
+
 fn optional_ref(
     value: Option<&str>,
     label: &'static str,
@@ -1218,6 +1276,198 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
     }
 
     Ok(snapshots)
+}
+
+fn participant_safe_display_projection_snapshot(
+    snapshots: Vec<PromiseCompletionNonAuthorityProjectionSnapshot>,
+    participant_set_reference: &str,
+) -> Result<
+    Option<PromiseCompletionNonAuthorityProjectionSnapshot>,
+    PromiseCompletionWriterFactPersistenceError,
+> {
+    let mut matching = snapshots
+        .into_iter()
+        .filter(|snapshot| snapshot.participant_set_reference == participant_set_reference);
+    let Some(snapshot) = matching.next() else {
+        return Ok(None);
+    };
+    if matching.next().is_some() {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion participant-safe display refuses ambiguous projection availability"
+                .to_owned(),
+        ));
+    }
+
+    Ok(Some(snapshot))
+}
+
+async fn participant_safe_display_boundary_is_authorized_and_unsuppressed(
+    client: &impl GenericClient,
+    snapshot: &PromiseCompletionNonAuthorityProjectionSnapshot,
+    ordinary_participant_acknowledgement_reference: &str,
+) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
+    let accepted_writer_fact_id =
+        required_projection_uuid_ref(&snapshot.accepted_writer_fact_id, "accepted writer fact id")?;
+    let prior_writer_fact_id =
+        required_projection_uuid_ref(&snapshot.prior_writer_fact_id, "prior writer fact id")?;
+    let row = client
+        .query_opt(
+            "
+            SELECT
+                accepted.ordinary_participant_acknowledgement_reference
+                    AS accepted_ordinary_participant_acknowledgement_reference,
+                accepted.block_withdrawal_state_reference
+                    AS accepted_block_withdrawal_state_reference,
+                accepted.age_assurance_state_reference
+                    AS accepted_age_assurance_state_reference,
+                accepted.legal_hold_intersection_reference
+                    AS accepted_legal_hold_intersection_reference,
+                accepted.critical_harm_case_reference
+                    AS accepted_critical_harm_case_reference,
+                accepted.account_lifecycle_reference
+                    AS accepted_account_lifecycle_reference,
+                accepted.anti_abuse_continuity_reference
+                    AS accepted_anti_abuse_continuity_reference,
+                accepted.safety_case_reference
+                    AS accepted_safety_case_reference,
+                prior.ordinary_participant_acknowledgement_reference
+                    AS prior_ordinary_participant_acknowledgement_reference,
+                prior.block_withdrawal_state_reference
+                    AS prior_block_withdrawal_state_reference,
+                prior.age_assurance_state_reference
+                    AS prior_age_assurance_state_reference,
+                prior.legal_hold_intersection_reference
+                    AS prior_legal_hold_intersection_reference,
+                prior.critical_harm_case_reference
+                    AS prior_critical_harm_case_reference,
+                prior.account_lifecycle_reference
+                    AS prior_account_lifecycle_reference,
+                prior.anti_abuse_continuity_reference
+                    AS prior_anti_abuse_continuity_reference,
+                prior.safety_case_reference
+                    AS prior_safety_case_reference
+            FROM promise_completion.writer_fact_records accepted
+            JOIN promise_completion.writer_fact_records prior
+              ON prior.writer_fact_id = $2
+            WHERE accepted.writer_fact_id = $1
+            ",
+            &[&accepted_writer_fact_id, &prior_writer_fact_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    let Some(row) = row else {
+        return Err(PromiseCompletionWriterFactPersistenceError::BadRequest(
+            "Promise completion participant-safe display refuses missing projection writer truth"
+                .to_owned(),
+        ));
+    };
+
+    Ok(
+        participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
+            &row,
+            ordinary_participant_acknowledgement_reference,
+        ),
+    )
+}
+
+fn participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
+    row: &Row,
+    ordinary_participant_acknowledgement_reference: &str,
+) -> bool {
+    if !row_optional_reference_equals(
+        row,
+        "accepted_ordinary_participant_acknowledgement_reference",
+        ordinary_participant_acknowledgement_reference,
+    ) || !row_optional_reference_equals(
+        row,
+        "prior_ordinary_participant_acknowledgement_reference",
+        ordinary_participant_acknowledgement_reference,
+    ) {
+        return false;
+    }
+
+    [
+        (
+            "accepted_block_withdrawal_state_reference",
+            "block-withdrawal-clear",
+        ),
+        (
+            "accepted_age_assurance_state_reference",
+            "age-assurance-adult-eligible",
+        ),
+        (
+            "accepted_legal_hold_intersection_reference",
+            "legal-hold-clear",
+        ),
+        (
+            "accepted_critical_harm_case_reference",
+            "critical-harm-clear",
+        ),
+        (
+            "accepted_account_lifecycle_reference",
+            "account-lifecycle-active",
+        ),
+        (
+            "accepted_anti_abuse_continuity_reference",
+            "anti-abuse-clear",
+        ),
+        ("accepted_safety_case_reference", "safety-case-clear"),
+        (
+            "prior_block_withdrawal_state_reference",
+            "block-withdrawal-clear",
+        ),
+        (
+            "prior_age_assurance_state_reference",
+            "age-assurance-adult-eligible",
+        ),
+        (
+            "prior_legal_hold_intersection_reference",
+            "legal-hold-clear",
+        ),
+        ("prior_critical_harm_case_reference", "critical-harm-clear"),
+        (
+            "prior_account_lifecycle_reference",
+            "account-lifecycle-active",
+        ),
+        ("prior_anti_abuse_continuity_reference", "anti-abuse-clear"),
+        ("prior_safety_case_reference", "safety-case-clear"),
+    ]
+    .into_iter()
+    .all(|(column, posture)| row_reference_has_posture(row, column, posture))
+}
+
+fn row_optional_reference_equals(row: &Row, column: &str, expected: &str) -> bool {
+    let value: Option<String> = row.get(column);
+    value.as_deref() == Some(expected)
+}
+
+fn row_reference_has_posture(row: &Row, column: &str, posture: &str) -> bool {
+    let value: String = row.get(column);
+    reference_has_posture(&value, posture)
+}
+
+fn reference_has_posture(value: &str, posture: &str) -> bool {
+    let value = value.trim();
+    value == posture
+        || value
+            .strip_prefix(posture)
+            .is_some_and(|remaining| remaining.starts_with('-'))
+}
+
+fn participant_safe_display_availability_from_projection_snapshot(
+    snapshot: PromiseCompletionNonAuthorityProjectionSnapshot,
+) -> PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot {
+    PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot {
+        promise_reference: snapshot.promise_reference,
+        realm_id: snapshot.realm_id,
+        display_class: "promise_completed_reference".to_owned(),
+        display_audience: "involved_participant_only".to_owned(),
+        display_availability: "available".to_owned(),
+        display_meaning: "availability_posture_only".to_owned(),
+        completed_reference_available: true,
+        policy_version: snapshot.policy_version,
+    }
 }
 
 fn replay_writer_fact_id(
