@@ -1097,19 +1097,31 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     accepted.writer_recorded_at,
                     (
                         SELECT COUNT(*)
-                        FROM writer_truth_boundary boundary_truth
-                        WHERE boundary_truth.promise_reference =
-                              accepted.promise_reference
-                          AND boundary_truth.realm_id = accepted.realm_id
-                          AND boundary_truth.promise_terms_reference =
-                              accepted.promise_terms_reference
-                          AND boundary_truth.participant_set_reference =
-                              accepted.participant_set_reference
-                          AND boundary_truth.policy_version =
-                              accepted.policy_version
+                        FROM promise_completion.writer_fact_records boundary_truth
+                        WHERE boundary_truth.fact_family IN (
+                                  'completion_state_transition',
+                                  'completion_outcome_reference',
+                                  'correction_or_supersession',
+                                  'source_route_candidate'
+                              )
+                          AND (
+                              (
+                                  boundary_truth.promise_reference =
+                                      accepted.promise_reference
+                                  AND boundary_truth.realm_id = accepted.realm_id
+                                  AND boundary_truth.promise_terms_reference =
+                                      accepted.promise_terms_reference
+                                  AND boundary_truth.participant_set_reference =
+                                      accepted.participant_set_reference
+                                  AND boundary_truth.policy_version =
+                                      accepted.policy_version
+                              )
+                              OR boundary_truth.prior_writer_fact_id =
+                                  accepted.boundary_writer_fact_id
+                          )
                           AND (
                               boundary_truth.fact_family <> 'source_route_candidate'
-                              OR boundary_truth.boundary_writer_fact_id <>
+                              OR boundary_truth.writer_fact_id <>
                                   prior.writer_fact_id
                           )
                     ) AS boundary_writer_truth_count
