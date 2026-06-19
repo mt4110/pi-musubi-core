@@ -216,6 +216,43 @@ async fn participant_safe_display_availability_is_unavailable_for_non_involved_p
 }
 
 #[tokio::test]
+async fn participant_safe_display_availability_is_unavailable_for_suppressed_writer_truth() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("participant-display-suppressed");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let mut accepted_fact = accepted_transition_fact(&idempotency_key, &prior.writer_fact_id);
+    accepted_fact.legal_hold_intersection_reference =
+        Some(format!("legal-hold-active-{idempotency_key}"));
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(accepted_fact))
+        .await
+        .expect("suppressed accepted transition should persist as writer truth");
+
+    let snapshots = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+        )
+        .await
+        .expect("accepted projection snapshot should still derive");
+    assert_eq!(snapshots.len(), 1);
+
+    let display = store
+        .derive_participant_safe_completed_reference_display_availability(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+            &format!("participant-set-{idempotency_key}"),
+        )
+        .await
+        .expect("suppressed writer truth should be handled as unavailable");
+
+    assert!(display.is_none());
+}
+
+#[tokio::test]
 async fn participant_safe_display_availability_fails_closed_when_current_projection_is_ambiguous() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
