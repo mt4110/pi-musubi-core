@@ -124,7 +124,7 @@ async fn accepted_projection_snapshot_remains_non_display_and_non_converting() {
     assert_eq!(side_effect_counts(&client).await, side_effects_before);
     assert!(
         display_catalog_entries_before.is_empty(),
-        "Promise completion display surfaces must not exist before a display route is selected: {display_catalog_entries_before:?}"
+        "Promise completion display surfaces and unexpected promise_completion relations must not exist before a display route is selected: {display_catalog_entries_before:?}"
     );
     assert_eq!(
         blocked_completion_display_catalog_entries(&client).await,
