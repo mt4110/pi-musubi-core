@@ -77,6 +77,62 @@ async fn accepted_writer_truth_derives_non_authoritative_projection_snapshot() {
 }
 
 #[tokio::test]
+async fn accepted_projection_snapshot_remains_non_display_and_non_converting() {
+    let (_test_state, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let idempotency_key = unique_idempotency_key("projection-non-display");
+    let prior = record_prior_pending_mutual_acknowledgement(&store, &idempotency_key).await;
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(&idempotency_key, &prior.writer_fact_id),
+        ))
+        .await
+        .expect("accepted transition should persist");
+
+    let writer_fact_count_before =
+        writer_fact_count_for_promise(&client, &accepted.promise_reference).await;
+    let side_effects_before = side_effect_counts(&client).await;
+    let display_catalog_entries_before = blocked_completion_display_catalog_entries(&client).await;
+
+    let snapshots = store
+        .derive_accepted_completion_non_authority_projection_snapshots(
+            &accepted.promise_reference,
+            &accepted.realm_id,
+        )
+        .await
+        .expect("projection snapshot should derive without display conversion");
+
+    assert_eq!(snapshots.len(), 1);
+    let snapshot = &snapshots[0];
+    assert_eq!(
+        snapshot.projection_non_authority_posture,
+        "projection_non_authoritative"
+    );
+    assert_eq!(snapshot.authority_posture, "writer_truth_only");
+    assert_eq!(
+        snapshot.source_route_class,
+        "mutual_accountable_completion_acknowledgement"
+    );
+    assert_eq!(snapshot.completion_state_class, "completion_accepted");
+    assert!(snapshot.completed_reference_eligible);
+    assert_eq!(
+        writer_fact_count_for_promise(&client, &accepted.promise_reference).await,
+        writer_fact_count_before
+    );
+    assert_eq!(side_effect_counts(&client).await, side_effects_before);
+    assert!(
+        display_catalog_entries_before.is_empty(),
+        "Promise completion display surfaces and unexpected promise_completion relations must not exist before a display route is selected: {display_catalog_entries_before:?}"
+    );
+    assert_eq!(
+        blocked_completion_display_catalog_entries(&client).await,
+        display_catalog_entries_before
+    );
+}
+
+#[tokio::test]
 async fn missing_required_writer_posture_returns_no_projection_snapshot() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
@@ -1050,6 +1106,73 @@ async fn writer_fact_count_for_promise(
         .await
         .expect("writer fact count should load");
     row.get("count")
+}
+
+async fn blocked_completion_display_catalog_entries(
+    client: &tokio_postgres::Client,
+) -> Vec<String> {
+    let rows = client
+        .query(
+            "
+            WITH relation_entries AS (
+                SELECT
+                    'relation ' || table_schema || '.' || table_name AS entry
+                FROM information_schema.tables
+                WHERE table_type IN ('BASE TABLE', 'VIEW')
+                  AND (
+                      (
+                          table_schema = 'promise_completion'
+                          AND table_name <> 'writer_fact_records'
+                      )
+                      OR (
+                          table_schema = 'projection'
+                          AND (
+                              table_name ILIKE '%promise_completion%'
+                              OR table_name ILIKE '%completed_reference%'
+                              OR table_name ILIKE '%completion_display%'
+                              OR table_name ILIKE '%completion_badge%'
+                          )
+                      )
+                  )
+            ),
+            column_entries AS (
+                SELECT
+                    'column ' || table_schema || '.' || table_name || '.' || column_name AS entry
+                FROM information_schema.columns
+                WHERE (
+                    (
+                        table_schema = 'promise_completion'
+                        AND table_name <> 'writer_fact_records'
+                    )
+                    OR (
+                        table_schema = 'projection'
+                        AND (
+                            column_name ILIKE '%completed_reference%'
+                            OR column_name ILIKE '%completion_display%'
+                            OR column_name ILIKE '%completion_badge%'
+                            OR (
+                                column_name ILIKE '%completion%'
+                                AND (
+                                    column_name ILIKE '%public%'
+                                    OR column_name ILIKE '%count%'
+                                    OR column_name ILIKE '%status%'
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            SELECT entry FROM relation_entries
+            UNION ALL
+            SELECT entry FROM column_entries
+            ORDER BY entry
+            ",
+            &[],
+        )
+        .await
+        .expect("blocked Promise completion display catalog entries should load");
+
+    rows.into_iter().map(|row| row.get("entry")).collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
