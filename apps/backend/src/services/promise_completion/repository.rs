@@ -1066,6 +1066,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                     writer_truth.review_authority_reference,
                     writer_truth.proof_eligibility_reference,
                     writer_truth.proof_evidence_writer_fact_reference,
+                    writer_truth.correction_or_supersession_reference,
                     writer_truth.projection_non_authority_posture,
                     writer_truth.authority_posture,
                     writer_truth.created_at AS writer_recorded_at
@@ -1133,6 +1134,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                   AND accepted.review_authority_reference IS NULL
                   AND accepted.proof_eligibility_reference IS NULL
                   AND accepted.proof_evidence_writer_fact_reference IS NULL
+                  AND accepted.correction_or_supersession_reference IS NULL
                   AND prior.promise_reference = accepted.promise_reference
                   AND prior.realm_id = accepted.realm_id
                   AND prior.promise_terms_reference = accepted.promise_terms_reference
@@ -1149,6 +1151,7 @@ async fn load_accepted_completion_non_authority_projection_snapshots(
                   AND prior.review_authority_reference IS NULL
                   AND prior.proof_eligibility_reference IS NULL
                   AND prior.proof_evidence_writer_fact_reference IS NULL
+                  AND prior.correction_or_supersession_reference IS NULL
             )
             SELECT
                 accepted_writer_fact_id,

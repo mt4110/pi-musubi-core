@@ -335,6 +335,64 @@ async fn proof_backed_mutual_rows_do_not_enter_first_projection_route() {
 }
 
 #[tokio::test]
+async fn correction_backed_mutual_rows_do_not_enter_first_projection_route() {
+    let (_test_state, config, _client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+
+    let accepted_with_correction_key =
+        unique_idempotency_key("projection-accepted-correction-fields");
+    let accepted_with_correction_prior =
+        record_prior_pending_mutual_acknowledgement(&store, &accepted_with_correction_key).await;
+    let mut accepted_with_correction = accepted_transition_fact(
+        &accepted_with_correction_key,
+        &accepted_with_correction_prior.writer_fact_id,
+    );
+    accepted_with_correction.correction_or_supersession_reference = Some(format!(
+        "correction-reference-{accepted_with_correction_key}"
+    ));
+    let accepted_with_correction = record_writer_fact(&store, accepted_with_correction).await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_with_correction.promise_reference,
+                &accepted_with_correction.realm_id,
+            )
+            .await
+            .expect("mutual route with accepted correction reference should be readable")
+            .is_empty()
+    );
+
+    let prior_with_correction_key = unique_idempotency_key("projection-prior-correction-fields");
+    let mut prior_with_correction = prior_mutual_acknowledgement_fact(
+        &prior_with_correction_key,
+        PromiseCompletionStateClass::CompletionPendingMutualAcknowledgement,
+    );
+    prior_with_correction.correction_or_supersession_reference =
+        Some(format!("correction-reference-{prior_with_correction_key}"));
+    let prior_with_correction = record_writer_fact(&store, prior_with_correction).await;
+    let accepted_after_correction_prior = record_writer_fact(
+        &store,
+        accepted_transition_fact(
+            &prior_with_correction_key,
+            &prior_with_correction.writer_fact_id,
+        ),
+    )
+    .await;
+    assert!(
+        store
+            .derive_accepted_completion_non_authority_projection_snapshots(
+                &accepted_after_correction_prior.promise_reference,
+                &accepted_after_correction_prior.realm_id,
+            )
+            .await
+            .expect("mutual route with prior correction reference should be readable")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn governed_source_candidate_coexisting_with_valid_acceptance_fails_closed() {
     let (_test_state, config, _client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
