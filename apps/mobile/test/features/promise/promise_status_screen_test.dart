@@ -142,10 +142,59 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.textContaining('バッジ'), findsNothing);
-    expect(find.textContaining('スコア'), findsNothing);
-    expect(find.textContaining('ランキング'), findsNothing);
-    expect(find.textContaining('非難'), findsNothing);
+    for (final forbiddenLabel in <Pattern>[
+      'バッジ',
+      'スコア',
+      'カウント',
+      '件数',
+      'ランキング',
+      '非難',
+      '公開',
+      '完了済み参照',
+      'プロフィール',
+      'ステータス',
+      '信頼',
+      '関係の深さ',
+      '決済ラベル',
+      '精算ラベル',
+      '連絡先',
+      'ルーム',
+      'おすすめ',
+      '発見',
+      'プロバイダー',
+      'アウトボックス',
+      'インボックス',
+      'ワーカー',
+      '分析',
+      '可観測性',
+      '外部副作用',
+      RegExp('public', caseSensitive: false),
+      RegExp('badge', caseSensitive: false),
+      RegExp('score', caseSensitive: false),
+      RegExp(r'\bpublic count\b', caseSensitive: false),
+      RegExp(r'\bcompletion count\b', caseSensitive: false),
+      RegExp(r'\bcompleted[- ]reference\b', caseSensitive: false),
+      RegExp('status', caseSensitive: false),
+      RegExp('trust', caseSensitive: false),
+      RegExp('depth', caseSensitive: false),
+      RegExp('settlement', caseSensitive: false),
+      RegExp('accusation', caseSensitive: false),
+      RegExp('public profile', caseSensitive: false),
+      RegExp('public proof', caseSensitive: false),
+      RegExp('discovery', caseSensitive: false),
+      RegExp('recommendation', caseSensitive: false),
+      RegExp('contact', caseSensitive: false),
+      RegExp('room', caseSensitive: false),
+      RegExp('provider', caseSensitive: false),
+      RegExp('outbox', caseSensitive: false),
+      RegExp('inbox', caseSensitive: false),
+      RegExp('worker', caseSensitive: false),
+      RegExp('analytics', caseSensitive: false),
+      RegExp('observability', caseSensitive: false),
+      RegExp(r'external[ -]side[ -]effect', caseSensitive: false),
+    ]) {
+      expect(find.textContaining(forbiddenLabel), findsNothing);
+    }
   });
 }
 
