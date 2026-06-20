@@ -26,6 +26,7 @@ pub struct AppState {
     pub launch_posture: services::launch_posture::LaunchPostureService,
     pub ops_observability: services::ops_observability::OpsObservabilityStore,
     pub operator_review: services::operator_review::OperatorReviewStore,
+    pub promise_completion: services::promise_completion::PromiseCompletionWriterFactStore,
     pub realm_bootstrap: services::realm_bootstrap::RealmBootstrapStore,
     pub room_progression: services::room_progression::RoomProgressionStore,
     pub proof: RwLock<services::proof::ProofState>,
@@ -50,6 +51,8 @@ pub async fn new_state_from_config(config: &DbConfig) -> musubi_db_runtime::Resu
         ops_observability: services::ops_observability::OpsObservabilityStore::connect(config)
             .await?,
         operator_review: services::operator_review::OperatorReviewStore::connect(config).await?,
+        promise_completion:
+            services::promise_completion::PromiseCompletionWriterFactStore::connect(config).await?,
         realm_bootstrap: services::realm_bootstrap::RealmBootstrapStore::connect(config).await?,
         room_progression: services::room_progression::RoomProgressionStore::connect(config).await?,
         proof: RwLock::new(services::proof::ProofState::default()),
@@ -192,6 +195,10 @@ pub fn build_app(state: SharedState) -> Router {
         .route(
             "/api/projection/realm-trust-snapshots/{realm_id}/{account_id}",
             get(handlers::projection::get_realm_trust_snapshot),
+        )
+        .route(
+            "/api/promise-completion/participant-safe-display-availability/{promise_reference}",
+            get(handlers::promise_completion::get_participant_safe_display_availability),
         )
         .route(
             "/api/review-cases/{review_case_id}/appeals",
