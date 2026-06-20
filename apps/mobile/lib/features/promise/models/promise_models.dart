@@ -127,18 +127,44 @@ class ExpandedSettlementView {
   }
 }
 
+class ParticipantSafeDisplayAvailability {
+  const ParticipantSafeDisplayAvailability({
+    required this.displayAvailability,
+    required this.completedReferenceAvailable,
+  });
+
+  final String displayAvailability;
+  final bool completedReferenceAvailable;
+
+  bool get isAvailable {
+    return displayAvailability == 'available' && completedReferenceAvailable;
+  }
+
+  factory ParticipantSafeDisplayAvailability.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return ParticipantSafeDisplayAvailability(
+      displayAvailability: _stringField(json, 'display_availability'),
+      completedReferenceAvailable:
+          json['completed_reference_available'] == true,
+    );
+  }
+}
+
 class PromiseStatusBundle {
   const PromiseStatusBundle({
     required this.promiseIntentId,
     required this.initialSettlementCaseId,
     required this.promise,
     required this.settlement,
+    this.participantSafeDisplayAvailability,
   });
 
   final String promiseIntentId;
   final String? initialSettlementCaseId;
   final PromiseProjectionView? promise;
   final ExpandedSettlementView? settlement;
+  final ParticipantSafeDisplayAvailability? participantSafeDisplayAvailability;
 
   String? get settlementCaseId {
     return settlement?.settlementCaseId ??
@@ -162,6 +188,10 @@ class PromiseStatusBundle {
 
   bool get hasParticipantSafeProjection {
     return promise != null || settlement != null;
+  }
+
+  bool get completedReferenceDisplayAvailable {
+    return participantSafeDisplayAvailability?.isAvailable ?? false;
   }
 }
 
