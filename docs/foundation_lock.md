@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `c32921c`
+Status: Draft; aligned to accepted foundation commit `d671448`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `c32921c1aec9d1f7e5829de01d4ea1f0b99b3a43`
-- Foundation commit title: `Merge pull request #484 from mt4110/feat/promise-completion-display-narrow-api-handoff-route`
-- Foundation PR title: `docs: select Promise completion display narrow API handoff route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/484`
+- Foundation commit SHA: `d671448ab0674ce9d939b62d5f00da4b908e76f1`
+- Foundation commit title: `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
+- Foundation PR title: `docs: select Promise completion display narrow UI handoff route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/495`
 - Date pinned: `2026-06-20`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/c32921c1aec9d1f7e5829de01d4ea1f0b99b3a43`
-- Previous pinned reference: `4d2c2b6` / `Merge pull request #478 from mt4110/feat/promise-completion-display-api-non-exposure-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/d671448ab0674ce9d939b62d5f00da4b908e76f1`
+- Previous pinned reference: `c32921c` / `Merge pull request #484 from mt4110/feat/promise-completion-display-narrow-api-handoff-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -211,6 +211,17 @@ Pinned reference for implementation work:
 - Promise completion participant-safe display narrow API handoff packet source: `0bdb958` / `Merge pull request #482 from mt4110/feat/promise-completion-display-narrow-api-handoff-packet`
 - Promise completion participant-safe display narrow API handoff packet sufficiency decision source: `88961f7` / `Merge pull request #483 from mt4110/feat/promise-completion-display-narrow-api-handoff-sufficiency`
 - Promise completion participant-safe display narrow API handoff route selection source: `c32921c` / `Merge pull request #484 from mt4110/feat/promise-completion-display-narrow-api-handoff-route`
+- Promise completion participant-safe display narrow API handoff closeout and RunAlways delegation source: `497b6dd` / `Merge pull request #485 from mt4110/feat/promise-completion-display-runalways-closeout`
+- Promise completion participant-safe display copy and state route selection source: `722174d` / `Merge pull request #486 from mt4110/feat/promise-completion-display-copy-state-route`
+- Promise completion participant-safe display copy and state packet source: `f8f3ded` / `Merge pull request #487 from mt4110/feat/promise-completion-display-copy-state-packet`
+- Promise completion participant-safe display copy and state packet sufficiency decision source: `74b3bd0` / `Merge pull request #488 from mt4110/feat/promise-completion-display-copy-state-sufficiency`
+- Promise completion participant-safe display UI preflight route selection source: `b114197` / `Merge pull request #489 from mt4110/feat/promise-completion-display-ui-preflight-route`
+- Promise completion participant-safe display UI preflight packet source: `839a1af` / `Merge pull request #490 from mt4110/feat/promise-completion-display-ui-preflight-packet`
+- Promise completion participant-safe display UI preflight packet sufficiency decision source: `d62ef4e` / `Merge pull request #491 from mt4110/feat/promise-completion-display-ui-preflight-sufficiency`
+- Promise completion participant-safe display UI handoff packet route selection source: `5d8f299` / `Merge pull request #492 from mt4110/feat/promise-completion-display-post-ui-preflight-route`
+- Promise completion participant-safe display narrow UI handoff packet source: `fa2d0fa` / `Merge pull request #493 from mt4110/feat/promise-completion-display-narrow-ui-handoff-packet`
+- Promise completion participant-safe display narrow UI handoff packet sufficiency decision source: `76a2372` / `Merge pull request #494 from mt4110/feat/promise-completion-display-narrow-ui-handoff-sufficiency`
+- Promise completion participant-safe display narrow UI handoff route selection source: `d671448` / `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -461,6 +472,19 @@ Current Promise completion display chain:
 - `docs/readiness/promise_completion_participant_safe_display_narrow_api_handoff_decision_packet.md`
 - `docs/readiness/promise_completion_participant_safe_display_narrow_api_handoff_packet_sufficiency_decision.md`
 - `docs/readiness/promise_completion_participant_safe_display_post_narrow_api_handoff_packet_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_api_handoff_closeout_ledger.md`
+- `docs/readiness/promise_completion_participant_safe_display_runalways_delegation_envelope.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_api_handoff_closeout_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_api_handoff_closeout_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_copy_and_state_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_copy_and_state_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_copy_state_packet_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_ui_preflight_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_ui_preflight_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_ui_preflight_packet_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_packet_sufficiency_route_selection.md`
 
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
@@ -643,8 +667,9 @@ Foundation PR #480 found that closeout sufficient for later route selection only
 Foundation PR #481 selected the narrow API handoff packet route only.
 Foundation PR #482 prepared the narrow API handoff packet.
 Foundation PR #483 found that packet sufficient for later route selection only.
-Foundation PR #484 provides the current one-use downstream narrow API handoff authority for one later implementation-repo PR only.
-This implementation-repo PR consumes that allowance.
+Foundation PR #484 provided the consumed one-use downstream narrow API handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #176 and closed out by foundation PR #485.
+No remaining work may inherit permission from foundation PR #484 or implementation PR #176.
 The PR #484 allowance authorizes only:
 
 - `docs/foundation_lock.md`
@@ -657,7 +682,29 @@ It authorizes only a narrow side-effect-free authenticated directly-involved Ord
 It may reuse the existing participant-safe display availability semantics already selected by earlier foundation work.
 It must return hidden or unavailable when caller eligibility, suppression, projection freshness, account lifecycle, Age Assurance, or writer truth is uncertain.
 It does not authorize public API, mobile UI, public completed-reference display, public profile display, public count, public badge, public score, public status marker, public trust label, accusation label, caller-supplied source-route authority, caller-supplied participant-set authority, caller-supplied acknowledgement authority, caller-supplied writer fact authority, caller-supplied prior fact authority, caller-supplied idempotency authority, caller-supplied suppression authority, caller-supplied reason-code authority, writer fact creation, projection row creation, projection refresh, durable projection schema, DDL, migrations, provider calls, outbox or inbox enqueueing, worker, queue, adapter, analytics, observability, external side-effect behavior, Social Trust mutation, Relationship Depth mutation, settlement release, refund, forfeiture, escrow movement, reward movement, room progression, contact unlock, off-platform handoff permission, discovery priority, recommendation boost, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, support status exposure, payment-state exposure, shame labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the narrow API handoff before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+Foundation PR #485 recorded the narrow API handoff closeout and RunAlways delegation posture.
+Foundation PR #486 selected a foundation-only copy-and-state packet route.
+Foundation PR #487 prepared the participant-safe display copy-and-state packet.
+Foundation PR #488 found that packet sufficient for later route selection only.
+Foundation PR #489 selected a foundation-only UI preflight route.
+Foundation PR #490 prepared the UI preflight packet.
+Foundation PR #491 found that packet sufficient for later route selection only.
+Foundation PR #492 selected the narrow UI handoff packet route only.
+Foundation PR #493 prepared the narrow UI handoff packet.
+Foundation PR #494 found that packet sufficient for later route selection only.
+Foundation PR #495 provides the current one-use downstream narrow participant-safe display UI handoff authority for one later implementation-repo PR only.
+This implementation-repo PR consumes that allowance.
+The PR #495 allowance authorizes only:
+
+- `docs/foundation_lock.md`
+- the smallest existing Flutter Web frontend presentation files needed to consume the already accepted narrow participant-safe display availability read
+- the smallest existing frontend API client, repository, or state files needed for the same read
+- focused frontend tests and deterministic verification for this one-use UI handoff
+
+It authorizes only a narrow Promise-context participant surface for an authenticated directly involved Ordinary Account to consume the existing availability-only, side-effect-free API.
+It must keep unavailable or uncertain API results quiet and non-causal.
+It must not add public display, public profile display, public count, public badge, public score, public status marker, public trust label, accusation label, public API expansion, API route changes, exact backend field changes, native iOS or Android UI, directory, discovery, recommendation, feed, ranking, notification, share, contact, room, settlement, provider, worker, queue, outbox, inbox, analytics, observability, external side-effect behavior, writer fact creation, projection row creation, projection refresh, durable projection schema, DDL, migrations, Social Trust mutation, Relationship Depth mutation, settlement release, refund, forfeiture, escrow movement, reward movement, room progression, contact unlock, off-platform handoff permission, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, support status exposure, payment-state exposure, shame labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the narrow UI handoff before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -1115,11 +1162,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `a5a55ee8b86dc20b04890f302bc062301e2e1f6c` -> `0c7d0c5a0470bd406432d9318ad5248ad2f1850a`
-- Reason: Align implementation-repo lock with the accepted Promise completion narrow projection non-authority route selection after foundation PR #454 (`docs: select Promise completion projection route`) and consume its one-use downstream accepted completion projection snapshot allowance.
-- New required docs: Promise completion narrow state transition runtime closeout ledger, Promise completion projection non-authority preflight decision packet, Promise completion projection non-authority preflight packet sufficiency decision, and Promise completion post-projection-non-authority-preflight sufficiency route selection.
+- Updated from foundation SHA: `c32921c1aec9d1f7e5829de01d4ea1f0b99b3a43` -> `d671448ab0674ce9d939b62d5f00da4b908e76f1`
+- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display narrow UI handoff route after foundation PR #495 (`docs: select Promise completion display narrow UI handoff route`) and consume its one-use downstream Flutter Web UI handoff allowance.
+- New required docs: Promise completion participant-safe display narrow API handoff closeout ledger, post-narrow-API handoff route selection, copy-and-state packet, copy-and-state sufficiency decision, UI preflight route selection, UI preflight packet, UI preflight sufficiency decision, UI handoff packet route selection, narrow UI handoff packet, narrow UI handoff packet sufficiency decision, and post-narrow-UI-handoff-packet sufficiency route selection.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #454 allowance and permits only the exact five-file narrow projection non-authority scope listed above. It authorizes only an internal repository-derived read-only helper that derives minimized accepted completion snapshots from the existing `promise_completion.writer_fact_records` table when writer truth is `completion_state_transition`, `mutual_accountable_completion_acknowledgement`, `completion_accepted`, `completed_reference_eligible = true`, prior-bound, and boundary-consistent. The helper must not write writer facts or projection rows. Migrations, DDL, new tables, projection refresh, source-route evaluation runtime, participant acknowledgement collection runtime, governed review runtime, correction/supersession runtime, API, UI, participant display, Social Trust source fact persistence, Social Trust mutation, Relationship Depth mutation, settlement movement, room behavior, contact behavior, discovery, recommendation, outbox, inbox, worker behavior, provider I/O, provider callbacks, raw Personal Data / raw evidence / provider payloads in derived snapshots, paid romantic advantage, payment-based direct-message unlock, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update consumes the one-use foundation PR #495 allowance and permits only the narrow Flutter Web participant-safe display UI handoff scope listed above. It authorizes the existing Promise status surface to consume the already accepted side-effect-free availability-only API for directly involved Ordinary Accounts, with unavailable and uncertain results remaining quiet and non-causal. Backend API changes, route changes, API field changes, native mobile UI, public completed-reference display, public profile/count/badge/score/status/trust/accusation display, DDL, migrations, writer fact creation, projection row creation, projection refresh, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---

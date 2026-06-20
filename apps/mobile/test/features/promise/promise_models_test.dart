@@ -76,4 +76,21 @@ void main() {
     expect(view.promiseIntentId, 'promise-1');
     expect(view.latestSettlementStatus, 'pending_funding');
   });
+
+  test('participant-safe display availability requires both accepted fields',
+      () {
+    final available = ParticipantSafeDisplayAvailability.fromJson({
+      'display_availability': 'available',
+      'completed_reference_available': true,
+      'accepted_writer_fact_id': 'must-not-be-modeled',
+      'reason_code': 'must-not-be-modeled',
+    });
+    final mismatched = ParticipantSafeDisplayAvailability.fromJson({
+      'display_availability': 'unavailable',
+      'completed_reference_available': true,
+    });
+
+    expect(available.isAvailable, isTrue);
+    expect(mismatched.isAvailable, isFalse);
+  });
 }

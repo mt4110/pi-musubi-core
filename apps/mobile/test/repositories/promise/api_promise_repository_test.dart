@@ -67,6 +67,8 @@ void main() {
             'proof_status': 'unavailable',
             'proof_signal_count': 0,
           });
+        case '/api/promise-completion/participant-safe-display-availability/promise-1':
+          return _jsonResponse(500, {'error': 'temporarily unavailable'});
       }
       throw StateError('unexpected path: ${options.path}');
     });
@@ -99,6 +101,7 @@ void main() {
     final bundle = await future;
     expect(bundle.promise?.promiseIntentId, 'promise-1');
     expect(bundle.settlement?.settlementCaseId, 'settlement-1');
+    expect(bundle.completedReferenceDisplayAvailable, isFalse);
   });
 
   test(
@@ -134,6 +137,122 @@ void main() {
     expect(bundle.settlement, isNull);
     expect(bundle.settlementStatus, 'pending_projection');
     expect(bundle.proofStatus, 'unavailable');
+  });
+
+  test(
+      'api promise repository reads participant-safe display availability from promise realm',
+      () async {
+    final requestedPaths = <String>[];
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      requestedPaths.add(options.path);
+      switch (options.path) {
+        case '/api/projection/promise-views/promise-1':
+          return _jsonResponse(200, {
+            'promise_intent_id': 'promise-1',
+            'realm_id': 'realm-1',
+            'initiator_account_id': 'account-a',
+            'counterparty_account_id': 'account-b',
+            'current_intent_status': 'proposed',
+            'deposit_amount_minor_units': 10000,
+            'currency_code': 'PI',
+            'deposit_scale': 3,
+            'latest_settlement_case_id': null,
+            'latest_settlement_status': null,
+          });
+        case '/api/promise-completion/participant-safe-display-availability/promise-1':
+          expect(options.queryParameters, {'realm_id': 'realm-1'});
+          return _jsonResponse(200, {
+            'display_availability': 'available',
+            'completed_reference_available': true,
+            'accepted_writer_fact_id': 'must-not-be-modeled',
+            'operator_note_internal': 'must-not-be-modeled',
+          });
+      }
+      throw StateError('unexpected path: ${options.path}');
+    });
+    final repository = ApiPromiseRepository(ApiClient(dio));
+
+    final bundle = await repository.fetchPromiseStatus('promise-1');
+
+    expect(bundle.promise?.realmId, 'realm-1');
+    expect(bundle.completedReferenceDisplayAvailable, isTrue);
+    expect(requestedPaths, [
+      '/api/projection/promise-views/promise-1',
+      '/api/promise-completion/participant-safe-display-availability/promise-1',
+    ]);
+  });
+
+  test(
+      'api promise repository hides completion display availability on availability errors',
+      () async {
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      switch (options.path) {
+        case '/api/projection/promise-views/promise-1':
+          return _jsonResponse(200, {
+            'promise_intent_id': 'promise-1',
+            'realm_id': 'realm-1',
+            'initiator_account_id': 'account-a',
+            'counterparty_account_id': 'account-b',
+            'current_intent_status': 'proposed',
+            'deposit_amount_minor_units': 10000,
+            'currency_code': 'PI',
+            'deposit_scale': 3,
+            'latest_settlement_case_id': null,
+            'latest_settlement_status': null,
+          });
+        case '/api/promise-completion/participant-safe-display-availability/promise-1':
+          return _jsonResponse(500, {'error': 'internal server error'});
+      }
+      throw StateError('unexpected path: ${options.path}');
+    });
+    final repository = ApiPromiseRepository(ApiClient(dio));
+
+    final bundle = await repository.fetchPromiseStatus('promise-1');
+
+    expect(bundle.promise?.promiseIntentId, 'promise-1');
+    expect(bundle.participantSafeDisplayAvailability, isNull);
+    expect(bundle.completedReferenceDisplayAvailable, isFalse);
+  });
+
+  test(
+      'api promise repository bounds slow completion display availability reads',
+      () async {
+    final availabilityRequested = Completer<void>();
+    final slowAvailability = Completer<ResponseBody>();
+    final dio = Dio();
+    dio.httpClientAdapter = _StubHttpClientAdapter((options) async {
+      switch (options.path) {
+        case '/api/projection/promise-views/promise-1':
+          return _jsonResponse(200, {
+            'promise_intent_id': 'promise-1',
+            'realm_id': 'realm-1',
+            'initiator_account_id': 'account-a',
+            'counterparty_account_id': 'account-b',
+            'current_intent_status': 'proposed',
+            'deposit_amount_minor_units': 10000,
+            'currency_code': 'PI',
+            'deposit_scale': 3,
+            'latest_settlement_case_id': null,
+            'latest_settlement_status': null,
+          });
+        case '/api/promise-completion/participant-safe-display-availability/promise-1':
+          availabilityRequested.complete();
+          return slowAvailability.future;
+      }
+      throw StateError('unexpected path: ${options.path}');
+    });
+    final repository = ApiPromiseRepository(ApiClient(dio));
+    final stopwatch = Stopwatch()..start();
+
+    final bundle = await repository.fetchPromiseStatus('promise-1');
+    stopwatch.stop();
+
+    expect(availabilityRequested.isCompleted, isTrue);
+    expect(stopwatch.elapsedMilliseconds, lessThan(1900));
+    expect(bundle.promise?.promiseIntentId, 'promise-1');
+    expect(bundle.completedReferenceDisplayAvailable, isFalse);
   });
 }
 

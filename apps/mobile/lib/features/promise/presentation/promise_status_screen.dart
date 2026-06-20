@@ -222,6 +222,7 @@ class _CompletionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final proofUnavailable = bundle.proofStatus == 'unavailable';
+    final displayAvailable = bundle.completedReferenceDisplayAvailable;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -236,9 +237,11 @@ class _CompletionPanel extends StatelessWidget {
           Text('完了について', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
-            proofUnavailable
-                ? 'この画面の操作だけで完了は確定しません。証明や確認の準備が整うまで、状態だけを確認できます。'
-                : '完了は証明や確認結果に基づいて扱われます。この画面だけで預かり金や評価は変わりません。',
+            displayAvailable
+                ? '完了の確認材料を参加者向けに扱える準備ができています。この画面だけで預かり金、関係の扱い、相手へのアクセスは変わりません。'
+                : proofUnavailable
+                    ? 'この画面の操作だけで完了は確定しません。証明や確認の準備が整うまで、状態だけを確認できます。'
+                    : '完了は証明や確認結果に基づいて扱われます。この画面だけで預かり金や関係の扱いは変わりません。',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],

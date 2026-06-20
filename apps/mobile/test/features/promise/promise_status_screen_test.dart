@@ -90,6 +90,63 @@ void main() {
     expect(find.text('約束を作成しました'), findsNothing);
     expect(find.text('約束を表示できませんでした'), findsNothing);
   });
+
+  testWidgets(
+      'available completion display stays inside bounded participant copy',
+      (tester) async {
+    await tester.pumpWidget(
+      _buildApp(
+        repository: const _FakePromiseRepository(
+          bundle: PromiseStatusBundle(
+            promiseIntentId: 'promise-1',
+            initialSettlementCaseId: 'settlement-1',
+            promise: PromiseProjectionView(
+              promiseIntentId: 'promise-1',
+              realmId: 'realm-tokyo-day1',
+              initiatorAccountId: 'account-a',
+              counterpartyAccountId: 'account-b',
+              currentIntentStatus: 'proposed',
+              depositAmountMinorUnits: 10000,
+              currencyCode: 'PI',
+              depositScale: 3,
+              latestSettlementCaseId: 'settlement-1',
+              latestSettlementStatus: 'pending_funding',
+            ),
+            settlement: ExpandedSettlementView(
+              settlementCaseId: 'settlement-1',
+              promiseIntentId: 'promise-1',
+              realmId: 'realm-tokyo-day1',
+              currentSettlementStatus: 'pending_funding',
+              totalFundedMinorUnits: 0,
+              currencyCode: 'PI',
+              proofStatus: 'unavailable',
+              proofSignalCount: 0,
+            ),
+            participantSafeDisplayAvailability:
+                ParticipantSafeDisplayAvailability(
+              displayAvailability: 'available',
+              completedReferenceAvailable: true,
+            ),
+          ),
+        ),
+        promiseIntentId: 'promise-1',
+        settlementCaseId: 'settlement-1',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('完了について'), findsOneWidget);
+    expect(
+      find.text(
+        '完了の確認材料を参加者向けに扱える準備ができています。この画面だけで預かり金、関係の扱い、相手へのアクセスは変わりません。',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('バッジ'), findsNothing);
+    expect(find.textContaining('スコア'), findsNothing);
+    expect(find.textContaining('ランキング'), findsNothing);
+    expect(find.textContaining('非難'), findsNothing);
+  });
 }
 
 Widget _buildApp({

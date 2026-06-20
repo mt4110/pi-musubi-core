@@ -63,11 +63,18 @@ class ApiPromiseRepository implements PromiseRepository {
           );
         }
       }
+      final displayAvailability = promise == null
+          ? null
+          : await _fetchParticipantSafeDisplayAvailability(
+              promise,
+            ).timeout(const Duration(seconds: 1), onTimeout: () => null);
+
       return PromiseStatusBundle(
         promiseIntentId: promiseIntentId,
         initialSettlementCaseId: settlementCaseId,
         promise: promise,
         settlement: settlement,
+        participantSafeDisplayAvailability: displayAvailability,
       );
     } catch (error) {
       throw _mapPromiseError(error);
@@ -107,6 +114,34 @@ class ApiPromiseRepository implements PromiseRepository {
         return null;
       }
       rethrow;
+    }
+  }
+
+  Future<ParticipantSafeDisplayAvailability?>
+      _fetchParticipantSafeDisplayAvailability(
+    PromiseProjectionView promise,
+  ) async {
+    final promiseReference = promise.promiseIntentId.trim();
+    final realmId = promise.realmId.trim();
+    if (promiseReference.isEmpty || realmId.isEmpty) {
+      return null;
+    }
+
+    try {
+      final response = await _apiClient.dio.get<Map<String, dynamic>>(
+        '/api/promise-completion/participant-safe-display-availability/'
+        '${Uri.encodeComponent(promiseReference)}',
+        queryParameters: {'realm_id': realmId},
+      );
+      return ParticipantSafeDisplayAvailability.fromJson(
+        response.data ?? const <String, dynamic>{},
+      );
+    } on DioException {
+      return null;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
     }
   }
 
