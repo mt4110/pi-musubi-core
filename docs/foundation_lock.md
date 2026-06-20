@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `d671448`
+Status: Draft; aligned to accepted foundation commit `ab401c4`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `d671448ab0674ce9d939b62d5f00da4b908e76f1`
-- Foundation commit title: `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
-- Foundation PR title: `docs: select Promise completion display narrow UI handoff route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/495`
+- Foundation commit SHA: `ab401c48b16b7178eb05486b2351f8a22ed563d2`
+- Foundation commit title: `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
+- Foundation PR title: `docs: select Promise completion display UI non-exposure test route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/504`
 - Date pinned: `2026-06-20`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/d671448ab0674ce9d939b62d5f00da4b908e76f1`
-- Previous pinned reference: `c32921c` / `Merge pull request #484 from mt4110/feat/promise-completion-display-narrow-api-handoff-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/ab401c48b16b7178eb05486b2351f8a22ed563d2`
+- Previous pinned reference: `d671448` / `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -222,6 +222,15 @@ Pinned reference for implementation work:
 - Promise completion participant-safe display narrow UI handoff packet source: `fa2d0fa` / `Merge pull request #493 from mt4110/feat/promise-completion-display-narrow-ui-handoff-packet`
 - Promise completion participant-safe display narrow UI handoff packet sufficiency decision source: `76a2372` / `Merge pull request #494 from mt4110/feat/promise-completion-display-narrow-ui-handoff-sufficiency`
 - Promise completion participant-safe display narrow UI handoff route selection source: `d671448` / `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
+- Promise completion participant-safe display narrow UI handoff closeout source: `f89ff0c` / `Merge pull request #496 from mt4110/feat/promise-completion-display-narrow-ui-closeout`
+- Promise completion participant-safe display narrow UI handoff closeout sufficiency decision source: `68b2fa7` / `Merge pull request #497 from mt4110/feat/promise-completion-display-narrow-ui-closeout-sufficiency`
+- Promise completion participant-safe display post-narrow-UI route selection source: `512bf8a` / `Merge pull request #498 from mt4110/feat/promise-completion-display-post-narrow-ui-route`
+- Promise completion participant-safe display post-narrow-UI readiness runway source: `c2fbe11` / `Merge pull request #499 from mt4110/feat/promise-completion-display-post-narrow-ui-runway`
+- Promise completion participant-safe display post-narrow-UI runway sufficiency decision source: `b8b4ee5` / `Merge pull request #500 from mt4110/feat/promise-completion-display-post-narrow-ui-runway-sufficiency`
+- Promise completion participant-safe display post-narrow-UI non-exposure packet route selection source: `7b71827` / `Merge pull request #501 from mt4110/feat/promise-completion-display-ui-non-exposure-route`
+- Promise completion participant-safe display post-narrow-UI non-exposure decision packet source: `917d6d7` / `Merge pull request #502 from mt4110/feat/promise-completion-display-ui-non-exposure-packet`
+- Promise completion participant-safe display post-narrow-UI non-exposure packet sufficiency decision source: `6b36a61` / `Merge pull request #503 from mt4110/feat/promise-completion-display-ui-non-exposure-sufficiency`
+- Promise completion participant-safe display post-narrow-UI non-exposure test-only route selection source: `ab401c4` / `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -485,6 +494,15 @@ Current Promise completion display chain:
 - `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_decision_packet.md`
 - `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_packet_sufficiency_decision.md`
 - `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_packet_sufficiency_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_closeout_ledger.md`
+- `docs/readiness/promise_completion_participant_safe_display_narrow_ui_handoff_closeout_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_closeout_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_readiness_runway.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_runway_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_handoff_runway_route_selection.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_non_exposure_verification_decision_packet.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_non_exposure_verification_packet_sufficiency_decision.md`
+- `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_non_exposure_verification_route_selection.md`
 
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
@@ -692,19 +710,39 @@ Foundation PR #491 found that packet sufficient for later route selection only.
 Foundation PR #492 selected the narrow UI handoff packet route only.
 Foundation PR #493 prepared the narrow UI handoff packet.
 Foundation PR #494 found that packet sufficient for later route selection only.
-Foundation PR #495 provides the current one-use downstream narrow participant-safe display UI handoff authority for one later implementation-repo PR only.
-This implementation-repo PR consumes that allowance.
-The PR #495 allowance authorizes only:
+Foundation PR #495 provided the consumed one-use downstream narrow participant-safe display UI handoff authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #177 and closed out by foundation PR #496.
+Foundation PR #497 found that closeout sufficient for later route selection only.
+Foundation PR #498 selected a foundation-only post-narrow-UI readiness runway route.
+Foundation PR #499 mapped that readiness runway.
+Foundation PR #500 found the runway sufficient for later route selection only.
+Foundation PR #501 selected a foundation-only post-narrow-UI non-exposure verification packet route.
+Foundation PR #502 prepared that packet.
+Foundation PR #503 found the packet sufficient for later route selection only.
+Foundation PR #504 provides the current one-use downstream test-only non-exposure verification authority for one later implementation-repo PR only.
+This implementation-repo PR consumes the PR #504 allowance.
+The PR #495 allowance authorized only:
 
 - `docs/foundation_lock.md`
 - the smallest existing Flutter Web frontend presentation files needed to consume the already accepted narrow participant-safe display availability read
 - the smallest existing frontend API client, repository, or state files needed for the same read
 - focused frontend tests and deterministic verification for this one-use UI handoff
 
-It authorizes only a narrow Promise-context participant surface for an authenticated directly involved Ordinary Account to consume the existing availability-only, side-effect-free API.
-It must keep unavailable or uncertain API results quiet and non-causal.
-It must not add public display, public profile display, public count, public badge, public score, public status marker, public trust label, accusation label, public API expansion, API route changes, exact backend field changes, native iOS or Android UI, directory, discovery, recommendation, feed, ranking, notification, share, contact, room, settlement, provider, worker, queue, outbox, inbox, analytics, observability, external side-effect behavior, writer fact creation, projection row creation, projection refresh, durable projection schema, DDL, migrations, Social Trust mutation, Relationship Depth mutation, settlement release, refund, forfeiture, escrow movement, reward movement, room progression, contact unlock, off-platform handoff permission, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, support status exposure, payment-state exposure, shame labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the narrow UI handoff before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+It authorized only a narrow Promise-context participant surface for an authenticated directly involved Ordinary Account to consume the existing availability-only, side-effect-free API.
+It required unavailable or uncertain API results to remain quiet and non-causal.
+It did not authorize public display, public profile display, public count, public badge, public score, public status marker, public trust label, accusation label, public API expansion, API route changes, exact backend field changes, native iOS or Android UI, directory, discovery, recommendation, feed, ranking, notification, share, contact, room, settlement, provider, worker, queue, outbox, inbox, analytics, observability, external side-effect behavior, writer fact creation, projection row creation, projection refresh, durable projection schema, DDL, migrations, Social Trust mutation, Relationship Depth mutation, settlement release, refund, forfeiture, escrow movement, reward movement, room progression, contact unlock, off-platform handoff permission, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, support status exposure, payment-state exposure, shame labels, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
+Foundation PR #496 recorded the required closeout for the consumed narrow UI handoff.
+
+No remaining work may inherit permission from foundation PR #495 or implementation PR #177.
+The PR #504 allowance authorizes only:
+
+- `docs/foundation_lock.md`
+- the smallest existing Flutter Web frontend test files needed to prove the consumed narrow UI handoff does not become public display, badge, score, status marker, public proof, trust label, depth label, settlement label, accusation label, public profile, discovery, recommendation, contact, room, provider, outbox, inbox, worker, analytics, observability, or external side-effect behavior
+- focused deterministic verification dedicated to this one-use test-only route
+
+It authorizes only test-only verification after the consumed narrow UI handoff.
+It does not authorize production behavior, backend routes, API routes, API fields, database schema, migrations, projection refresh, writer fact creation, projection row creation, providers, outbox, inbox, worker, queue, adapter, analytics, observability, external side-effect behavior, Social Trust mutation, Relationship Depth mutation, settlement movement, room progression, contact unlock, discovery effects, recommendation effects, public completed-reference display, badge, score, status marker, public proof, trust label, depth label, settlement label, accusation label, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, suppression-reason exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the post-narrow-UI non-exposure verification before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -1162,11 +1200,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `c32921c1aec9d1f7e5829de01d4ea1f0b99b3a43` -> `d671448ab0674ce9d939b62d5f00da4b908e76f1`
-- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display narrow UI handoff route after foundation PR #495 (`docs: select Promise completion display narrow UI handoff route`) and consume its one-use downstream Flutter Web UI handoff allowance.
-- New required docs: Promise completion participant-safe display narrow API handoff closeout ledger, post-narrow-API handoff route selection, copy-and-state packet, copy-and-state sufficiency decision, UI preflight route selection, UI preflight packet, UI preflight sufficiency decision, UI handoff packet route selection, narrow UI handoff packet, narrow UI handoff packet sufficiency decision, and post-narrow-UI-handoff-packet sufficiency route selection.
+- Updated from foundation SHA: `d671448ab0674ce9d939b62d5f00da4b908e76f1` -> `ab401c48b16b7178eb05486b2351f8a22ed563d2`
+- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display post-narrow-UI non-exposure test-only route after foundation PR #504 (`docs: select Promise completion display UI non-exposure test route`) and consume its one-use downstream test-only verification allowance.
+- New required docs: Promise completion participant-safe display narrow UI handoff closeout ledger, narrow UI handoff closeout sufficiency decision, post-narrow-UI closeout route selection, post-narrow-UI readiness runway, post-narrow-UI runway sufficiency decision, post-narrow-UI runway route selection, post-narrow-UI non-exposure verification decision packet, post-narrow-UI non-exposure verification packet sufficiency decision, and post-narrow-UI non-exposure verification route selection.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #495 allowance and permits only the narrow Flutter Web participant-safe display UI handoff scope listed above. It authorizes the existing Promise status surface to consume the already accepted side-effect-free availability-only API for directly involved Ordinary Accounts, with unavailable and uncertain results remaining quiet and non-causal. Backend API changes, route changes, API field changes, native mobile UI, public completed-reference display, public profile/count/badge/score/status/trust/accusation display, DDL, migrations, writer fact creation, projection row creation, projection refresh, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update consumes the one-use foundation PR #504 allowance and permits only test-only verification that the consumed narrow Flutter Web participant-safe display UI handoff remains non-exposing and non-converting. Production behavior, backend API changes, route changes, API field changes, native mobile UI, public completed-reference display, public profile/count/badge/score/status/trust/depth/settlement/accusation display, DDL, migrations, writer fact creation, projection row creation, projection refresh, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
