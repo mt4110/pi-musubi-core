@@ -294,6 +294,69 @@ impl PromiseCompletionWriterFactStore {
             participant_safe_display_availability_from_projection_snapshot(snapshot),
         ))
     }
+
+    pub async fn derive_participant_safe_completed_reference_display_availability_for_account(
+        &self,
+        promise_reference: &str,
+        realm_id: &str,
+        account_id: &str,
+    ) -> Result<
+        Option<PromiseCompletionParticipantSafeDisplayAvailabilitySnapshot>,
+        PromiseCompletionWriterFactPersistenceError,
+    > {
+        let promise_reference = required_projection_ref(promise_reference, "Promise reference")?;
+        let realm_id = required_projection_ref(realm_id, "realm_id")?;
+        let account_id = required_projection_uuid_ref(account_id, "account id")?;
+        let client = self.client.lock().await;
+
+        if !active_ordinary_account_exists(&*client, &account_id).await? {
+            return Ok(None);
+        }
+        if !promise_participant_membership_exists(
+            &*client,
+            &promise_reference,
+            &realm_id,
+            &account_id,
+        )
+        .await?
+        {
+            return Ok(None);
+        }
+
+        let snapshots = match load_accepted_completion_non_authority_projection_snapshots(
+            &*client,
+            &promise_reference,
+            &realm_id,
+        )
+        .await
+        {
+            Ok(snapshots) => snapshots,
+            Err(PromiseCompletionWriterFactPersistenceError::BadRequest(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+
+        if snapshots.len() != 1 {
+            return Ok(None);
+        }
+
+        let snapshot = snapshots
+            .into_iter()
+            .next()
+            .expect("snapshot length was checked");
+        let authorized =
+            match participant_safe_display_boundary_is_unsuppressed(&*client, &snapshot).await {
+                Ok(authorized) => authorized,
+                Err(PromiseCompletionWriterFactPersistenceError::BadRequest(_)) => false,
+                Err(error) => return Err(error),
+            };
+        if !authorized {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            participant_safe_display_availability_from_projection_snapshot(snapshot),
+        ))
+    }
 }
 
 fn validate_mutual_acknowledgement_accepted_transition(
@@ -1306,6 +1369,27 @@ async fn participant_safe_display_boundary_is_authorized_and_unsuppressed(
     snapshot: &PromiseCompletionNonAuthorityProjectionSnapshot,
     ordinary_participant_acknowledgement_reference: &str,
 ) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
+    let row = load_participant_safe_display_boundary_row(client, snapshot).await?;
+    Ok(
+        participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
+            &row,
+            ordinary_participant_acknowledgement_reference,
+        ),
+    )
+}
+
+async fn participant_safe_display_boundary_is_unsuppressed(
+    client: &impl GenericClient,
+    snapshot: &PromiseCompletionNonAuthorityProjectionSnapshot,
+) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
+    let row = load_participant_safe_display_boundary_row(client, snapshot).await?;
+    Ok(participant_safe_display_boundary_row_is_unsuppressed(&row))
+}
+
+async fn load_participant_safe_display_boundary_row(
+    client: &impl GenericClient,
+    snapshot: &PromiseCompletionNonAuthorityProjectionSnapshot,
+) -> Result<Row, PromiseCompletionWriterFactPersistenceError> {
     let accepted_writer_fact_id =
         required_projection_uuid_ref(&snapshot.accepted_writer_fact_id, "accepted writer fact id")?;
     let prior_writer_fact_id =
@@ -1363,12 +1447,7 @@ async fn participant_safe_display_boundary_is_authorized_and_unsuppressed(
         ));
     };
 
-    Ok(
-        participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
-            &row,
-            ordinary_participant_acknowledgement_reference,
-        ),
-    )
+    Ok(row)
 }
 
 fn participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
@@ -1387,6 +1466,10 @@ fn participant_safe_display_boundary_row_is_authorized_and_unsuppressed(
         return false;
     }
 
+    participant_safe_display_boundary_row_is_unsuppressed(row)
+}
+
+fn participant_safe_display_boundary_row_is_unsuppressed(row: &Row) -> bool {
     [
         (
             "accepted_block_withdrawal_state_reference",
@@ -1468,6 +1551,60 @@ fn participant_safe_display_availability_from_projection_snapshot(
         completed_reference_available: true,
         policy_version: snapshot.policy_version,
     }
+}
+
+async fn active_ordinary_account_exists(
+    client: &impl GenericClient,
+    account_id: &Uuid,
+) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
+    let row = client
+        .query_opt(
+            "
+            SELECT account_class, account_state
+            FROM core.accounts
+            WHERE account_id = $1
+            ",
+            &[account_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    let Some(row) = row else {
+        return Ok(false);
+    };
+
+    let account_class: String = row.get("account_class");
+    let account_state: String = row.get("account_state");
+    Ok(account_class == "Ordinary Account" && account_state == "active")
+}
+
+async fn promise_participant_membership_exists(
+    client: &impl GenericClient,
+    promise_reference: &str,
+    realm_id: &str,
+    account_id: &Uuid,
+) -> Result<bool, PromiseCompletionWriterFactPersistenceError> {
+    let Ok(promise_intent_id) = Uuid::parse_str(promise_reference) else {
+        return Ok(false);
+    };
+    let row = client
+        .query_opt(
+            "
+            SELECT 1
+            FROM dao.promise_intents
+            WHERE promise_intent_id = $1
+              AND realm_id = $2
+              AND (
+                    initiator_account_id = $3
+                 OR counterparty_account_id = $3
+              )
+            ",
+            &[&promise_intent_id, &realm_id, account_id],
+        )
+        .await
+        .map_err(db_error)?;
+
+    Ok(row.is_some())
 }
 
 fn replay_writer_fact_id(

@@ -16,6 +16,7 @@ pub mod ops_observability;
 pub mod orchestration;
 pub mod payments;
 pub mod projection;
+pub mod promise_completion;
 pub mod promise_intents;
 pub mod proof;
 pub mod realm_bootstrap;

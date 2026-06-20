@@ -16,6 +16,8 @@ apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/ex
 apps/backend/src/lib.rs /api/projection/settlement-views/{settlement_case_id}/expanded HEAD handlers::projection::get_expanded_settlement_view
 apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} GET handlers::projection::get_trust_snapshot
 apps/backend/src/lib.rs /api/projection/trust-snapshots/{account_id} HEAD handlers::projection::get_trust_snapshot
+apps/backend/src/lib.rs /api/promise-completion/participant-safe-display-availability/{promise_reference} GET handlers::promise_completion::get_participant_safe_display_availability
+apps/backend/src/lib.rs /api/promise-completion/participant-safe-display-availability/{promise_reference} HEAD handlers::promise_completion::get_participant_safe_display_availability
 apps/backend/src/lib.rs /api/promise/intents POST handlers::promise_intents::create_promise_intent
 apps/backend/src/lib.rs /api/proof/challenges POST handlers::proof::start_proof_challenge
 apps/backend/src/lib.rs /api/proof/submissions POST handlers::proof::submit_proof_envelope
