@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `ab401c4`
+Status: Draft; aligned to accepted foundation commit `5d2d676`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,14 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `ab401c48b16b7178eb05486b2351f8a22ed563d2`
-- Foundation commit title: `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
-- Foundation PR title: `docs: select Promise completion display UI non-exposure test route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/504`
-- Date pinned: `2026-06-20`
+- Foundation commit SHA: `5d2d676de4c7556469b111d5754ec3e1b5775e0e`
+- Foundation commit title: `Merge pull request #524 from mt4110/feat/promise-completion-display-post-hardening-handoff-route`
+- Foundation PR title: `docs: select Promise completion display handoff route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/524`
+- Date pinned: `2026-06-21`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/ab401c48b16b7178eb05486b2351f8a22ed563d2`
-- Previous pinned reference: `d671448` / `Merge pull request #495 from mt4110/feat/promise-completion-display-narrow-ui-handoff-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5d2d676de4c7556469b111d5754ec3e1b5775e0e`
+- Previous pinned reference: `ab401c4` / `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -231,6 +231,26 @@ Pinned reference for implementation work:
 - Promise completion participant-safe display post-narrow-UI non-exposure decision packet source: `917d6d7` / `Merge pull request #502 from mt4110/feat/promise-completion-display-ui-non-exposure-packet`
 - Promise completion participant-safe display post-narrow-UI non-exposure packet sufficiency decision source: `6b36a61` / `Merge pull request #503 from mt4110/feat/promise-completion-display-ui-non-exposure-sufficiency`
 - Promise completion participant-safe display post-narrow-UI non-exposure test-only route selection source: `ab401c4` / `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
+- Promise completion participant-safe display post-narrow-UI non-exposure test-only closeout source: `3d2c2f5` / `Merge pull request #505 from mt4110/feat/promise-completion-display-ui-non-exposure-closeout`
+- Promise completion participant-safe display post-narrow-UI non-exposure closeout sufficiency decision source: `8fbf4a6` / `Merge pull request #506 from mt4110/feat/promise-completion-display-ui-non-exposure-closeout-sufficiency`
+- Promise completion participant-safe display post-narrow-UI non-exposure closeout route selection source: `b814fac` / `Merge pull request #507 from mt4110/feat/promise-completion-display-post-ui-non-exposure-closeout-route`
+- Promise completion participant-safe display post-narrow-UI non-exposure closeout readiness runway source: `6d7b127` / `Merge pull request #508 from mt4110/feat/promise-completion-display-post-ui-non-exposure-runway`
+- Promise completion participant-safe display post-narrow-UI non-exposure closeout runway sufficiency decision source: `1134099` / `Merge pull request #509 from mt4110/feat/promise-completion-display-post-ui-non-exposure-runway-sufficiency`
+- Promise completion participant-safe display post-narrow-UI non-exposure closeout runway route selection source: `f4feffa` / `Merge pull request #510 from mt4110/feat/promise-completion-display-post-ui-non-exposure-runway-route`
+- Promise completion participant-safe display post-internal-stop reopen route selection source: `2d05a32` / `Merge pull request #511 from mt4110/feat/promise-completion-display-reopen-route-selection`
+- Promise completion participant-safe display post-internal-stop display hardening packet source: `28439c3` / `Merge pull request #512 from mt4110/feat/promise-completion-display-hardening-packet`
+- Promise completion participant-safe display post-internal-stop display hardening packet sufficiency decision source: `9328e97` / `Merge pull request #513 from mt4110/feat/promise-completion-display-hardening-sufficiency`
+- Promise completion participant-safe display post-internal-stop display hardening route selection source: `da66b7a` / `Merge pull request #514 from mt4110/feat/promise-completion-display-hardening-route`
+- Promise completion participant-safe display post-display-hardening internal-stop reopen route selection source: `e7c439f` / `Merge pull request #515 from mt4110/feat/promise-completion-display-post-hardening-reopen-route`
+- Promise completion participant-safe display post-display-hardening readiness runway source: `e9c3989` / `Merge pull request #516 from mt4110/feat/promise-completion-display-post-hardening-runway`
+- Promise completion participant-safe display post-display-hardening runway sufficiency decision source: `dfb050f` / `Merge pull request #517 from mt4110/feat/promise-completion-display-post-hardening-runway-sufficiency`
+- Promise completion participant-safe display post-display-hardening runway route selection source: `7a95f85` / `Merge pull request #518 from mt4110/feat/promise-completion-display-post-hardening-route-selection`
+- Promise completion participant-safe display post-display-hardening consolidation packet source: `f4770bb` / `Merge pull request #519 from mt4110/feat/promise-completion-display-post-hardening-consolidation`
+- Promise completion participant-safe display post-display-hardening consolidation packet sufficiency decision source: `9918646` / `Merge pull request #520 from mt4110/feat/promise-completion-display-post-hardening-consolidation-sufficiency`
+- Promise completion participant-safe display post-display-hardening consolidation route selection source: `d82e14b` / `Merge pull request #521 from mt4110/feat/promise-completion-display-post-hardening-consolidation-route-selection`
+- Promise completion participant-safe display post-display-hardening downstream handoff boundary packet source: `b4bf76a` / `Merge pull request #522 from mt4110/feat/promise-completion-display-post-hardening-boundary-packet`
+- Promise completion participant-safe display post-display-hardening downstream handoff boundary packet sufficiency decision source: `4f8f507` / `Merge pull request #523 from mt4110/feat/promise-completion-display-post-hardening-boundary-sufficiency`
+- Promise completion participant-safe display post-display-hardening downstream handoff route selection source: `5d2d676` / `Merge pull request #524 from mt4110/feat/promise-completion-display-post-hardening-handoff-route`
 
 No release tag is asserted for this alignment.
 Do not invent a foundation version label for this commit.
@@ -1200,11 +1220,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `d671448ab0674ce9d939b62d5f00da4b908e76f1` -> `ab401c48b16b7178eb05486b2351f8a22ed563d2`
-- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display post-narrow-UI non-exposure test-only route after foundation PR #504 (`docs: select Promise completion display UI non-exposure test route`) and consume its one-use downstream test-only verification allowance.
-- New required docs: Promise completion participant-safe display narrow UI handoff closeout ledger, narrow UI handoff closeout sufficiency decision, post-narrow-UI closeout route selection, post-narrow-UI readiness runway, post-narrow-UI runway sufficiency decision, post-narrow-UI runway route selection, post-narrow-UI non-exposure verification decision packet, post-narrow-UI non-exposure verification packet sufficiency decision, and post-narrow-UI non-exposure verification route selection.
+- Updated from foundation SHA: `ab401c48b16b7178eb05486b2351f8a22ed563d2` -> `5d2d676de4c7556469b111d5754ec3e1b5775e0e`
+- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display post-display-hardening downstream handoff route selection after foundation PR #524 (`docs: select Promise completion display handoff route`) before consuming its one-use downstream handoff allowance.
+- New required docs: Promise completion participant-safe display post-narrow-UI non-exposure closeout ledger, closeout sufficiency decision, closeout route selection, closeout readiness runway, closeout runway sufficiency decision, closeout runway route selection, post-internal-stop reopen route selection, post-internal-stop display hardening packet, display hardening packet sufficiency decision, display hardening route selection, post-display-hardening internal-stop reopen route selection, post-display-hardening readiness runway, runway sufficiency decision, runway route selection, consolidation packet, consolidation packet sufficiency decision, consolidation route selection, downstream handoff boundary packet, downstream handoff boundary packet sufficiency decision, and downstream handoff route selection.
 - Removed docs: None.
-- Implementation impact: This update consumes the one-use foundation PR #504 allowance and permits only test-only verification that the consumed narrow Flutter Web participant-safe display UI handoff remains non-exposing and non-converting. Production behavior, backend API changes, route changes, API field changes, native mobile UI, public completed-reference display, public profile/count/badge/score/status/trust/depth/settlement/accusation display, DDL, migrations, writer fact creation, projection row creation, projection refresh, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update pins the accepted foundation route that permits one later downstream PR inside the recorded post-display-hardening participant-safe display boundary envelope. This lock pin alone does not implement boundary hardening, does not add runtime behavior, and does not authorize a second downstream PR. The later downstream work remains limited to the existing participant-safe display boundary plus co-located deterministic verification. Public completed-reference display, public profile/count/badge/score/status/proof/trust/depth/settlement/accusation display, public API, API expansion, native iOS or Android implementation, additional UI implementation, DDL, migrations, durable projection schema, projection refresh, writer fact creation, state transition creation, source-route evaluation from raw user input, participant acknowledgement collection, governed review runtime, correction or supersession runtime, proof runtime, proof eligibility runtime, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload / proof payload / operator-note / review-narrative / Legal Hold / Critical Harm / child-safety / sensitive-trait / abuse-marker / suppression-reason exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
