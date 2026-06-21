@@ -247,6 +247,305 @@ async fn narrow_api_returns_unavailable_for_suppressed_writer_truth_without_reas
 }
 
 #[tokio::test]
+async fn narrow_api_hides_boundary_condition_families_without_reason_leakage() {
+    let (_test_state, app, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let involved = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-boundary-families",
+        "promise-completion-narrow-api-boundary-families",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-boundary-families-counterparty",
+        "promise-completion-narrow-api-boundary-families-counterparty",
+    )
+    .await;
+
+    for boundary_row in ["accepted", "prior"] {
+        for boundary_field in [
+            "block_withdrawal_state_reference",
+            "age_assurance_state_reference",
+            "legal_hold_intersection_reference",
+            "critical_harm_case_reference",
+            "account_lifecycle_reference",
+            "anti_abuse_continuity_reference",
+            "safety_case_reference",
+        ] {
+            let case_label = format!("{boundary_row}-{boundary_field}");
+            let idempotency_key = unique_idempotency_key(&format!(
+                "participant-display-narrow-api-boundary-{case_label}"
+            ));
+            let promise_case =
+                create_promise_intent(&app, &involved, &counterparty, &idempotency_key).await;
+            let acknowledgement_reference = format!("ordinary-acknowledgement-{idempotency_key}");
+            let mut prior_fact = prior_pending_mutual_acknowledgement_fact(
+                &idempotency_key,
+                &acknowledgement_reference,
+                &promise_case.promise_reference,
+                &promise_case.realm_id,
+            );
+            if boundary_row == "prior" {
+                apply_suppressed_boundary_reference(
+                    &mut prior_fact,
+                    boundary_field,
+                    &idempotency_key,
+                );
+            }
+            let prior = record_writer_fact(&store, prior_fact).await;
+            let mut accepted_fact = accepted_transition_fact(
+                &idempotency_key,
+                &prior.writer_fact_id,
+                &acknowledgement_reference,
+                &promise_case.promise_reference,
+                &promise_case.realm_id,
+            );
+            if boundary_row == "accepted" {
+                apply_suppressed_boundary_reference(
+                    &mut accepted_fact,
+                    boundary_field,
+                    &idempotency_key,
+                );
+            }
+            let accepted = store
+                .record_mutual_acknowledgement_accepted_transition(transition_input(accepted_fact))
+                .await
+                .expect("suppressed boundary transition should persist");
+            let context = ExposureContext {
+                accepted_writer_fact_id: accepted.writer_fact_id.clone(),
+                prior_writer_fact_id: prior.writer_fact_id.clone(),
+                promise_reference: accepted.promise_reference.clone(),
+                realm_id: accepted.realm_id.clone(),
+                promise_terms_reference: format!("promise-terms-{idempotency_key}"),
+                participant_set_reference: format!("participant-set-{idempotency_key}"),
+                acknowledgement_reference,
+                idempotency_key,
+            };
+            let side_effects_before = side_effect_counts(&client).await;
+
+            let response = get_http(
+                &app,
+                &availability_path(&context.promise_reference, &context.realm_id),
+                Some(involved.token.as_str()),
+            )
+            .await;
+
+            assert_unavailable_response(&response, &context);
+            assert_eq!(
+                side_effect_counts(&client).await,
+                side_effects_before,
+                "participant-safe display availability must be side-effect free for {case_label}",
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn narrow_api_hides_writer_truth_contradictions_without_reason_leakage() {
+    let (_test_state, app, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let involved = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-contradiction",
+        "promise-completion-narrow-api-contradiction",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-contradiction-counterparty",
+        "promise-completion-narrow-api-contradiction-counterparty",
+    )
+    .await;
+
+    for state in [
+        PromiseCompletionStateClass::CompletionRejected,
+        PromiseCompletionStateClass::CompletionExpired,
+        PromiseCompletionStateClass::CompletionCorrectedOrSuperseded,
+    ] {
+        let state_name = state.as_str();
+        let idempotency_key =
+            unique_idempotency_key(&format!("participant-display-narrow-api-{state_name}"));
+        let promise_case =
+            create_promise_intent(&app, &involved, &counterparty, &idempotency_key).await;
+        let acknowledgement_reference = format!("ordinary-acknowledgement-{idempotency_key}");
+        let prior = record_prior_pending_mutual_acknowledgement(
+            &store,
+            &idempotency_key,
+            &acknowledgement_reference,
+            &promise_case.promise_reference,
+            &promise_case.realm_id,
+        )
+        .await;
+        let accepted = store
+            .record_mutual_acknowledgement_accepted_transition(transition_input(
+                accepted_transition_fact(
+                    &idempotency_key,
+                    &prior.writer_fact_id,
+                    &acknowledgement_reference,
+                    &promise_case.promise_reference,
+                    &promise_case.realm_id,
+                ),
+            ))
+            .await
+            .expect("valid accepted transition should persist");
+        let mut non_accepted = accepted_transition_fact(
+            &idempotency_key,
+            &prior.writer_fact_id,
+            &acknowledgement_reference,
+            &promise_case.promise_reference,
+            &promise_case.realm_id,
+        );
+        non_accepted.completion_state_class = state;
+        non_accepted.completed_reference_eligible = false;
+        non_accepted.fact_idempotency_key = Some(format!("{state_name}-{idempotency_key}"));
+        non_accepted.reason_code_class = Some(format!("{state_name}-{idempotency_key}"));
+        let non_accepted = record_writer_fact(&store, non_accepted).await;
+        let context = ExposureContext {
+            accepted_writer_fact_id: accepted.writer_fact_id.clone(),
+            prior_writer_fact_id: prior.writer_fact_id.clone(),
+            promise_reference: accepted.promise_reference.clone(),
+            realm_id: accepted.realm_id.clone(),
+            promise_terms_reference: format!("promise-terms-{idempotency_key}"),
+            participant_set_reference: format!("participant-set-{idempotency_key}"),
+            acknowledgement_reference: acknowledgement_reference.clone(),
+            idempotency_key: idempotency_key.clone(),
+        };
+        let non_accepted_context = ExposureContext {
+            accepted_writer_fact_id: non_accepted.writer_fact_id.clone(),
+            prior_writer_fact_id: prior.writer_fact_id.clone(),
+            promise_reference: non_accepted.promise_reference.clone(),
+            realm_id: non_accepted.realm_id.clone(),
+            promise_terms_reference: format!("promise-terms-{idempotency_key}"),
+            participant_set_reference: format!("participant-set-{idempotency_key}"),
+            acknowledgement_reference,
+            idempotency_key,
+        };
+        let side_effects_before = side_effect_counts(&client).await;
+
+        let response = get_http(
+            &app,
+            &availability_path(&context.promise_reference, &context.realm_id),
+            Some(involved.token.as_str()),
+        )
+        .await;
+
+        assert_unavailable_response(&response, &context);
+        assert_no_completion_exposure(&response, &non_accepted_context);
+        assert_eq!(
+            side_effect_counts(&client).await,
+            side_effects_before,
+            "participant-safe display availability must be side-effect free for {state_name}",
+        );
+    }
+}
+
+#[tokio::test]
+async fn narrow_api_hides_prior_linked_correction_drift() {
+    let (_test_state, app, config, client) = test_context().await;
+    let store = PromiseCompletionWriterFactStore::connect(&config)
+        .await
+        .expect("store should connect");
+    let involved = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-linked-correction",
+        "promise-completion-narrow-api-linked-correction",
+    )
+    .await;
+    let counterparty = sign_in(
+        &app,
+        "pi-user-promise-completion-narrow-api-linked-correction-counterparty",
+        "promise-completion-narrow-api-linked-correction-counterparty",
+    )
+    .await;
+    let idempotency_key =
+        unique_idempotency_key("participant-display-narrow-api-linked-correction");
+    let promise_case =
+        create_promise_intent(&app, &involved, &counterparty, &idempotency_key).await;
+    let acknowledgement_reference = format!("ordinary-acknowledgement-{idempotency_key}");
+    let prior = record_prior_pending_mutual_acknowledgement(
+        &store,
+        &idempotency_key,
+        &acknowledgement_reference,
+        &promise_case.promise_reference,
+        &promise_case.realm_id,
+    )
+    .await;
+    let accepted = store
+        .record_mutual_acknowledgement_accepted_transition(transition_input(
+            accepted_transition_fact(
+                &idempotency_key,
+                &prior.writer_fact_id,
+                &acknowledgement_reference,
+                &promise_case.promise_reference,
+                &promise_case.realm_id,
+            ),
+        ))
+        .await
+        .expect("valid accepted transition should persist");
+    let mut correction = accepted_transition_fact(
+        &idempotency_key,
+        &accepted.writer_fact_id,
+        &acknowledgement_reference,
+        &promise_case.promise_reference,
+        &promise_case.realm_id,
+    );
+    correction.fact_family = PromiseCompletionWriterFactFamily::CorrectionOrSupersession;
+    correction.previous_completion_state_class =
+        Some(PromiseCompletionStateClass::CompletionAccepted);
+    correction.completion_state_class =
+        PromiseCompletionStateClass::CompletionCorrectedOrSuperseded;
+    correction.completed_reference_eligible = false;
+    correction.promise_terms_reference = Some(format!("drifted-promise-terms-{idempotency_key}"));
+    correction.participant_set_reference =
+        Some(format!("drifted-participant-set-{idempotency_key}"));
+    correction.policy_version = Some(2);
+    correction.fact_idempotency_key =
+        Some(format!("prior-linked-correction-drift-{idempotency_key}"));
+    correction.reason_code_class = Some(format!("prior-linked-correction-drift-{idempotency_key}"));
+    correction.correction_or_supersession_reference = Some(format!(
+        "prior-linked-correction-reference-{idempotency_key}"
+    ));
+    let correction = record_writer_fact(&store, correction).await;
+    let context = ExposureContext {
+        accepted_writer_fact_id: accepted.writer_fact_id.clone(),
+        prior_writer_fact_id: prior.writer_fact_id.clone(),
+        promise_reference: accepted.promise_reference.clone(),
+        realm_id: accepted.realm_id.clone(),
+        promise_terms_reference: format!("promise-terms-{idempotency_key}"),
+        participant_set_reference: format!("participant-set-{idempotency_key}"),
+        acknowledgement_reference: acknowledgement_reference.clone(),
+        idempotency_key: idempotency_key.clone(),
+    };
+    let correction_context = ExposureContext {
+        accepted_writer_fact_id: correction.writer_fact_id.clone(),
+        prior_writer_fact_id: accepted.writer_fact_id.clone(),
+        promise_reference: correction.promise_reference.clone(),
+        realm_id: correction.realm_id.clone(),
+        promise_terms_reference: format!("drifted-promise-terms-{idempotency_key}"),
+        participant_set_reference: format!("drifted-participant-set-{idempotency_key}"),
+        acknowledgement_reference,
+        idempotency_key,
+    };
+    let side_effects_before = side_effect_counts(&client).await;
+
+    let response = get_http(
+        &app,
+        &availability_path(&context.promise_reference, &context.realm_id),
+        Some(involved.token.as_str()),
+    )
+    .await;
+
+    assert_unavailable_response(&response, &context);
+    assert_no_completion_exposure(&response, &correction_context);
+    assert_eq!(side_effect_counts(&client).await, side_effects_before);
+}
+
+#[tokio::test]
 async fn narrow_api_fails_closed_when_competing_snapshot_is_suppressed() {
     let (_test_state, app, config, client) = test_context().await;
     let store = PromiseCompletionWriterFactStore::connect(&config)
@@ -484,6 +783,24 @@ async fn record_prior_pending_mutual_acknowledgement(
     promise_reference: &str,
     realm_id: &str,
 ) -> musubi_backend::services::promise_completion::PromiseCompletionWriterFactSnapshot {
+    record_writer_fact(
+        store,
+        prior_pending_mutual_acknowledgement_fact(
+            idempotency_key,
+            acknowledgement_reference,
+            promise_reference,
+            realm_id,
+        ),
+    )
+    .await
+}
+
+fn prior_pending_mutual_acknowledgement_fact(
+    idempotency_key: &str,
+    acknowledgement_reference: &str,
+    promise_reference: &str,
+    realm_id: &str,
+) -> ProposedPromiseCompletionWriterFact {
     let mut fact = base_fact(
         idempotency_key,
         acknowledgement_reference,
@@ -497,7 +814,7 @@ async fn record_prior_pending_mutual_acknowledgement(
     fact.completed_reference_eligible = false;
     fact.fact_idempotency_key = Some(format!("prior-{idempotency_key}"));
     fact.reason_code_class = Some(format!("completion-pending-mutual-ack-{idempotency_key}"));
-    record_writer_fact(store, fact).await
+    fact
 }
 
 fn accepted_transition_fact(
@@ -524,6 +841,50 @@ fn accepted_transition_fact(
     ));
     fact.reason_code_class = Some(format!("completion-accepted-{idempotency_key}"));
     fact
+}
+
+fn apply_suppressed_boundary_reference(
+    fact: &mut ProposedPromiseCompletionWriterFact,
+    boundary_field: &str,
+    idempotency_key: &str,
+) {
+    let value = match boundary_field {
+        "block_withdrawal_state_reference" => {
+            format!("block-withdrawal-active-{idempotency_key}")
+        }
+        "age_assurance_state_reference" => format!("age-assurance-conflict-{idempotency_key}"),
+        "legal_hold_intersection_reference" => format!("legal-hold-active-{idempotency_key}"),
+        "critical_harm_case_reference" => format!("critical-harm-open-{idempotency_key}"),
+        "account_lifecycle_reference" => format!("account-lifecycle-held-{idempotency_key}"),
+        "anti_abuse_continuity_reference" => format!("anti-abuse-interrupted-{idempotency_key}"),
+        "safety_case_reference" => format!("safety-case-open-{idempotency_key}"),
+        _ => panic!("unsupported boundary field {boundary_field}"),
+    };
+
+    match boundary_field {
+        "block_withdrawal_state_reference" => {
+            fact.block_withdrawal_state_reference = Some(value);
+        }
+        "age_assurance_state_reference" => {
+            fact.age_assurance_state_reference = Some(value);
+        }
+        "legal_hold_intersection_reference" => {
+            fact.legal_hold_intersection_reference = Some(value);
+        }
+        "critical_harm_case_reference" => {
+            fact.critical_harm_case_reference = Some(value);
+        }
+        "account_lifecycle_reference" => {
+            fact.account_lifecycle_reference = Some(value);
+        }
+        "anti_abuse_continuity_reference" => {
+            fact.anti_abuse_continuity_reference = Some(value);
+        }
+        "safety_case_reference" => {
+            fact.safety_case_reference = Some(value);
+        }
+        _ => panic!("unsupported boundary field {boundary_field}"),
+    }
 }
 
 fn base_fact(
