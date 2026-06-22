@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `5d2d676`
+Status: Draft; aligned to accepted foundation commit `b0a7bb3`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,14 +26,17 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `5d2d676de4c7556469b111d5754ec3e1b5775e0e`
-- Foundation commit title: `Merge pull request #524 from mt4110/feat/promise-completion-display-post-hardening-handoff-route`
-- Foundation PR title: `docs: select Promise completion display handoff route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/524`
-- Date pinned: `2026-06-21`
+- Foundation commit SHA: `b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
+- Foundation commit title: `Merge pull request #565 from mt4110/feat/pi-sdk-payment-adapter-handoff-route`
+- Foundation PR title: `docs: select pi sdk payment adapter handoff route`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/565`
+- Date pinned: `2026-06-23`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/5d2d676de4c7556469b111d5754ec3e1b5775e0e`
-- Previous pinned reference: `ab401c4` / `Merge pull request #504 from mt4110/feat/promise-completion-display-ui-non-exposure-test-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
+- Previous pinned reference: `5d2d676` / `Merge pull request #524 from mt4110/feat/promise-completion-display-post-hardening-handoff-route`
+- Post-C2 Pi SDK payment adapter handoff packet source: `f969c1e` / `Merge pull request #563 from mt4110/feat/pi-sdk-payment-adapter-handoff-packet`
+- Post-C2 Pi SDK payment adapter handoff sufficiency decision source: `d3d15cc` / `Merge pull request #564 from mt4110/feat/pi-sdk-payment-adapter-handoff-sufficiency`
+- Post-C2 Pi SDK payment adapter one-use downstream handoff route source: `b0a7bb3` / `Merge pull request #565 from mt4110/feat/pi-sdk-payment-adapter-handoff-route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -524,6 +527,15 @@ Current Promise completion display chain:
 - `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_non_exposure_verification_packet_sufficiency_decision.md`
 - `docs/readiness/promise_completion_participant_safe_display_post_narrow_ui_non_exposure_verification_route_selection.md`
 
+Current settlement adapter boundary chain:
+
+- `docs/readiness/post_c2_pi_first_settlement_interoperability_boundary_decision_packet.md`
+- `docs/readiness/post_c2_pi_first_settlement_interoperability_boundary_packet_sufficiency_decision.md`
+- `docs/readiness/post_c2_pi_first_settlement_interoperability_boundary_packet_sufficiency_route_selection.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_decision_packet.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_packet_sufficiency_decision.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_packet_sufficiency_route_selection.md`
+
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
 204. `docs/operations/runalways_readiness_orchestrator_design.md`
@@ -739,8 +751,8 @@ Foundation PR #500 found the runway sufficient for later route selection only.
 Foundation PR #501 selected a foundation-only post-narrow-UI non-exposure verification packet route.
 Foundation PR #502 prepared that packet.
 Foundation PR #503 found the packet sufficient for later route selection only.
-Foundation PR #504 provides the current one-use downstream test-only non-exposure verification authority for one later implementation-repo PR only.
-This implementation-repo PR consumes the PR #504 allowance.
+Foundation PR #504 provided the consumed one-use downstream test-only non-exposure verification authority for one later implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #178 and closed out by later accepted display hardening foundation records.
 The PR #495 allowance authorized only:
 
 - `docs/foundation_lock.md`
@@ -763,6 +775,25 @@ The PR #504 allowance authorizes only:
 It authorizes only test-only verification after the consumed narrow UI handoff.
 It does not authorize production behavior, backend routes, API routes, API fields, database schema, migrations, projection refresh, writer fact creation, projection row creation, providers, outbox, inbox, worker, queue, adapter, analytics, observability, external side-effect behavior, Social Trust mutation, Relationship Depth mutation, settlement movement, room progression, contact unlock, discovery effects, recommendation effects, public completed-reference display, badge, score, status marker, public proof, trust label, depth label, settlement label, accusation label, raw Personal Data exposure, raw evidence exposure, provider payload exposure, proof payload exposure, operator-note exposure, review-narrative exposure, Legal Hold material exposure, Critical Harm material exposure, child-safety material exposure, sensitive-trait exposure, abuse-marker visibility, internal safety classification visibility, suppression-reason exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broad `pi-musubi-core` changes.
 After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the post-narrow-UI non-exposure verification before any later Promise completion display, public display, trust, depth, settlement, API, UI, provider, outbox, inbox, worker, governed review, correction, or broader core route may inherit from it.
+No remaining work may inherit permission from foundation PR #504 or implementation PR #178.
+
+Foundation PR #560 prepared the Pi-first settlement interoperability boundary packet.
+Foundation PR #561 found that packet sufficient for later route selection only.
+Foundation PR #562 selected the Pi SDK payment adapter handoff packet route only.
+Foundation PR #563 prepared the Pi SDK payment adapter handoff packet.
+Foundation PR #564 found that packet sufficient for later route selection only.
+Foundation PR #565 provides the current one-use downstream Pi SDK payment adapter implementation-repo handoff authority for one later implementation-repo PR only.
+This implementation-repo PR consumes the PR #565 allowance.
+The PR #565 allowance authorizes only:
+
+- `docs/foundation_lock.md`
+- the smallest existing backend settlement / payment adapter boundary files needed to represent the local adapter contract
+- the smallest deterministic verification files needed to prove the adapter boundary preserves receipt / evidence-only meaning, idempotency, no-float-money, no-provider-await-inside-authoritative-transaction, and no business-truth-from-provider behavior
+
+It authorizes only a narrow local Pi SDK payment adapter boundary as a payment receipt / provider evidence adapter candidate.
+It permits implementation or verification only inside the same one-use downstream PR.
+It does not authorize provider production integration, real Pi SDK network I/O, DDL, migrations, fallback provider comparison, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, Pi smart contracts, blockchain anchoring, provider callback or SDK response as business truth, provider timestamp as business time, transaction hash as settlement finality, settlement value movement, release, refund, burn, treasury allocation, compensation, ledger postings from provider evidence, public API, API routes, public API fields, mobile UI, projection refresh, runtime orchestration workers, retry workers, queues, outbox or inbox persistence changes, retention changes, archive changes, pruning changes, deletion changes, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, legal-process runtime behavior, Social Trust mutation, Relationship Depth mutation, room progression, contact unlock, discovery priority, recommendation priority, payment-based Romantic Advantage, payment-based direct-message unlock, raw Personal Data exposure, raw evidence exposure, new durable product vocabulary, or broad `pi-musubi-core` changes.
+After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the consumed Pi SDK payment adapter boundary handoff before any later provider production integration, runtime adapter implementation, DDL, migrations, API, UI, orchestration, queue, outbox, inbox, fallback provider, chain selection, Pi smart contract readiness, settlement movement, treasury, compensation, Social Trust, Relationship Depth, room, discovery, recommendation, or broader core route may inherit from it.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -1220,11 +1251,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `ab401c48b16b7178eb05486b2351f8a22ed563d2` -> `5d2d676de4c7556469b111d5754ec3e1b5775e0e`
-- Reason: Align implementation-repo lock with the accepted Promise completion participant-safe display post-display-hardening downstream handoff route selection after foundation PR #524 (`docs: select Promise completion display handoff route`) before consuming its one-use downstream handoff allowance.
-- New required docs: Promise completion participant-safe display post-narrow-UI non-exposure closeout ledger, closeout sufficiency decision, closeout route selection, closeout readiness runway, closeout runway sufficiency decision, closeout runway route selection, post-internal-stop reopen route selection, post-internal-stop display hardening packet, display hardening packet sufficiency decision, display hardening route selection, post-display-hardening internal-stop reopen route selection, post-display-hardening readiness runway, runway sufficiency decision, runway route selection, consolidation packet, consolidation packet sufficiency decision, consolidation route selection, downstream handoff boundary packet, downstream handoff boundary packet sufficiency decision, and downstream handoff route selection.
+- Updated from foundation SHA: `5d2d676de4c7556469b111d5754ec3e1b5775e0e` -> `b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
+- Reason: Align implementation-repo lock with the accepted Pi SDK payment adapter one-use downstream handoff route selection after foundation PR #565 (`docs: select pi sdk payment adapter handoff route`) before consuming its one-use downstream handoff allowance.
+- New required docs: Pi-first settlement interoperability boundary packet, boundary sufficiency decision, boundary route selection, Pi SDK payment adapter handoff packet, handoff packet sufficiency decision, and handoff packet sufficiency route selection.
 - Removed docs: None.
-- Implementation impact: This update pins the accepted foundation route that permits one later downstream PR inside the recorded post-display-hardening participant-safe display boundary envelope. This lock pin alone does not implement boundary hardening, does not add runtime behavior, and does not authorize a second downstream PR. The later downstream work remains limited to the existing participant-safe display boundary plus co-located deterministic verification. Public completed-reference display, public profile/count/badge/score/status/proof/trust/depth/settlement/accusation display, public API, API expansion, native iOS or Android implementation, additional UI implementation, DDL, migrations, durable projection schema, projection refresh, writer fact creation, state transition creation, source-route evaluation from raw user input, participant acknowledgement collection, governed review runtime, correction or supersession runtime, proof runtime, proof eligibility runtime, provider calls, outbox, inbox, worker behavior, analytics, observability, Social Trust mutation, Relationship Depth mutation, settlement movement, room/contact behavior, discovery, recommendation, raw Personal Data / raw evidence / provider payload / proof payload / operator-note / review-narrative / Legal Hold / Critical Harm / child-safety / sensitive-trait / abuse-marker / suppression-reason exposure, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update pins the accepted foundation route that permits one later downstream PR inside the recorded Pi SDK payment adapter boundary envelope. This lock pin plus the later downstream work remains limited to the local adapter-boundary contract and deterministic verification. Provider production integration, real Pi SDK network I/O, DDL, migrations, public API, mobile UI, queue / worker / outbox / inbox persistence changes, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, blockchain anchoring, provider evidence as business truth, transaction hash as settlement finality, settlement value movement, ledger postings from provider evidence, Social Trust mutation, Relationship Depth mutation, room progression, discovery, recommendation, paid romantic advantage, payment-based direct-message unlock, raw Personal Data exposure, raw evidence exposure, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
 - Review completed by: Masaki Takemura
 
 ---
