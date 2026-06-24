@@ -1,6 +1,6 @@
 # Foundation Lock
 
-Status: Draft; aligned to accepted foundation commit `b0a7bb3`
+Status: Draft; aligned to accepted foundation commit `ef49304`
 Applies to: `mt4110/pi-musubi-core`
 Purpose: Pin the constitutional and architectural source of truth that this implementation repository must follow.
 
@@ -26,17 +26,25 @@ Upstream repository:
 Pinned reference for implementation work:
 
 - Foundation reference type: `commit`
-- Foundation commit SHA: `b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
-- Foundation commit title: `Merge pull request #565 from mt4110/feat/pi-sdk-payment-adapter-handoff-route`
-- Foundation PR title: `docs: select pi sdk payment adapter handoff route`
-- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/565`
-- Date pinned: `2026-06-23`
+- Foundation commit SHA: `ef49304d43caf61049e50763185f920316d55ec8`
+- Foundation commit title: `docs: audit foundation core lock divergence`
+- Foundation PR title: `docs: audit foundation core lock divergence`
+- Foundation PR URL: `https://github.com/mt4110/musubi-foundation/pull/643`
+- Date pinned: `2026-06-25`
 - Pinned by: `Masaki Takemura`
-- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
-- Previous pinned reference: `5d2d676` / `Merge pull request #524 from mt4110/feat/promise-completion-display-post-hardening-handoff-route`
+- Pinned commit URL: `https://github.com/mt4110/musubi-foundation/commit/ef49304d43caf61049e50763185f920316d55ec8`
+- Previous pinned reference: `b0a7bb3` / `Merge pull request #565 from mt4110/feat/pi-sdk-payment-adapter-handoff-route`
 - Post-C2 Pi SDK payment adapter handoff packet source: `f969c1e` / `Merge pull request #563 from mt4110/feat/pi-sdk-payment-adapter-handoff-packet`
 - Post-C2 Pi SDK payment adapter handoff sufficiency decision source: `d3d15cc` / `Merge pull request #564 from mt4110/feat/pi-sdk-payment-adapter-handoff-sufficiency`
 - Post-C2 Pi SDK payment adapter one-use downstream handoff route source: `b0a7bb3` / `Merge pull request #565 from mt4110/feat/pi-sdk-payment-adapter-handoff-route`
+- Post-C2 Pi SDK payment adapter boundary implementation closeout source: `2b863dd` / `docs: close pi sdk payment adapter boundary handoff`
+- Post-C2 Pi SDK payment adapter boundary closeout sufficiency source: `625e188` / `docs: evaluate pi sdk payment adapter closeout sufficiency`
+- Post-C2 Pi SDK payment adapter boundary retained route source: `78a34fe` / `docs: select pi sdk adapter closeout route`
+- Post-C2 delegated next-ten-after-post-next-fifty map source: `0d4a0c6` / `docs: map post-next-fifty next ten candidates`
+- Post-C2 post-next-fifty route necessity review source: `9d3af03` / `docs: review post-next-fifty route necessity`
+- Post-C2 active readiness route audit source: `0ed0105` / `docs: audit active readiness routes`
+- Post-C2 foundation-to-core lock divergence audit source: `ef49304` / `docs: audit foundation core lock divergence`
+- Post-C2 foundation-to-core lock alignment route allowance source: `f17eab2` / `docs: select foundation core lock alignment route`
 - Post-C2 evidence source: `cfdba28` / `Merge pull request #114 from mt4110/feat/post-c2-runtime-handoff-evidence-package`
 - Alignment allowance source: `69b7aa4` / `Merge pull request #116 from mt4110/feat/evaluate-post-c2-runtime-handoff-gate`
 - Post-C2 implementation handoff evidence source: `ef23e88` / `Merge pull request #122 from mt4110/feat/post-c2-implementation-handoff-evidence-package`
@@ -535,6 +543,16 @@ Current settlement adapter boundary chain:
 - `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_decision_packet.md`
 - `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_packet_sufficiency_decision.md`
 - `docs/readiness/post_c2_pi_sdk_payment_adapter_handoff_packet_sufficiency_route_selection.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_boundary_implementation_closeout_ledger.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_boundary_closeout_sufficiency_decision.md`
+- `docs/readiness/post_c2_pi_sdk_payment_adapter_boundary_closeout_sufficiency_route_selection.md`
+
+Current post-next-fifty and lock divergence closure chain:
+
+- `docs/readiness/post_c2_delegated_docs_only_next_ten_after_post_next_fifty_candidate_inventory.md`
+- `docs/readiness/post_c2_delegated_docs_only_post_next_fifty_route_selection_necessity_review.md`
+- `docs/readiness/post_c2_delegated_docs_only_active_readiness_route_audit.md`
+- `docs/readiness/post_c2_delegated_docs_only_foundation_to_core_lock_divergence_read_only_audit.md`
 
 ### Operations layer
 203. `docs/operations/readiness_routine.md`
@@ -782,18 +800,24 @@ Foundation PR #561 found that packet sufficient for later route selection only.
 Foundation PR #562 selected the Pi SDK payment adapter handoff packet route only.
 Foundation PR #563 prepared the Pi SDK payment adapter handoff packet.
 Foundation PR #564 found that packet sufficient for later route selection only.
-Foundation PR #565 provides the current one-use downstream Pi SDK payment adapter implementation-repo handoff authority for one later implementation-repo PR only.
-This implementation-repo PR consumes the PR #565 allowance.
-The PR #565 allowance authorizes only:
+Foundation PR #565 provided the consumed one-use downstream Pi SDK payment adapter implementation-repo handoff authority for one implementation-repo PR only.
+That allowance was consumed by `mt4110/pi-musubi-core` PR #180.
+The consumed PR #565 allowance authorized only:
 
 - `docs/foundation_lock.md`
 - the smallest existing backend settlement / payment adapter boundary files needed to represent the local adapter contract
 - the smallest deterministic verification files needed to prove the adapter boundary preserves receipt / evidence-only meaning, idempotency, no-float-money, no-provider-await-inside-authoritative-transaction, and no business-truth-from-provider behavior
 
-It authorizes only a narrow local Pi SDK payment adapter boundary as a payment receipt / provider evidence adapter candidate.
-It permits implementation or verification only inside the same one-use downstream PR.
-It does not authorize provider production integration, real Pi SDK network I/O, DDL, migrations, fallback provider comparison, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, Pi smart contracts, blockchain anchoring, provider callback or SDK response as business truth, provider timestamp as business time, transaction hash as settlement finality, settlement value movement, release, refund, burn, treasury allocation, compensation, ledger postings from provider evidence, public API, API routes, public API fields, mobile UI, projection refresh, runtime orchestration workers, retry workers, queues, outbox or inbox persistence changes, retention changes, archive changes, pruning changes, deletion changes, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, legal-process runtime behavior, Social Trust mutation, Relationship Depth mutation, room progression, contact unlock, discovery priority, recommendation priority, payment-based Romantic Advantage, payment-based direct-message unlock, raw Personal Data exposure, raw evidence exposure, new durable product vocabulary, or broad `pi-musubi-core` changes.
-After this downstream PR is merged, closed without merge, or replaced by a different accepted foundation decision, foundation must receive a closeout ledger for the consumed Pi SDK payment adapter boundary handoff before any later provider production integration, runtime adapter implementation, DDL, migrations, API, UI, orchestration, queue, outbox, inbox, fallback provider, chain selection, Pi smart contract readiness, settlement movement, treasury, compensation, Social Trust, Relationship Depth, room, discovery, recommendation, or broader core route may inherit from it.
+It authorized only a narrow local Pi SDK payment adapter boundary as a payment receipt / provider evidence adapter candidate.
+It permitted implementation or verification only inside the same one-use downstream PR.
+It did not authorize provider production integration, real Pi SDK network I/O, DDL, migrations, fallback provider comparison, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, Pi smart contracts, blockchain anchoring, provider callback or SDK response as business truth, provider timestamp as business time, transaction hash as settlement finality, settlement value movement, release, refund, burn, treasury allocation, compensation, ledger postings from provider evidence, public API, API routes, public API fields, mobile UI, projection refresh, runtime orchestration workers, retry workers, queues, outbox or inbox persistence changes, retention changes, archive changes, pruning changes, deletion changes, Legal Hold runtime behavior, evidence access runtime behavior, key lifecycle behavior, legal-process runtime behavior, Social Trust mutation, Relationship Depth mutation, room progression, contact unlock, discovery priority, recommendation priority, payment-based Romantic Advantage, payment-based direct-message unlock, raw Personal Data exposure, raw evidence exposure, new durable product vocabulary, or broad `pi-musubi-core` changes.
+Foundation PR #566 recorded the required closeout for the consumed Pi SDK payment adapter boundary handoff.
+Foundation PR #567 found that closeout sufficient for later route selection only.
+Foundation PR #568 selected the retained/no-op closeout route and returned provider production integration, runtime adapter implementation, DDL, migrations, API, UI, orchestration, queue, outbox, inbox, fallback provider, chain selection, Pi smart contract readiness, settlement movement, treasury, compensation, Social Trust, Relationship Depth, room, discovery, recommendation, and broader core routes to NO-GO.
+No remaining work may inherit permission from foundation PR #565 or implementation PR #180.
+Foundation PR #643 recorded the read-only foundation-to-core lock divergence audit and found lock lag but no conflict in that audit scope.
+Foundation PR #645 selected one-use closeout-only foundation lock alignment limited to this file, `docs/foundation_lock.md`, and this update consumes that allowance.
+This update does not authorize runtime implementation, runtime tests, DDL, migrations, implementation handoff, runtime handoff, gate invocation, backend code, public API changes, mobile UI, provider production integration, real provider network I/O, fallback provider comparison, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, settlement movement, treasury behavior, compensation behavior, Social Trust mutation, Relationship Depth mutation, room progression, discovery, recommendation, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broader `pi-musubi-core` changes.
 
 The C2 and post-C2 readiness and closeout chain is accepted for docs-only foundation semantic scope:
 
@@ -1251,11 +1275,11 @@ When updating:
 - Review completed by:
 
 ### Current drift note
-- Updated from foundation SHA: `5d2d676de4c7556469b111d5754ec3e1b5775e0e` -> `b0a7bb34bf4124a211afadd6610f8a65d878dd6d`
-- Reason: Align implementation-repo lock with the accepted Pi SDK payment adapter one-use downstream handoff route selection after foundation PR #565 (`docs: select pi sdk payment adapter handoff route`) before consuming its one-use downstream handoff allowance.
-- New required docs: Pi-first settlement interoperability boundary packet, boundary sufficiency decision, boundary route selection, Pi SDK payment adapter handoff packet, handoff packet sufficiency decision, and handoff packet sufficiency route selection.
+- Updated from foundation SHA: `b0a7bb34bf4124a211afadd6610f8a65d878dd6d` -> `ef49304d43caf61049e50763185f920316d55ec8`
+- Reason: Align implementation-repo lock with the accepted foundation-to-core lock divergence audit after foundation PR #643 (`docs: audit foundation core lock divergence`) under the one-use closeout-only lock alignment route selected by foundation PR #645 (`docs: select foundation core lock alignment route`).
+- New required docs: Pi SDK payment adapter boundary closeout ledger, closeout sufficiency decision, closeout retained route selection, delegated next-ten-after-post-next-fifty candidate inventory, post-next-fifty route-selection necessity review, active readiness route audit, and foundation-to-core lock divergence read-only audit.
 - Removed docs: None.
-- Implementation impact: This update pins the accepted foundation route that permits one later downstream PR inside the recorded Pi SDK payment adapter boundary envelope. This lock pin plus the later downstream work remains limited to the local adapter-boundary contract and deterministic verification. Provider production integration, real Pi SDK network I/O, DDL, migrations, public API, mobile UI, queue / worker / outbox / inbox persistence changes, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, blockchain anchoring, provider evidence as business truth, transaction hash as settlement finality, settlement value movement, ledger postings from provider evidence, Social Trust mutation, Relationship Depth mutation, room progression, discovery, recommendation, paid romantic advantage, payment-based direct-message unlock, raw Personal Data exposure, raw evidence exposure, new durable product vocabulary, and broader `pi-musubi-core` changes remain NO-GO.
+- Implementation impact: This update is closeout-only / stop-only. It pins the implementation repo to the accepted foundation audit that records known lock lag without conflict, after the PR #565 Pi SDK payment adapter one-use allowance was consumed by `mt4110/pi-musubi-core#180` and closed by foundation PRs #566 through #568. It does not authorize runtime implementation, runtime tests, DDL, migrations, implementation handoff, backend code, public API, mobile UI, provider production integration, real provider network I/O, chain selection, Sui selection, Solana selection, Pi smart contract production readiness, settlement movement, treasury, compensation, Social Trust mutation, Relationship Depth mutation, room progression, discovery, recommendation, paid romantic advantage, payment-based direct-message unlock, new durable product vocabulary, or broader `pi-musubi-core` changes.
 - Review completed by: Masaki Takemura
 
 ---
